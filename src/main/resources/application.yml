@@ -1,0 +1,29 @@
+spring:
+  mvc:
+    async:
+      request-timeout: 95s
+
+server:
+  port: ${PORT:8080}
+  servlet:
+    session:
+      cookie:
+        name: JSESSIONID
+        http-only: true
+        path: /
+
+openai:
+  model: gpt-4.1-mini
+
+app:
+  front-base: ${FRONT_BASE:https://recipfree.com}
+
+naver:
+  client-id: ${NAVER_CLIENT_ID:}
+  client-secret: ${NAVER_CLIENT_SECRET:}
+  redirect-uri: ${NAVER_REDIRECT_URI:https://recipfree.com/api/auth/oauth/naver/callback}
+
+google:
+  client-id: ${GOOGLE_CLIENT_ID:}
+  client-secret: ${GOOGLE_CLIENT_SECRET:}
+  redirect-uri: ${GOOGLE_REDIRECT_URI:https://recipfree.com/api/auth/oauth/google/callback}
