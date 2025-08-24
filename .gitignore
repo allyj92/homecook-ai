@@ -52,4 +52,5 @@ build
 .netlify
 
 
-
+.env.backend
+start-backend.ps1
