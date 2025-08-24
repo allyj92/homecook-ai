@@ -144,12 +144,12 @@ export default function LoginPage() {
           <NaverIcon/>
         </button>
 
-        <button type="button" className="social-btn" title="Google은 준비 중입니다"
+        <button type="button" className="social-btn" title="Google로 시작하기"
                 onClick={()=>socialLogin('google')}>
           <GoogleIcon/>
         </button>
 
-        <button type="button" className="social-btn" title="Facebook은 준비 중입니다"
+        <button type="button" className="social-btn" title="Facebook으로 시작하기"
                 onClick={()=>socialLogin('facebook')}>
           <FacebookIcon/>
         </button>
