@@ -4,13 +4,14 @@ spring:
       request-timeout: 95s
 
 server:
+  forward-headers-strategy: framework   # 프록시 뒤에서 HTTPS/Host 인지
   servlet:
     session:
       cookie:
         name: JSESSIONID
         http-only: true
-        secure: true         # HTTPS면 true
-        same-site: none      # 크로스 사이트 리다이렉트 후에도 쿠키 유지
+        secure: true         # 운영(https)에서는 true
+        same-site: None      # 크로스사이트 리다이렉트/요청에서도 쿠키 전송
         path: /
 
 openai:
@@ -29,7 +30,7 @@ google:
   client-secret: ${GOOGLE_CLIENT_SECRET:}
   redirect-uri: ${GOOGLE_REDIRECT_URI:https://recipfree.com/api/auth/oauth/google/callback}
 
-  kakao:
-    client-id: ${KAKAO_CLIENT_ID:}   # ← 카카오 REST API 키
-    client-secret: ${KAKAO_CLIENT_SECRET:}  # 선택(콘솔에서 Secret 사용 ON했을 때)
-    redirect-uri: ${KAKAO_REDIRECT_URI:https://recipfree.com/api/auth/oauth/kakao/callback}
+kakao:                                  # ✅ 최상위로 이동(google 밖으로)
+  client-id: ${KAKAO_CLIENT_ID:}        # 카카오 REST API 키
+  client-secret: ${KAKAO_CLIENT_SECRET:}# (선택) 콘솔에서 Secret 사용 ON일 때만
+  redirect-uri: ${KAKAO_REDIRECT_URI:https://recipfree.com/api/auth/oauth/kakao/callback}
