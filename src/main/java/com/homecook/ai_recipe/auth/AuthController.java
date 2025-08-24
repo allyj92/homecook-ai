@@ -53,20 +53,25 @@ public class AuthController {
     private final SecureRandom secureRandom = new SecureRandom();
     private final RestTemplate rest = new RestTemplate();
 
-    private static boolean isBlank(String s) {
-        return s == null || s.isBlank();
+    private static boolean isBlank(String s) { return s == null || s.isBlank(); }
+
+    private ResponseEntity<?> jsRedirect(String to) {
+        String html = "<!doctype html>"
+                + "<meta http-equiv='Cache-Control' content='no-store'>"
+                + "<title>Redirecting…</title>"
+                + "<script>location.replace('" + to + "');</script>";
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .contentType(MediaType.TEXT_HTML)
+                .body(html);
     }
 
     // ===================== NAVER =====================
     @GetMapping("/oauth/naver/start")
-    public ResponseEntity<Void> naverStart(HttpSession session) {
+    public ResponseEntity<?> naverStart(HttpSession session) {
         if (isBlank(naverClientId) || isBlank(naverRedirectUri)) {
-            // 환경변수 미주입/오타 시 여기서 차단 (client_id= 비어있는 리다이렉트 방지)
-            return ResponseEntity.status(HttpStatus.FOUND)
-                    .location(URI.create(frontBase + "/#/login-signup?err=naver_config"))
-                    .build();
+            return jsRedirect(frontBase + "/#/login-signup?err=naver_config");
         }
-
         String state = new BigInteger(130, secureRandom).toString(32);
         session.setAttribute("NAVER_OAUTH_STATE", state);
 
@@ -79,23 +84,22 @@ public class AuthController {
                 .encode()
                 .toUriString();
 
-        return ResponseEntity.status(HttpStatus.FOUND)
-                .location(URI.create(authUrl))
-                .build();
+        return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(authUrl)).build();
     }
 
     @GetMapping("/oauth/naver/callback")
-    public ResponseEntity<Void> naverCallback(
-            @RequestParam String code,
-            @RequestParam String state,
+    public ResponseEntity<?> naverCallback(
+            @RequestParam(required = false) String code,
+            @RequestParam(required = false) String state,
+            @RequestParam(required = false) String error,
+            @RequestParam(name = "error_description", required = false) String errorDesc,
             HttpSession session
     ) {
+        if (error != null) return jsRedirect(frontBase + "/#/login-signup?err=naver_" + error);
+        if (isBlank(code) || isBlank(state)) return jsRedirect(frontBase + "/#/login-signup?err=missing_param");
+
         String saved = (String) session.getAttribute("NAVER_OAUTH_STATE");
-        if (saved == null || !saved.equals(state)) {
-            return ResponseEntity.status(HttpStatus.FOUND)
-                    .location(URI.create(frontBase + "/#/login-signup?err=state"))
-                    .build();
-        }
+        if (saved == null || !saved.equals(state)) return jsRedirect(frontBase + "/#/login-signup?err=state");
         session.removeAttribute("NAVER_OAUTH_STATE");
 
         String tokenUrl = UriComponentsBuilder
@@ -109,11 +113,7 @@ public class AuthController {
                 .toUriString();
 
         NaverTokenResponse token = rest.getForObject(tokenUrl, NaverTokenResponse.class);
-        if (token == null || token.access_token() == null) {
-            return ResponseEntity.status(HttpStatus.FOUND)
-                    .location(URI.create(frontBase + "/#/login-signup?err=token"))
-                    .build();
-        }
+        if (token == null || token.access_token() == null) return jsRedirect(frontBase + "/#/login-signup?err=token");
 
         HttpHeaders h = new HttpHeaders();
         h.setBearerAuth(token.access_token());
@@ -123,39 +123,21 @@ public class AuthController {
                 new HttpEntity<>(h),
                 NaverProfileResponse.class
         );
-        NaverProfileResponse.Profile p =
-                (profRes.getBody() != null) ? profRes.getBody().response : null;
+        NaverProfileResponse.Profile p = (profRes.getBody() != null) ? profRes.getBody().response : null;
+        if (p == null) return jsRedirect(frontBase + "/#/login-signup?err=profile");
 
-        if (p == null) {
-            return ResponseEntity.status(HttpStatus.FOUND)
-                    .location(URI.create(frontBase + "/#/login-signup?err=profile"))
-                    .build();
-        }
-
-        SessionUser user = new SessionUser(
-                "naver",
-                p.id,
-                p.email,
-                p.name,
-                p.profile_image
-        );
+        SessionUser user = new SessionUser("naver", p.id, p.email, p.name, p.profile_image);
         session.setAttribute("LOGIN_USER", user);
 
-        String to = frontBase + "/#/auth/callback";
-        return ResponseEntity.status(HttpStatus.FOUND)
-                .location(URI.create(to))
-                .build();
+        return jsRedirect(frontBase + "/#/auth/callback");
     }
 
     // ===================== GOOGLE =====================
     @GetMapping("/oauth/google/start")
-    public ResponseEntity<Void> googleStart(HttpSession session) {
+    public ResponseEntity<?> googleStart(HttpSession session) {
         if (isBlank(googleClientId) || isBlank(googleRedirectUri)) {
-            return ResponseEntity.status(HttpStatus.FOUND)
-                    .location(URI.create(frontBase + "/#/login-signup?err=google_config"))
-                    .build();
+            return jsRedirect(frontBase + "/#/login-signup?err=google_config");
         }
-
         String state = new BigInteger(130, secureRandom).toString(32);
         session.setAttribute("GOOGLE_OAUTH_STATE", state);
 
@@ -166,35 +148,33 @@ public class AuthController {
                 .queryParam("redirect_uri", googleRedirectUri)
                 .queryParam("scope", "openid email profile")
                 .queryParam("include_granted_scopes", "true")
-                // .queryParam("access_type", "offline") // 리프레시 토큰 필요 시 주석 해제
-                // .queryParam("prompt", "consent")      // 강제 동의 갱신 필요 시
+                // .queryParam("access_type", "offline")
+                // .queryParam("prompt", "consent")
                 .queryParam("state", state)
                 .encode()
                 .toUriString();
 
-        return ResponseEntity.status(HttpStatus.FOUND)
-                .location(URI.create(authUrl))
-                .build();
+        return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(authUrl)).build();
     }
 
     @GetMapping("/oauth/google/callback")
-    public ResponseEntity<Void> googleCallback(
-            @RequestParam String code,
-            @RequestParam String state,
+    public ResponseEntity<?> googleCallback(
+            @RequestParam(required = false) String code,
+            @RequestParam(required = false) String state,
+            @RequestParam(required = false) String error,
+            @RequestParam(name = "error_description", required = false) String errorDesc,
             HttpSession session
     ) {
+        if (error != null) return jsRedirect(frontBase + "/#/login-signup?err=google_" + error);
+        if (isBlank(code) || isBlank(state)) return jsRedirect(frontBase + "/#/login-signup?err=missing_param");
+
         String saved = (String) session.getAttribute("GOOGLE_OAUTH_STATE");
-        if (saved == null || !saved.equals(state)) {
-            return ResponseEntity.status(HttpStatus.FOUND)
-                    .location(URI.create(frontBase + "/#/login-signup?err=state"))
-                    .build();
-        }
+        if (saved == null || !saved.equals(state)) return jsRedirect(frontBase + "/#/login-signup?err=state");
         session.removeAttribute("GOOGLE_OAUTH_STATE");
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
-        org.springframework.util.MultiValueMap<String, String> form =
-                new org.springframework.util.LinkedMultiValueMap<>();
+        org.springframework.util.MultiValueMap<String, String> form = new org.springframework.util.LinkedMultiValueMap<>();
         form.add("grant_type", "authorization_code");
         form.add("code", code);
         form.add("client_id", googleClientId);
@@ -208,11 +188,7 @@ public class AuthController {
                 GoogleTokenResponse.class
         );
         GoogleTokenResponse token = tokenRes.getBody();
-        if (token == null || token.access_token() == null) {
-            return ResponseEntity.status(HttpStatus.FOUND)
-                    .location(URI.create(frontBase + "/#/login-signup?err=token"))
-                    .build();
-        }
+        if (token == null || token.access_token() == null) return jsRedirect(frontBase + "/#/login-signup?err=token");
 
         HttpHeaders h2 = new HttpHeaders();
         h2.setBearerAuth(token.access_token());
@@ -223,11 +199,7 @@ public class AuthController {
                 GoogleUserInfo.class
         );
         GoogleUserInfo info = userRes.getBody();
-        if (info == null || info.sub == null) {
-            return ResponseEntity.status(HttpStatus.FOUND)
-                    .location(URI.create(frontBase + "/#/login-signup?err=profile"))
-                    .build();
-        }
+        if (info == null || info.sub == null) return jsRedirect(frontBase + "/#/login-signup?err=profile");
 
         SessionUser user = new SessionUser(
                 "google",
@@ -238,21 +210,15 @@ public class AuthController {
         );
         session.setAttribute("LOGIN_USER", user);
 
-        String to = frontBase + "/#/auth/callback";
-        return ResponseEntity.status(HttpStatus.FOUND)
-                .location(URI.create(to))
-                .build();
+        return jsRedirect(frontBase + "/#/auth/callback");
     }
 
     // ===================== KAKAO =====================
     @GetMapping("/oauth/kakao/start")
-    public ResponseEntity<Void> kakaoStart(HttpSession session) {
+    public ResponseEntity<?> kakaoStart(HttpSession session) {
         if (isBlank(kakaoClientId) || isBlank(kakaoRedirectUri)) {
-            return ResponseEntity.status(HttpStatus.FOUND)
-                    .location(URI.create(frontBase + "/#/login-signup?err=kakao_config"))
-                    .build();
+            return jsRedirect(frontBase + "/#/login-signup?err=kakao_config");
         }
-
         String state = new BigInteger(130, secureRandom).toString(32);
         session.setAttribute("KAKAO_OAUTH_STATE", state);
 
@@ -266,42 +232,30 @@ public class AuthController {
                 .encode()
                 .toUriString();
 
-        return ResponseEntity.status(HttpStatus.FOUND)
-                .location(URI.create(authUrl))
-                .build();
+        return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(authUrl)).build();
     }
 
     @GetMapping("/oauth/kakao/callback")
-    public ResponseEntity<Void> kakaoCallback(
-         @RequestParam(required = false) String code,
-         @RequestParam(required = false) String state,
-         @RequestParam(required = false) String error,
-         @RequestParam(name = "error_description", required = false) String errorDescription,
-         HttpSession session
- ) {
-             // 사용자가 동의 거절 등
-                     if (error != null) {
-                     return ResponseEntity.status(HttpStatus.FOUND)
-                                     .location(URI.create(frontBase + "/#/login-signup?err=kakao_" + error))
-                                     .build();
-                 }
-             // 잘못 접근/쿼리 누락
-                     if (code == null || code.isBlank()) {
-                     return ResponseEntity.status(HttpStatus.FOUND)
-                                     .location(URI.create(frontBase + "/#/login-signup?err=missing_code"))
-                                     .build();
-                 }
+    public ResponseEntity<?> kakaoCallback(
+            @RequestParam(required = false) String code,
+            @RequestParam(required = false) String state,
+            @RequestParam(required = false) String error,
+            @RequestParam(name = "error_description", required = false) String errorDescription,
+            HttpSession session
+    ) {
+        if (error != null) return jsRedirect(frontBase + "/#/login-signup?err=kakao_" + error);
+        if (isBlank(code)) return jsRedirect(frontBase + "/#/login-signup?err=missing_code");
+
+        String saved = (String) session.getAttribute("KAKAO_OAUTH_STATE");
+        if (saved == null || (state != null && !saved.equals(state))) return jsRedirect(frontBase + "/#/login-signup?err=state");
         session.removeAttribute("KAKAO_OAUTH_STATE");
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
-        org.springframework.util.MultiValueMap<String, String> form =
-                new org.springframework.util.LinkedMultiValueMap<>();
+        org.springframework.util.MultiValueMap<String, String> form = new org.springframework.util.LinkedMultiValueMap<>();
         form.add("grant_type", "authorization_code");
         form.add("client_id", kakaoClientId);
-        if (!isBlank(kakaoClientSecret)) {
-            form.add("client_secret", kakaoClientSecret);
-        }
+        if (!isBlank(kakaoClientSecret)) form.add("client_secret", kakaoClientSecret);
         form.add("redirect_uri", kakaoRedirectUri);
         form.add("code", code);
 
@@ -312,11 +266,7 @@ public class AuthController {
                 KakaoTokenResponse.class
         );
         KakaoTokenResponse token = tokenRes.getBody();
-        if (token == null || token.access_token == null) {
-            return ResponseEntity.status(HttpStatus.FOUND)
-                    .location(URI.create(frontBase + "/#/login-signup?err=token"))
-                    .build();
-        }
+        if (token == null || token.access_token == null) return jsRedirect(frontBase + "/#/login-signup?err=token");
 
         HttpHeaders h2 = new HttpHeaders();
         h2.setBearerAuth(token.access_token);
@@ -327,11 +277,7 @@ public class AuthController {
                 KakaoUserResponse.class
         );
         KakaoUserResponse ku = ures.getBody();
-        if (ku == null || ku.id == null) {
-            return ResponseEntity.status(HttpStatus.FOUND)
-                    .location(URI.create(frontBase + "/#/login-signup?err=profile"))
-                    .build();
-        }
+        if (ku == null || ku.id == null) return jsRedirect(frontBase + "/#/login-signup?err=profile");
 
         String email = null, name = null, avatar = null;
         if (ku.kakao_account != null) {
@@ -343,25 +289,15 @@ public class AuthController {
         }
         if (name == null) name = "KakaoUser";
 
-        SessionUser user = new SessionUser(
-                "kakao",
-                String.valueOf(ku.id),
-                email,
-                name,
-                avatar
-        );
+        SessionUser user = new SessionUser("kakao", String.valueOf(ku.id), email, name, avatar);
         session.setAttribute("LOGIN_USER", user);
 
-        String to = frontBase + "/#/auth/callback";
-        return ResponseEntity.status(HttpStatus.FOUND)
-                .location(URI.create(to))
-                .build();
+        return jsRedirect(frontBase + "/#/auth/callback");
     }
 
     // ===================== COMMON =====================
     @GetMapping("/debug/props")
     public Map<String, String> debugProps() {
-        // secret은 표시하지 않음
         return Map.of(
                 "naver.client-id", naverClientId == null ? "" : naverClientId,
                 "naver.redirect-uri", naverRedirectUri == null ? "" : naverRedirectUri,
@@ -399,12 +335,11 @@ public class AuthController {
     public ResponseEntity<?> logout(HttpSession session) {
         try { session.invalidate(); } catch (Exception ignored) {}
 
-        // 운영 배포 기준: secure=true, SameSite=None 유지 (크로스도메인 세션)
         ResponseCookie expired = ResponseCookie.from("JSESSIONID", "")
                 .path("/")
                 .httpOnly(true)
-                .secure(true)
-                .sameSite("None")
+                .secure(true)       // 운영: true
+                .sameSite("None")   // 운영: None
                 .maxAge(0)
                 .build();
 
@@ -427,7 +362,6 @@ public class AuthController {
         public String resultcode;
         public String message;
         public Profile response;
-
         public static class Profile {
             public String id;
             public String email;
@@ -468,7 +402,6 @@ public class AuthController {
     public static class KakaoUserResponse {
         public Long id;
         public KakaoAccount kakao_account;
-
         public static class KakaoAccount {
             public String email;
             public Boolean is_email_valid;
