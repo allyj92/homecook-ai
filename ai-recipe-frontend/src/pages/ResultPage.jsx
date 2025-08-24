@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { requestRecommend, requestRecommendTop } from '../api';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import BottomNav from '../compoments/BottomNav';
-
+// ㅇㄹ
 /* ---------------- Goals 라벨 ---------------- */
 const GOAL_LABELS = {
   low_sodium: '저염',
