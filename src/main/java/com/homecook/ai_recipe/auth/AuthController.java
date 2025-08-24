@@ -304,14 +304,14 @@ public class AuthController {
                 KakaoTokenResponse.class
         );
         KakaoTokenResponse token = tokenRes.getBody();
-        if (token == null || token.access_token() == null) {
+        if (token == null || token.access_token == null) {
             return ResponseEntity.status(HttpStatus.FOUND)
                     .location(URI.create(frontBase + "/#/login-signup?err=token"))
                     .build();
         }
 
         HttpHeaders h2 = new HttpHeaders();
-        h2.setBearerAuth(token.access_token());
+        h2.setBearerAuth(token.access_token);
         ResponseEntity<KakaoUserResponse> ures = rest.exchange(
                 "https://kapi.kakao.com/v2/user/me",
                 HttpMethod.GET,
