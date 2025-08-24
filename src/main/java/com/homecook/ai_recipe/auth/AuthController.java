@@ -1,5 +1,7 @@
 package com.homecook.ai_recipe.auth;
 
+import com.homecook.ai_recipe.dto.FacebookTokenResponse;
+import com.homecook.ai_recipe.dto.FacebookUser;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
@@ -45,6 +47,16 @@ public class AuthController {
 
     @Value("${kakao.redirect-uri:}")
     private String kakaoRedirectUri;
+
+    // ===== FACEBOOK =====
+    @Value("${facebook.client-id:}")
+    private String facebookClientId;
+
+    @Value("${facebook.client-secret:}")
+    private String facebookClientSecret;
+
+    @Value("${facebook.redirect-uri:}")
+    private String facebookRedirectUri;
 
     // FRONT
     @Value("${app.front-base:http://localhost:5173}")
@@ -294,7 +306,113 @@ public class AuthController {
 
         return jsRedirect(frontBase + "/#/auth/callback");
     }
+    // ===== FACEBOOK =====
+    @GetMapping("/oauth/facebook/start")
+    public ResponseEntity<Void> facebookStart(HttpSession session) {
+        if (isBlank(facebookClientId) || isBlank(facebookRedirectUri)) {
+            return ResponseEntity.status(HttpStatus.FOUND)
+                    .location(URI.create(frontBase + "/#/login-signup?err=facebook_config"))
+                    .build();
+        }
 
+        String state = new BigInteger(130, secureRandom).toString(32);
+        session.setAttribute("FACEBOOK_OAUTH_STATE", state);
+
+        String authUrl = UriComponentsBuilder
+                .fromHttpUrl("https://www.facebook.com/v19.0/dialog/oauth")
+                .queryParam("response_type", "code")
+                .queryParam("client_id", facebookClientId)
+                .queryParam("redirect_uri", facebookRedirectUri)
+                .queryParam("state", state)
+                .queryParam("scope", "public_profile,email")
+                .encode()
+                .toUriString();
+
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .location(URI.create(authUrl))
+                .build();
+    }
+
+    @GetMapping("/oauth/facebook/callback")
+    public ResponseEntity<Void> facebookCallback(
+            @RequestParam(required = false) String code,
+            @RequestParam(required = false) String state,
+            @RequestParam(required = false) String error,
+            @RequestParam(name = "error_description", required = false) String errorDescription,
+            HttpSession session
+    ) {
+        if (error != null) {
+            return ResponseEntity.status(HttpStatus.FOUND)
+                    .location(URI.create(frontBase + "/#/login-signup?err=facebook_" + error))
+                    .build();
+        }
+        if (isBlank(code)) {
+            return ResponseEntity.status(HttpStatus.FOUND)
+                    .location(URI.create(frontBase + "/#/login-signup?err=missing_code"))
+                    .build();
+        }
+
+        String saved = (String) session.getAttribute("FACEBOOK_OAUTH_STATE");
+        if (saved == null || (state != null && !saved.equals(state))) {
+            return ResponseEntity.status(HttpStatus.FOUND)
+                    .location(URI.create(frontBase + "/#/login-signup?err=state"))
+                    .build();
+        }
+        session.removeAttribute("FACEBOOK_OAUTH_STATE");
+
+        // 1) code -> access token
+        var tokenUrl = UriComponentsBuilder
+                .fromHttpUrl("https://graph.facebook.com/v19.0/oauth/access_token")
+                .queryParam("client_id", facebookClientId)
+                .queryParam("client_secret", facebookClientSecret)
+                .queryParam("redirect_uri", facebookRedirectUri)
+                .queryParam("code", code)
+                .encode()
+                .toUriString();
+
+        FacebookTokenResponse token = rest.getForObject(tokenUrl, FacebookTokenResponse.class);
+        if (token == null || isBlank(token.access_token)) {
+            return ResponseEntity.status(HttpStatus.FOUND)
+                    .location(URI.create(frontBase + "/#/login-signup?err=token"))
+                    .build();
+        }
+
+        // 2) user profile
+        // access_token은 쿼리파라미터로 전달
+        var meUrl = UriComponentsBuilder
+                .fromHttpUrl("https://graph.facebook.com/v19.0/me")
+                .queryParam("fields", "id,name,email,picture")
+                .queryParam("access_token", token.access_token)
+                .encode()
+                .toUriString();
+
+        FacebookUser me = rest.getForObject(meUrl, FacebookUser.class);
+        if (me == null || isBlank(me.id)) {
+            return ResponseEntity.status(HttpStatus.FOUND)
+                    .location(URI.create(frontBase + "/#/login-signup?err=profile"))
+                    .build();
+        }
+
+        String name = (me.name != null ? me.name : "FacebookUser");
+        String avatar = null;
+        if (me.picture != null && me.picture.data != null) {
+            avatar = me.picture.data.url;
+        }
+
+        SessionUser user = new SessionUser(
+                "facebook",
+                me.id,
+                me.email,   // null일 수 있음
+                name,
+                avatar
+        );
+        session.setAttribute("LOGIN_USER", user);
+
+        String to = frontBase + "/#/auth/callback";
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .location(URI.create(to))
+                .build();
+    }
     // ===================== COMMON =====================
     @GetMapping("/debug/props")
     public Map<String, String> debugProps() {

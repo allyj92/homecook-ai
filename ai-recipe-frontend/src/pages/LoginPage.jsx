@@ -101,7 +101,7 @@ export default function LoginPage() {
   try { localStorage.setItem('postLoginRedirect', backTo); } catch {}
 
   // 지원하는 프로바이더만 허용
-  const supported = ['naver', 'google', 'kakao'];
+  const supported = ['naver', 'google', 'kakao','facebook'];
   if (!supported.includes(provider)) {
     alert('현재는 해당 소셜은 준비 중입니다.');
     return;
