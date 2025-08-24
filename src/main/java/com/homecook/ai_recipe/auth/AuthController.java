@@ -273,16 +273,24 @@ public class AuthController {
 
     @GetMapping("/oauth/kakao/callback")
     public ResponseEntity<Void> kakaoCallback(
-            @RequestParam String code,
-            @RequestParam(required = false) String state,
-            HttpSession session
-    ) {
-        String saved = (String) session.getAttribute("KAKAO_OAUTH_STATE");
-        if (saved == null || (state != null && !saved.equals(state))) {
-            return ResponseEntity.status(HttpStatus.FOUND)
-                    .location(URI.create(frontBase + "/#/login-signup?err=state"))
-                    .build();
-        }
+         @RequestParam(required = false) String code,
+         @RequestParam(required = false) String state,
+         @RequestParam(required = false) String error,
+         @RequestParam(name = "error_description", required = false) String errorDescription,
+         HttpSession session
+ ) {
+             // 사용자가 동의 거절 등
+                     if (error != null) {
+                     return ResponseEntity.status(HttpStatus.FOUND)
+                                     .location(URI.create(frontBase + "/#/login-signup?err=kakao_" + error))
+                                     .build();
+                 }
+             // 잘못 접근/쿼리 누락
+                     if (code == null || code.isBlank()) {
+                     return ResponseEntity.status(HttpStatus.FOUND)
+                                     .location(URI.create(frontBase + "/#/login-signup?err=missing_code"))
+                                     .build();
+                 }
         session.removeAttribute("KAKAO_OAUTH_STATE");
 
         HttpHeaders headers = new HttpHeaders();
