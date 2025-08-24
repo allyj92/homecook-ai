@@ -304,8 +304,7 @@ public class AuthController {
                 KakaoTokenResponse.class
         );
         KakaoTokenResponse token = tokenRes.getBody();
-        if (token == null || token
-                .access_token() == null) {
+        if (token == null || token.access_token() == null) {
             return ResponseEntity.status(HttpStatus.FOUND)
                     .location(URI.create(frontBase + "/#/login-signup?err=token"))
                     .build();
