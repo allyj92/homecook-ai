@@ -1,7 +1,6 @@
 package com.homecook.ai_recipe.auth;
 
-import com.homecook.ai_recipe.dto.FacebookTokenResponse;
-import com.homecook.ai_recipe.dto.FacebookUser;
+import com.homecook.ai_recipe.dto.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
@@ -67,11 +66,12 @@ public class AuthController {
 
     private static boolean isBlank(String s) { return s == null || s.isBlank(); }
 
+    /** 프론트로 JS 리다이렉트 (SPA에서 해시 라우팅 호환 & 캐시 금지) */
     private ResponseEntity<?> jsRedirect(String to) {
         String html = "<!doctype html>"
                 + "<meta http-equiv='Cache-Control' content='no-store'>"
                 + "<title>Redirecting…</title>"
-                + "<script>location.replace('" + to + "');</script>";
+                + "<script>location.replace('" + to.replace("'", "\\'") + "');</script>";
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
                 .contentType(MediaType.TEXT_HTML)
@@ -306,13 +306,12 @@ public class AuthController {
 
         return jsRedirect(frontBase + "/#/auth/callback");
     }
-    // ===== FACEBOOK =====
+
+    // ===================== FACEBOOK =====================
     @GetMapping("/oauth/facebook/start")
-    public ResponseEntity<Void> facebookStart(HttpSession session) {
+    public ResponseEntity<?> facebookStart(HttpSession session) {
         if (isBlank(facebookClientId) || isBlank(facebookRedirectUri)) {
-            return ResponseEntity.status(HttpStatus.FOUND)
-                    .location(URI.create(frontBase + "/#/login-signup?err=facebook_config"))
-                    .build();
+            return jsRedirect(frontBase + "/#/login-signup?err=facebook_config");
         }
 
         String state = new BigInteger(130, secureRandom).toString(32);
@@ -320,99 +319,81 @@ public class AuthController {
 
         String authUrl = UriComponentsBuilder
                 .fromHttpUrl("https://www.facebook.com/v19.0/dialog/oauth")
-                .queryParam("response_type", "code")
                 .queryParam("client_id", facebookClientId)
-                .queryParam("redirect_uri", facebookRedirectUri)
+                .queryParam("redirect_uri", facebookRedirectUri) // 반드시 백엔드 콜백
                 .queryParam("state", state)
-                .queryParam("scope", "public_profile,email")
-                .encode()
-                .toUriString();
+                .queryParam("response_type", "code")
+                .queryParam("scope", "email,public_profile")
+                .encode().toUriString();
 
-        return ResponseEntity.status(HttpStatus.FOUND)
-                .location(URI.create(authUrl))
-                .build();
+        return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(authUrl)).build();
     }
 
     @GetMapping("/oauth/facebook/callback")
-    public ResponseEntity<Void> facebookCallback(
-            @RequestParam(required = false) String code,
-            @RequestParam(required = false) String state,
-            @RequestParam(required = false) String error,
-            @RequestParam(name = "error_description", required = false) String errorDescription,
+    public ResponseEntity<?> facebookCallback(
+            @RequestParam(required=false) String code,
+            @RequestParam(required=false) String state,
+            @RequestParam(required=false, name="error") String error,
+            @RequestParam(required=false, name="error_description") String errorDesc,
             HttpSession session
     ) {
         if (error != null) {
-            return ResponseEntity.status(HttpStatus.FOUND)
-                    .location(URI.create(frontBase + "/#/login-signup?err=facebook_" + error))
-                    .build();
+            return jsRedirect(frontBase + "/#/login-signup?err=facebook_" + error);
         }
         if (isBlank(code)) {
-            return ResponseEntity.status(HttpStatus.FOUND)
-                    .location(URI.create(frontBase + "/#/login-signup?err=missing_code"))
-                    .build();
+            return jsRedirect(frontBase + "/#/login-signup?err=missing_code");
         }
-
         String saved = (String) session.getAttribute("FACEBOOK_OAUTH_STATE");
         if (saved == null || (state != null && !saved.equals(state))) {
-            return ResponseEntity.status(HttpStatus.FOUND)
-                    .location(URI.create(frontBase + "/#/login-signup?err=state"))
-                    .build();
+            return jsRedirect(frontBase + "/#/login-signup?err=state");
         }
         session.removeAttribute("FACEBOOK_OAUTH_STATE");
 
-        // 1) code -> access token
-        var tokenUrl = UriComponentsBuilder
+        // 1) code -> token
+        String tokenUrl = UriComponentsBuilder
                 .fromHttpUrl("https://graph.facebook.com/v19.0/oauth/access_token")
                 .queryParam("client_id", facebookClientId)
-                .queryParam("client_secret", facebookClientSecret)
                 .queryParam("redirect_uri", facebookRedirectUri)
+                .queryParam("client_secret", facebookClientSecret)
                 .queryParam("code", code)
-                .encode()
-                .toUriString();
+                .encode().toUriString();
 
-        FacebookTokenResponse token = rest.getForObject(tokenUrl, FacebookTokenResponse.class);
-        if (token == null || isBlank(token.access_token)) {
-            return ResponseEntity.status(HttpStatus.FOUND)
-                    .location(URI.create(frontBase + "/#/login-signup?err=token"))
-                    .build();
+        ResponseEntity<FacebookTokenResponse> tokenRes =
+                rest.getForEntity(tokenUrl, FacebookTokenResponse.class);
+        FacebookTokenResponse token = tokenRes.getBody();
+        if (token == null || token.access_token == null) {
+            return jsRedirect(frontBase + "/#/login-signup?err=token");
         }
 
-        // 2) user profile
-        // access_token은 쿼리파라미터로 전달
-        var meUrl = UriComponentsBuilder
-                .fromHttpUrl("https://graph.facebook.com/v19.0/me")
-                .queryParam("fields", "id,name,email,picture")
-                .queryParam("access_token", token.access_token)
-                .encode()
-                .toUriString();
-
-        FacebookUser me = rest.getForObject(meUrl, FacebookUser.class);
+        // 2) 사용자 정보 (Bearer 권장)
+        HttpHeaders h = new HttpHeaders();
+        h.setBearerAuth(token.access_token);
+        ResponseEntity<FacebookMe> meRes = rest.exchange(
+                "https://graph.facebook.com/v19.0/me?fields=id,name,email,picture",
+                HttpMethod.GET,
+                new HttpEntity<>(h),
+                FacebookMe.class
+        );
+        FacebookMe me = meRes.getBody();
         if (me == null || isBlank(me.id)) {
-            return ResponseEntity.status(HttpStatus.FOUND)
-                    .location(URI.create(frontBase + "/#/login-signup?err=profile"))
-                    .build();
+            return jsRedirect(frontBase + "/#/login-signup?err=profile");
         }
 
         String name = (me.name != null ? me.name : "FacebookUser");
-        String avatar = null;
-        if (me.picture != null && me.picture.data != null) {
-            avatar = me.picture.data.url;
-        }
+        String avatar = (me.picture != null && me.picture.data != null) ? me.picture.data.url : null;
 
         SessionUser user = new SessionUser(
                 "facebook",
                 me.id,
-                me.email,   // null일 수 있음
+                me.email,   // null 가능(권한 미승인 등)
                 name,
                 avatar
         );
         session.setAttribute("LOGIN_USER", user);
 
-        String to = frontBase + "/#/auth/callback";
-        return ResponseEntity.status(HttpStatus.FOUND)
-                .location(URI.create(to))
-                .build();
+        return jsRedirect(frontBase + "/#/auth/callback");
     }
+
     // ===================== COMMON =====================
     @GetMapping("/debug/props")
     public Map<String, String> debugProps() {
@@ -426,7 +407,6 @@ public class AuthController {
                 "facebook.client-id", facebookClientId == null ? "" : facebookClientId,
                 "facebook.redirect-uri", facebookRedirectUri == null ? "" : facebookRedirectUri,
                 "app.front-base", frontBase == null ? "" : frontBase
-
         );
     }
 
@@ -456,91 +436,16 @@ public class AuthController {
     public ResponseEntity<?> logout(HttpSession session) {
         try { session.invalidate(); } catch (Exception ignored) {}
 
+        // 운영 배포 기준: secure=true, SameSite=None 유지 (크로스도메인 세션)
         ResponseCookie expired = ResponseCookie.from("JSESSIONID", "")
                 .path("/")
                 .httpOnly(true)
-                .secure(true)       // 운영: true
-                .sameSite("None")   // 운영: None
+                .secure(true)
+                .sameSite("None")
                 .maxAge(0)
                 .build();
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, expired.toString())
                 .body(Map.of("ok", true));
-    }
-
-    // ===== DTOs =====
-    public record NaverTokenResponse(
-            String access_token,
-            String refresh_token,
-            String token_type,
-            String expires_in,
-            String error,
-            String error_description
-    ) {}
-
-    public static class NaverProfileResponse {
-        public String resultcode;
-        public String message;
-        public Profile response;
-        public static class Profile {
-            public String id;
-            public String email;
-            public String name;
-            public String profile_image;
-        }
-    }
-
-    public record GoogleTokenResponse(
-            String access_token,
-            String expires_in,
-            String refresh_token,
-            String scope,
-            String token_type,
-            String id_token
-    ) {}
-
-    public static class GoogleUserInfo {
-        public String sub;
-        public String email;
-        public Boolean email_verified;
-        public String name;
-        public String given_name;
-        public String family_name;
-        public String picture;
-        public String locale;
-    }
-
-    public static class KakaoTokenResponse {
-        public String access_token;
-        public String token_type;
-        public Integer expires_in;
-        public String refresh_token;
-        public Integer refresh_token_expires_in;
-        public String scope;
-    }
-
-    public static class KakaoUserResponse {
-        public Long id;
-        public KakaoAccount kakao_account;
-        public static class KakaoAccount {
-            public String email;
-            public Boolean is_email_valid;
-            public Boolean is_email_verified;
-            public KakaoProfile profile;
-        }
-        public static class KakaoProfile {
-            public String nickname;
-            public String thumbnail_image_url;
-            public String profile_image_url;
-        }
-    }
-
-    public record SessionUser(
-            String provider,
-            String providerId,
-            String email,
-            String name,
-            String avatar
-    ) {}
-}
+    }}
