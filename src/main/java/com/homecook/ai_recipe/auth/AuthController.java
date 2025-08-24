@@ -148,8 +148,8 @@ public class AuthController {
                 .build();
     }
 
+
     @GetMapping("/oauth/google/callback")
-    @PostMapping("/oauth/google/callback")
     public ResponseEntity<Void> googleCallback(
             @RequestParam String code,
             @RequestParam String state,
