@@ -4,12 +4,13 @@ spring:
       request-timeout: 95s
 
 server:
-  port: ${PORT:8080}
   servlet:
     session:
       cookie:
         name: JSESSIONID
         http-only: true
+        secure: true         # HTTPS면 true
+        same-site: none      # 크로스 사이트 리다이렉트 후에도 쿠키 유지
         path: /
 
 openai:
