@@ -10,7 +10,35 @@ const BRAND = {
   warn: '#B42318', ok: '#0F9960',
 };
 
-/* Icons */
+/* ========== Utils: 인앱 감지 & Android Chrome 인텐트 ========== */
+function detectInApp() {
+  const ua = navigator.userAgent || '';
+  const isAndroid = /Android/i.test(ua);
+  const isIOS = /iPhone|iPad|iPod/i.test(ua);
+
+  const vendor =
+    (/KAKAOTALK/i.test(ua) && 'kakaotalk') ||
+    ((/FBAN|FBAV/i.test(ua) || /Messenger/i.test(ua)) && 'facebook') ||
+    (/Instagram/i.test(ua) && 'instagram') ||
+    (/Line/i.test(ua) && 'line') ||
+    (/NAVER/i.test(ua) && 'naver') ||
+    (/DaumApps/i.test(ua) && 'daum') ||
+    null;
+
+  const webview = /\bwv\b/i.test(ua) || /; wv\)/i.test(ua);
+  const inApp = !!vendor || webview;
+  return { inApp, isAndroid, isIOS, vendor };
+}
+
+function buildChromeIntentUrl(absoluteUrl) {
+  // https://developer.chrome.com/docs/android/intents/
+  const u = new URL(absoluteUrl);
+  return `intent://${u.host}${u.pathname}${u.search}${u.hash}` +
+    `#Intent;scheme=${u.protocol.replace(':','')};package=com.android.chrome;` +
+    `S.browser_fallback_url=${encodeURIComponent(absoluteUrl)};end`;
+}
+
+/* ========== Icons ========== */
 const KakaoIcon = () => (
   <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
     <path fill={BRAND.kakaoText} d="M12 3C6.98 3 3 6.09 3 9.9c0 2.38 1.64 4.46 4.1 5.66l-1 3.66a.6.6 0 0 0 .92.66l4.23-2.77c.24.02.48.03.74.03 5.02 0 9-3.09 9-6.94C21 6.09 17.02 3 12 3z"/>
@@ -38,7 +66,7 @@ const FacebookIcon = () => (
   </svg>
 );
 
-/* Password input */
+/* ========== Password Input ========== */
 function PasswordInput({ id, value, onChange, placeholder }) {
   const [show, setShow] = useState(false);
   const [caps, setCaps] = useState(false);
@@ -74,6 +102,9 @@ export default function LoginPage() {
   const [err, setErr] = useState('');
   const [touched, setTouched] = useState({ email:false });
 
+  const { inApp, isAndroid, isIOS } = detectInApp();
+  const [showInAppTip, setShowInAppTip] = useState(inApp);
+
   const from = (location.state && location.state.from) || '/';
   const emailValid = useMemo(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email), [email]);
 
@@ -91,41 +122,89 @@ export default function LoginPage() {
     }, 700);
   }
 
-  // 버튼 클릭 시에만 네이버 OAuth 시작
   function socialLogin(provider) {
-  // 복귀 경로 저장
-  const backTo =
-    (location.state && location.state.from) ||
-    localStorage.getItem('postLoginRedirect') ||
-    '/';
-  try { localStorage.setItem('postLoginRedirect', backTo); } catch {}
+    const backTo =
+      (location.state && location.state.from) ||
+      localStorage.getItem('postLoginRedirect') ||
+      '/';
+    try { localStorage.setItem('postLoginRedirect', backTo); } catch {}
 
-  // 지원하는 프로바이더만 허용
-  const supported = ['naver', 'google', 'kakao','facebook'];
-  if (!supported.includes(provider)) {
-    alert('현재는 해당 소셜은 준비 중입니다.');
-    return;
+    const supported = ['naver', 'google', 'kakao', 'facebook'];
+    if (!supported.includes(provider)) {
+      alert('현재는 해당 소셜은 준비 중입니다.');
+      return;
+    }
+
+    const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/+$/, '');
+    const startPath = `/api/auth/oauth/${provider}/start`;
+    const absoluteStart = API_BASE ? `${API_BASE}${startPath}` : `${window.location.origin}${startPath}`;
+
+    // 인앱 보정: Android는 Chrome 인텐트로 외부 브라우저 열기 시도
+    if (inApp && isAndroid) {
+      const intentUrl = buildChromeIntentUrl(absoluteStart);
+      window.location.href = intentUrl;
+      return;
+    }
+    // iOS 인앱은 강제 불가 → 안내
+    if (inApp && isIOS) {
+      alert('인앱 브라우저에서는 로그인이 제한될 수 있어요.\n공유 아이콘 → “Safari로 열기” 후 다시 시도해주세요.');
+      return;
+    }
+
+    window.location.assign(absoluteStart);
   }
 
-  // 인앱 경고(특히 네이버가 인앱을 자주 차단함)
-  const inApp = /KAKAOTALK|NAVER|FBAN|FBAV|Instagram|Line/i.test(navigator.userAgent);
-  if (inApp) {
-    alert('인앱 브라우저에서는 소셜 로그인이 제한될 수 있어요. 우측 메뉴에서 “기본 브라우저로 열기” 후 다시 시도해주세요.');
-  }
-
-  // Netlify 배포: VITE_API_BASE 비어두고 상대경로 → [[redirects]]로 백엔드 프록시
-  // 로컬에서 직접 백엔드로 붙이고 싶으면 VITE_API_BASE=http://<백엔드:8080> 설정
-  const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/+$/, '');
-  const startPath = `/api/auth/oauth/${provider}/start`;
-  const href = API_BASE ? `${API_BASE}${startPath}` : startPath;
-
-  window.location.assign(href);
-}
   return (
     <div className="login-wrap">
+      {/* 인앱 안내 배너 */}
+      {showInAppTip && (
+        <div style={{
+          background:'#FFF3CD', border:'1px solid #FFE69C', color:'#8A6D3B',
+          padding:'10px 12px', borderRadius:8, marginBottom:12
+        }}>
+          <div style={{display:'flex', gap:8, alignItems:'center', justifyContent:'space-between'}}>
+            <div>
+              <strong>인앱 브라우저 감지됨</strong>
+              <div style={{fontSize:13, marginTop:4}}>
+                {isAndroid
+                  ? '일부 앱 내 브라우저에서는 소셜 로그인이 차단됩니다. 아래 버튼으로 기본 브라우저에서 열어주세요.'
+                  : '일부 앱 내 브라우저에서는 소셜 로그인이 차단됩니다. 우측 상단 메뉴 → “Safari로 열기”를 눌러주세요.'}
+              </div>
+            </div>
+            <button type="button" onClick={()=>setShowInAppTip(false)}
+                    style={{border:'none', background:'transparent', fontSize:18, lineHeight:1}}>×</button>
+          </div>
+
+          <div style={{display:'flex', gap:8, marginTop:8, flexWrap:'wrap'}}>
+            {isAndroid && (
+              <a
+                href={buildChromeIntentUrl(window.location.href)}
+                style={{padding:'8px 10px', borderRadius:6, background:'#111', color:'#fff', textDecoration:'none'}}
+              >
+                기본 브라우저로 열기
+              </a>
+            )}
+            <button
+              type="button"
+              onClick={async ()=>{
+                try {
+                  await navigator.clipboard.writeText(window.location.href);
+                  alert('링크를 복사했어요. 기본 브라우저에 붙여넣어 열어주세요!');
+                } catch {
+                  prompt('아래 링크를 복사하세요', window.location.href);
+                }
+              }}
+              style={{padding:'8px 10px', borderRadius:6, background:'#eee', border:'1px solid #ddd'}}
+            >
+              링크 복사
+            </button>
+          </div>
+        </div>
+      )}
+
       <h1 className="login-title">로그인 / 회원가입</h1>
 
-      {/* 상단 큰 버튼: 카카오는 안내만 */}
+      {/* 상단 큰 버튼 (카카오) */}
       <button
         type="button"
         className="kakao-btn"
@@ -137,7 +216,7 @@ export default function LoginPage() {
 
       <div className="divider" role="separator" aria-label="또는">또는</div>
 
-      {/* 소셜 아이콘 줄 — 네이버만 실제 동작 */}
+      {/* 소셜 아이콘 줄 */}
       <div className="social-row" role="group" aria-label="소셜 로그인">
         <button type="button" className="social-btn" title="네이버로 시작하기"
                 onClick={()=>socialLogin('naver')}>
