@@ -17,13 +17,13 @@ import java.util.Map;
 public class AuthController {
 
     // ===== NAVER =====
-    @Value("${naver.client-id}")
+    @Value("${naver.client-id:}")
     private String naverClientId;
 
-    @Value("${naver.client-secret}")
+    @Value("${naver.client-secret:}")
     private String naverClientSecret;
 
-    @Value("${naver.redirect-uri}")
+    @Value("${naver.redirect-uri:}")
     private String naverRedirectUri;
 
     // ===== GOOGLE =====
@@ -36,6 +36,16 @@ public class AuthController {
     @Value("${google.redirect-uri:}")
     private String googleRedirectUri;
 
+    // ===== KAKAO =====
+    @Value("${kakao.client-id:}")
+    private String kakaoClientId;   // REST API 키
+
+    @Value("${kakao.client-secret:}")
+    private String kakaoClientSecret; // 콘솔에서 비활성인 경우 비워둬도 됨
+
+    @Value("${kakao.redirect-uri:}")
+    private String kakaoRedirectUri;
+
     // FRONT
     @Value("${app.front-base:http://localhost:5173}")
     private String frontBase;
@@ -43,9 +53,20 @@ public class AuthController {
     private final SecureRandom secureRandom = new SecureRandom();
     private final RestTemplate rest = new RestTemplate();
 
-    // ========== NAVER ==========
+    private static boolean isBlank(String s) {
+        return s == null || s.isBlank();
+    }
+
+    // ===================== NAVER =====================
     @GetMapping("/oauth/naver/start")
     public ResponseEntity<Void> naverStart(HttpSession session) {
+        if (isBlank(naverClientId) || isBlank(naverRedirectUri)) {
+            // 환경변수 미주입/오타 시 여기서 차단 (client_id= 비어있는 리다이렉트 방지)
+            return ResponseEntity.status(HttpStatus.FOUND)
+                    .location(URI.create(frontBase + "/#/login-signup?err=naver_config"))
+                    .build();
+        }
+
         String state = new BigInteger(130, secureRandom).toString(32);
         session.setAttribute("NAVER_OAUTH_STATE", state);
 
@@ -126,9 +147,15 @@ public class AuthController {
                 .build();
     }
 
-    // ========== GOOGLE ==========
+    // ===================== GOOGLE =====================
     @GetMapping("/oauth/google/start")
     public ResponseEntity<Void> googleStart(HttpSession session) {
+        if (isBlank(googleClientId) || isBlank(googleRedirectUri)) {
+            return ResponseEntity.status(HttpStatus.FOUND)
+                    .location(URI.create(frontBase + "/#/login-signup?err=google_config"))
+                    .build();
+        }
+
         String state = new BigInteger(130, secureRandom).toString(32);
         session.setAttribute("GOOGLE_OAUTH_STATE", state);
 
@@ -139,6 +166,8 @@ public class AuthController {
                 .queryParam("redirect_uri", googleRedirectUri)
                 .queryParam("scope", "openid email profile")
                 .queryParam("include_granted_scopes", "true")
+                // .queryParam("access_type", "offline") // 리프레시 토큰 필요 시 주석 해제
+                // .queryParam("prompt", "consent")      // 강제 동의 갱신 필요 시
                 .queryParam("state", state)
                 .encode()
                 .toUriString();
@@ -147,7 +176,6 @@ public class AuthController {
                 .location(URI.create(authUrl))
                 .build();
     }
-
 
     @GetMapping("/oauth/google/callback")
     public ResponseEntity<Void> googleCallback(
@@ -163,7 +191,6 @@ public class AuthController {
         }
         session.removeAttribute("GOOGLE_OAUTH_STATE");
 
-        // 1) code -> token
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
         org.springframework.util.MultiValueMap<String, String> form =
@@ -187,7 +214,6 @@ public class AuthController {
                     .build();
         }
 
-        // 2) userinfo
         HttpHeaders h2 = new HttpHeaders();
         h2.setBearerAuth(token.access_token());
         ResponseEntity<GoogleUserInfo> userRes = rest.exchange(
@@ -218,15 +244,125 @@ public class AuthController {
                 .build();
     }
 
-    // ========== COMMON ==========
+    // ===================== KAKAO =====================
+    @GetMapping("/oauth/kakao/start")
+    public ResponseEntity<Void> kakaoStart(HttpSession session) {
+        if (isBlank(kakaoClientId) || isBlank(kakaoRedirectUri)) {
+            return ResponseEntity.status(HttpStatus.FOUND)
+                    .location(URI.create(frontBase + "/#/login-signup?err=kakao_config"))
+                    .build();
+        }
+
+        String state = new BigInteger(130, secureRandom).toString(32);
+        session.setAttribute("KAKAO_OAUTH_STATE", state);
+
+        String authUrl = UriComponentsBuilder
+                .fromHttpUrl("https://kauth.kakao.com/oauth/authorize")
+                .queryParam("response_type", "code")
+                .queryParam("client_id", kakaoClientId)
+                .queryParam("redirect_uri", kakaoRedirectUri)
+                .queryParam("state", state)
+                .queryParam("scope", "account_email profile_nickname profile_image")
+                .encode()
+                .toUriString();
+
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .location(URI.create(authUrl))
+                .build();
+    }
+
+    @GetMapping("/oauth/kakao/callback")
+    public ResponseEntity<Void> kakaoCallback(
+            @RequestParam String code,
+            @RequestParam(required = false) String state,
+            HttpSession session
+    ) {
+        String saved = (String) session.getAttribute("KAKAO_OAUTH_STATE");
+        if (saved == null || (state != null && !saved.equals(state))) {
+            return ResponseEntity.status(HttpStatus.FOUND)
+                    .location(URI.create(frontBase + "/#/login-signup?err=state"))
+                    .build();
+        }
+        session.removeAttribute("KAKAO_OAUTH_STATE");
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+        org.springframework.util.MultiValueMap<String, String> form =
+                new org.springframework.util.LinkedMultiValueMap<>();
+        form.add("grant_type", "authorization_code");
+        form.add("client_id", kakaoClientId);
+        if (!isBlank(kakaoClientSecret)) {
+            form.add("client_secret", kakaoClientSecret);
+        }
+        form.add("redirect_uri", kakaoRedirectUri);
+        form.add("code", code);
+
+        ResponseEntity<KakaoTokenResponse> tokenRes = rest.exchange(
+                "https://kauth.kakao.com/oauth/token",
+                HttpMethod.POST,
+                new HttpEntity<>(form, headers),
+                KakaoTokenResponse.class
+        );
+        KakaoTokenResponse token = tokenRes.getBody();
+        if (token == null || token
+                .access_token() == null) {
+            return ResponseEntity.status(HttpStatus.FOUND)
+                    .location(URI.create(frontBase + "/#/login-signup?err=token"))
+                    .build();
+        }
+
+        HttpHeaders h2 = new HttpHeaders();
+        h2.setBearerAuth(token.access_token());
+        ResponseEntity<KakaoUserResponse> ures = rest.exchange(
+                "https://kapi.kakao.com/v2/user/me",
+                HttpMethod.GET,
+                new HttpEntity<>(h2),
+                KakaoUserResponse.class
+        );
+        KakaoUserResponse ku = ures.getBody();
+        if (ku == null || ku.id == null) {
+            return ResponseEntity.status(HttpStatus.FOUND)
+                    .location(URI.create(frontBase + "/#/login-signup?err=profile"))
+                    .build();
+        }
+
+        String email = null, name = null, avatar = null;
+        if (ku.kakao_account != null) {
+            email = ku.kakao_account.email;
+            if (ku.kakao_account.profile != null) {
+                name = ku.kakao_account.profile.nickname;
+                avatar = ku.kakao_account.profile.profile_image_url;
+            }
+        }
+        if (name == null) name = "KakaoUser";
+
+        SessionUser user = new SessionUser(
+                "kakao",
+                String.valueOf(ku.id),
+                email,
+                name,
+                avatar
+        );
+        session.setAttribute("LOGIN_USER", user);
+
+        String to = frontBase + "/#/auth/callback";
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .location(URI.create(to))
+                .build();
+    }
+
+    // ===================== COMMON =====================
     @GetMapping("/debug/props")
     public Map<String, String> debugProps() {
+        // secret은 표시하지 않음
         return Map.of(
-                "naver.client-id", naverClientId,
-                "naver.redirect-uri", naverRedirectUri,
-                "google.client-id", googleClientId,
-                "google.redirect-uri", googleRedirectUri,
-                "app.front-base", frontBase
+                "naver.client-id", naverClientId == null ? "" : naverClientId,
+                "naver.redirect-uri", naverRedirectUri == null ? "" : naverRedirectUri,
+                "google.client-id", googleClientId == null ? "" : googleClientId,
+                "google.redirect-uri", googleRedirectUri == null ? "" : googleRedirectUri,
+                "kakao.client-id", kakaoClientId == null ? "" : kakaoClientId,
+                "kakao.redirect-uri", kakaoRedirectUri == null ? "" : kakaoRedirectUri,
+                "app.front-base", frontBase == null ? "" : frontBase
         );
     }
 
@@ -256,11 +392,12 @@ public class AuthController {
     public ResponseEntity<?> logout(HttpSession session) {
         try { session.invalidate(); } catch (Exception ignored) {}
 
+        // 운영 배포 기준: secure=true, SameSite=None 유지 (크로스도메인 세션)
         ResponseCookie expired = ResponseCookie.from("JSESSIONID", "")
                 .path("/")
                 .httpOnly(true)
-                .secure(true)      // 운영은 true, 로컬은 프로필 분기해서 false
-                .sameSite("None")  // 운영은 None, 로컬은 Lax
+                .secure(true)
+                .sameSite("None")
                 .maxAge(0)
                 .build();
 
@@ -310,6 +447,32 @@ public class AuthController {
         public String family_name;
         public String picture;
         public String locale;
+    }
+
+    public static class KakaoTokenResponse {
+        public String access_token;
+        public String token_type;
+        public Integer expires_in;
+        public String refresh_token;
+        public Integer refresh_token_expires_in;
+        public String scope;
+    }
+
+    public static class KakaoUserResponse {
+        public Long id;
+        public KakaoAccount kakao_account;
+
+        public static class KakaoAccount {
+            public String email;
+            public Boolean is_email_valid;
+            public Boolean is_email_verified;
+            public KakaoProfile profile;
+        }
+        public static class KakaoProfile {
+            public String nickname;
+            public String thumbnail_image_url;
+            public String profile_image_url;
+        }
     }
 
     public record SessionUser(
