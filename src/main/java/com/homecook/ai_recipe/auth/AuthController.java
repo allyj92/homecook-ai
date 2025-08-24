@@ -423,7 +423,10 @@ public class AuthController {
                 "google.redirect-uri", googleRedirectUri == null ? "" : googleRedirectUri,
                 "kakao.client-id", kakaoClientId == null ? "" : kakaoClientId,
                 "kakao.redirect-uri", kakaoRedirectUri == null ? "" : kakaoRedirectUri,
+                "facebook.client-id", facebookClientId == null ? "" : facebookClientId,
+                "facebook.redirect-uri", facebookRedirectUri == null ? "" : facebookRedirectUri,
                 "app.front-base", frontBase == null ? "" : frontBase
+
         );
     }
 
