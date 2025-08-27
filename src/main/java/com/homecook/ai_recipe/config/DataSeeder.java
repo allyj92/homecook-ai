@@ -10,7 +10,7 @@ import java.util.List;
 public class DataSeeder {
 
     @Bean
-    CommandLineRunner seed(com.homecook.ai_recipe.recipe.RecipeRepository recipeRepo, IngredientRepository ingRepo) {
+    CommandLineRunner seed(RecipeRepository recipeRepo, IngredientRepository ingRepo) {
         return args -> {
             if (recipeRepo.count() > 0) return;
 
