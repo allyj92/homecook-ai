@@ -1,4 +1,3 @@
-// src/lib/http.js (또는 apiFetch가 있는 파일)
 const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/+$/, '');
 
 function isAbs(u) {
@@ -52,6 +51,14 @@ export async function apiFetch(input, options = {}) {
 
   // ✅ 401 → 로그인 페이지 이동 (필요 시 opt-out)
   if (res.status === 401 && !noAuthRedirect) {
+
+    if (import.meta.env.MODE === 'development') {
+      // 👇 개발 모드에서는 그냥 경고만 찍고, redirect/alert 안 함
+      console.warn('⚠️ 401 Unauthorized (개발모드에서는 무시됨)');
+      return res;
+    }
+
+    // === 원래 코드 (배포용) ===
     try {
       const here =
         (window.location.hash && window.location.hash.slice(1)) ||
