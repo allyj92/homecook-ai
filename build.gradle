@@ -24,7 +24,7 @@ dependencies {
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.2'
 
 
-//    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
 
 
     compileOnly 'org.projectlombok:lombok'
