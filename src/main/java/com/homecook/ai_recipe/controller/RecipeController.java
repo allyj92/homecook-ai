@@ -20,7 +20,7 @@ public class RecipeController {
 
     private final RecipeAiService ai;
 
-//    @PreAuthorize("isAuthenticated()")
+//    @PreAuthorize("isAuthenticated()") : 붙이면 로그인해야만 접근 가능
     @PostMapping("/recommend")
     public ResponseEntity<?> recommend(@RequestBody @Validated RecommendRequest req) {
         System.out.println("[API] HIT /api/recommend goals=" + req.getGoals() + " ingredients=" + req.getIngredients());
