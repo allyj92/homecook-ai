@@ -12,7 +12,6 @@ const BRAND = {
 
 /* ========== Utils: 인앱 감지 & Android Chrome 인텐트 ========== */
 function detectInApp() {
-  if (typeof navigator === 'undefined') return { inApp: false, isAndroid: false, isIOS: false, vendor: null };
   const ua = navigator.userAgent || '';
   const isAndroid = /Android/i.test(ua);
   const isIOS = /iPhone|iPad|iPod/i.test(ua);
@@ -32,12 +31,11 @@ function detectInApp() {
 }
 
 function buildChromeIntentUrl(absoluteUrl) {
+  // https://developer.chrome.com/docs/android/intents/
   const u = new URL(absoluteUrl);
-  return (
-    `intent://${u.host}${u.pathname}${u.search}${u.hash}` +
-    `#Intent;scheme=${u.protocol.replace(':', '')};package=com.android.chrome;` +
-    `S.browser_fallback_url=${encodeURIComponent(absoluteUrl)};end`
-  );
+  return `intent://${u.host}${u.pathname}${u.search}${u.hash}` +
+    `#Intent;scheme=${u.protocol.replace(':','')};package=com.android.chrome;` +
+    `S.browser_fallback_url=${encodeURIComponent(absoluteUrl)};end`;
 }
 
 /* ========== Icons ========== */
@@ -98,12 +96,8 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // mode: 'login' | 'signup'
-  const [mode, setMode] = useState('login');
-
   const [email, setEmail] = useState('');
-  const [name, setName]   = useState('');   // 회원가입 전용
-  const [pw, setPw]       = useState('');
+  const [pw, setPw] = useState('');
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
   const [touched, setTouched] = useState({ email:false });
@@ -111,47 +105,33 @@ export default function LoginPage() {
   const { inApp, isAndroid, isIOS } = detectInApp();
   const [showInAppTip, setShowInAppTip] = useState(inApp);
 
-  const from =
-    (location.state && location.state.from) ||
-    (typeof localStorage !== 'undefined' && localStorage.getItem('postLoginRedirect')) ||
-    '/';
-
+  const from = (location.state && location.state.from) || '/';
   const emailValid = useMemo(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email), [email]);
-  const pwOk = pw.length >= 8 || mode === 'login'; // 가입 시 8자 권장
 
   async function handleSubmit(e){
     e.preventDefault();
     setErr('');
     setTouched({ email:true });
     if (!emailValid) { setErr('이메일 형식을 확인해주세요.'); return; }
-    if (mode === 'signup' && name.trim().length < 1) { setErr('이름을 입력해주세요.'); return; }
-    if (mode === 'signup' && !pwOk) { setErr('비밀번호는 8자 이상 권장합니다.'); return; }
-
     setLoading(true);
-    try {
-      const endpoint = mode === 'signup' ? '/api/auth/local/register' : '/api/auth/local/login';
-      const payload  = mode === 'signup'
-        ? { email, password: pw, name }
-        : { email, password: pw };
-
-      const res = await fetch(endpoint, {
+    
+        try {
+      const res = await fetch('/api/auth/local/login', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ email, password: pw }),
       });
-
       if (!res.ok) {
-        const { message } = await res.json().catch(()=>({}));
-        throw new Error(message || (mode === 'signup' ? '회원가입 실패' : '로그인 실패'));
+        const { message } = await res.json().catch(()=>({}));        
+	throw new Error(message || '로그인 실패');
       }
-
       const user = await res.json(); // SessionUser
       localStorage.setItem('authUser', JSON.stringify(user));
       window.dispatchEvent(new Event('auth:changed'));
       navigate(from, { replace: true });
     } catch (err) {
-      setErr(err.message || (mode === 'signup' ? '회원가입에 실패했습니다.' : '로그인에 실패했습니다.'));
+      setErr(err.message || '로그인에 실패했습니다.');
     } finally {
       setLoading(false);
     }
@@ -160,7 +140,7 @@ export default function LoginPage() {
   function socialLogin(provider) {
     const backTo =
       (location.state && location.state.from) ||
-      (typeof localStorage !== 'undefined' && localStorage.getItem('postLoginRedirect')) ||
+      localStorage.getItem('postLoginRedirect') ||
       '/';
     try { localStorage.setItem('postLoginRedirect', backTo); } catch {}
 
@@ -170,15 +150,17 @@ export default function LoginPage() {
       return;
     }
 
-    const API_BASE = (import.meta.env?.VITE_API_BASE || '').replace(/\/+$/, '');
+    const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/+$/, '');
     const startPath = `/api/auth/oauth/${provider}/start`;
     const absoluteStart = API_BASE ? `${API_BASE}${startPath}` : `${window.location.origin}${startPath}`;
 
+    // 인앱 보정: Android는 Chrome 인텐트로 외부 브라우저 열기 시도
     if (inApp && isAndroid) {
       const intentUrl = buildChromeIntentUrl(absoluteStart);
       window.location.href = intentUrl;
       return;
     }
+    // iOS 인앱은 강제 불가 → 안내
     if (inApp && isIOS) {
       alert('인앱 브라우저에서는 로그인이 제한될 수 있어요.\n공유 아이콘 → “Safari로 열기” 후 다시 시도해주세요.');
       return;
@@ -224,7 +206,6 @@ export default function LoginPage() {
                   await navigator.clipboard.writeText(window.location.href);
                   alert('링크를 복사했어요. 기본 브라우저에 붙여넣어 열어주세요!');
                 } catch {
-                  // eslint-disable-next-line no-alert
                   prompt('아래 링크를 복사하세요', window.location.href);
                 }
               }}
@@ -237,22 +218,6 @@ export default function LoginPage() {
       )}
 
       <h1 className="login-title">로그인 / 회원가입</h1>
-
-      {/* 탭 토글 */}
-      <div className="btn-group" role="tablist" aria-label="로그인/회원가입 전환" style={{marginBottom:12}}>
-        <button
-          type="button"
-          className={`btn ${mode==='login' ? 'btn-success' : 'btn-outline-secondary'}`}
-          aria-selected={mode==='login'}
-          onClick={()=>setMode('login')}
-        >로그인</button>
-        <button
-          type="button"
-          className={`btn ${mode==='signup' ? 'btn-success' : 'btn-outline-secondary'}`}
-          aria-selected={mode==='signup'}
-          onClick={()=>setMode('signup')}
-        >회원가입</button>
-      </div>
 
       {/* 상단 큰 버튼 (카카오) */}
       <button
@@ -284,11 +249,11 @@ export default function LoginPage() {
         </button>
       </div>
 
-      {/* 이메일/비번/이름(가입시) */}
+      {/* 이메일/비번 (데모) */}
       <form className="login-card" onSubmit={handleSubmit} noValidate>
         <div className="form-grid">
           <div className="form-field">
-            <label className="form-label" htmlFor="id">{mode==='signup' ? '이메일' : '아이디'}</label>
+            <label className="form-label" htmlFor="id">아이디</label>
             <input
               id="id"
               className={`form-input ${touched.email && !emailValid ? 'is-invalid' : ''} ${emailValid ? 'is-valid' : ''}`}
@@ -301,30 +266,12 @@ export default function LoginPage() {
               aria-invalid={touched.email && !emailValid}
             />
             {touched.email && !emailValid && <div className="field-hint error">유효한 이메일을 입력하세요.</div>}
-            {emailValid && <div className="field-hint ok">좋아요! {mode==='signup' ? '가입' : '로그인'} 준비됐어요.</div>}
+            {emailValid && <div className="field-hint ok">좋아요! 로그인 준비됐어요.</div>}
           </div>
-
-          {mode === 'signup' && (
-            <div className="form-field">
-              <label className="form-label" htmlFor="name">이름</label>
-              <input
-                id="name"
-                className="form-input"
-                type="text"
-                value={name}
-                onChange={e=>setName(e.target.value)}
-                placeholder="홍길동"
-                required
-              />
-            </div>
-          )}
 
           <div className="form-field">
             <label className="form-label" htmlFor="pw">비밀번호</label>
             <PasswordInput id="pw" value={pw} onChange={e=>setPw(e.target.value)} placeholder="••••••••" />
-            {mode==='signup' && pw && pw.length < 8 && (
-              <div className="field-hint error">비밀번호는 8자 이상을 권장합니다.</div>
-            )}
           </div>
         </div>
 
@@ -335,26 +282,13 @@ export default function LoginPage() {
         {err && <div className="form-alert" role="alert">{err}</div>}
 
         <button className="login-btn" disabled={loading} type="submit">
-          {loading ? <span className="spinner" aria-hidden="true" /> : (mode==='signup' ? '회원가입' : '로그인')}
+          {loading ? <span className="spinner" aria-hidden="true" /> : '로그인'}
         </button>
 
         <div className="help-links">
           <Link to="#" className="help-link">아이디/비밀번호 찾기</Link>
           <Link to="#" className="help-link">비회원 주문</Link>
           <Link to="#" className="help-link">비회원 주문조회</Link>
-        </div>
-
-        {/* 아래 미니 전환 링크(선호에 따라 유지/삭제) */}
-        <div style={{marginTop:12, textAlign:'center'}}>
-          {mode==='login' ? (
-            <button type="button" onClick={()=>setMode('signup')} className="btn btn-link p-0">
-              아직 계정이 없으신가요? <strong>회원가입</strong>
-            </button>
-          ) : (
-            <button type="button" onClick={()=>setMode('login')} className="btn btn-link p-0">
-              이미 계정이 있으신가요? <strong>로그인</strong>
-            </button>
-          )}
         </div>
       </form>
     </div>
