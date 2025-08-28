@@ -1,6 +1,5 @@
 package com.homecook.ai_recipe.auth;
 
-import com.homecook.ai_recipe.auth.UserAccount;
 import com.homecook.ai_recipe.dto.*;
 import com.homecook.ai_recipe.dto.LocalAuthDtos.LoginReq;
 import com.homecook.ai_recipe.dto.LocalAuthDtos.RegisterReq;
@@ -38,7 +37,6 @@ public class AuthController {
     public ResponseEntity<?> registerLocal(@RequestBody @Valid RegisterReq req, HttpSession session) {
         try {
             UserAccount u = localAuth.register(req.getEmail(), req.getPassword(), req.getName());
-            // 자동 로그인
             SessionUser su = new SessionUser("local", String.valueOf(u.getId()), u.getEmail(), u.getName(), u.getAvatar());
             session.setAttribute("LOGIN_USER", su);
             return ResponseEntity.ok(su);
@@ -65,8 +63,8 @@ public class AuthController {
         if (me == null || !"local".equals(me.provider())) {
             return ResponseEntity.status(401).body(Map.of("message","로그인이 필요합니다."));
         }
-        String current = body.getOrDefault("current","");
-        String next = body.getOrDefault("next","");
+        String current = body.getOrDefault("current","").trim();
+        String next = body.getOrDefault("next","").trim();
 
         var u = userRepo.findById(Long.valueOf(me.providerId())).orElse(null);
         if (u == null || !org.springframework.security.crypto.bcrypt.BCrypt.checkpw(current, u.getPasswordHash())) {
@@ -77,8 +75,7 @@ public class AuthController {
         return ResponseEntity.ok(Map.of("ok", true));
     }
 
-    // ===== 비밀번호/아이디 찾기 (임시 스텁) =====
-    // 이메일/토큰 기능 구축 전까지는 안전하게 200 또는 404만 응답
+    // ===== 비밀번호 찾기 / 재설정 =====
     @PostMapping("/local/forgot")
     public ResponseEntity<?> forgot(@RequestBody Map<String,String> body) {
         String email = (body.getOrDefault("email","")+"").trim();
@@ -86,50 +83,55 @@ public class AuthController {
             return ResponseEntity.badRequest().body(Map.of("message","이메일을 입력하세요."));
         }
 
-        var uOpt = userRepo.findByEmail(email);
+        var uOpt = passwordResetService.findUserByEmail(email);
         if (uOpt.isEmpty()) {
-            // 보안상 200을 주기도 하는데, 지금 로직 유지:
+            // 보안상 200을 주는 전략도 가능하지만, 현재는 404 응답
             return ResponseEntity.status(404).body(Map.of("message", "해당 이메일의 사용자가 없습니다."));
         }
 
-        UserAccount u = uOpt.get();
+        // 토큰 발급 (요청 과다 시 429)
+        final String token;
+        try {
+            token = passwordResetService.issueToken(email);
+        } catch (IllegalStateException tooSoon) {
+            return ResponseEntity.status(429).body(Map.of("message", tooSoon.getMessage()));
+        }
 
-        // 1) 토큰 발급
-        String token = passwordResetService.issueToken(u.getId());
+        // 프론트 라우팅 링크
+        String link = frontBase + "/#/reset-password?token=" + URLEncoder.encode(token, StandardCharsets.UTF_8);
 
-        // 2) 링크 생성
-        String link = frontBase + "/#/reset-password?token="
-                + URLEncoder.encode(token, StandardCharsets.UTF_8);
-
-        // 3) 메일 발송
-        mailService.sendPasswordReset(u.getEmail(), link);
+        // 메일 발송 (실 SMTP 설정 없으면 콘솔로 대체)
+        mailService.sendPasswordReset(email, link);
 
         return ResponseEntity.ok(Map.of("ok", true));
     }
 
-    // 구버전 경로 호환
+    // 구버전 호환 (동일 동작)
     @PostMapping("/local/forgot-password")
     public ResponseEntity<?> forgotPassword(@RequestBody Map<String,String> body) {
-        String email = body.getOrDefault("email", "").trim();
-        if (email.isBlank()) return ResponseEntity.badRequest().body(Map.of("message","이메일을 입력하세요."));
-        var userOpt = userRepo.findByEmail(email);
-        if (userOpt.isEmpty()) {
-            return ResponseEntity.status(404).body(Map.of("message", "해당 이메일의 사용자가 없습니다."));
-        }
-        return ResponseEntity.ok(Map.of("ok", true, "message", "비밀번호 재설정 안내 기능은 준비 중입니다."));
+        return forgot(body);
     }
 
-    // 토큰 소비/재설정은 아직 미구현 → 501
-    @PostMapping("/local/reset")
-    public ResponseEntity<?> reset(@RequestBody Map<String,String> body) {
-        return ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED)
-                .body(Map.of("message","비밀번호 재설정 토큰 기능은 준비 중입니다."));
-    }
-
+    // 토큰 소비 + 새 비밀번호 설정
     @PostMapping("/local/reset-password")
     public ResponseEntity<?> resetPassword(@RequestBody Map<String,String> body) {
-        return ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED)
-                .body(Map.of("message","비밀번호 재설정 토큰 기능은 준비 중입니다."));
+        String token = body.getOrDefault("token","").trim();
+        String newPw = body.getOrDefault("password","").trim();
+        if (token.isBlank() || newPw.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("message","토큰/비밀번호가 필요합니다."));
+        }
+
+        var uOpt = passwordResetService.consumeTokenAndReset(token, newPw);
+        if (uOpt.isEmpty()) {
+            return ResponseEntity.status(400).body(Map.of("message","토큰이 유효하지 않거나 만료되었습니다."));
+        }
+        return ResponseEntity.ok(Map.of("ok", true));
+    }
+
+    // 구버전 호환
+    @PostMapping("/local/reset")
+    public ResponseEntity<?> reset(@RequestBody Map<String,String> body) {
+        return resetPassword(body);
     }
 
     // ===== NAVER =====
@@ -152,7 +154,7 @@ public class AuthController {
     @Value("${facebook.client-secret:}") private String facebookClientSecret;
     @Value("${facebook.redirect-uri:}") private String facebookRedirectUri;
 
-    // FRONT
+    // FRONT (SPA 해시 라우팅 기준)
     @Value("${app.front-base:http://localhost:5173}")
     private String frontBase;
 
@@ -161,7 +163,7 @@ public class AuthController {
 
     private static boolean isBlank(String s) { return s == null || s.isBlank(); }
 
-    /** 프론트로 JS 리다이렉트 (SPA에서 해시 라우팅 호환 & 캐시 금지) */
+    /** 프론트로 JS 리다이렉트 (SPA 해시 라우팅 & 캐시 금지) */
     private ResponseEntity<?> jsRedirect(String to) {
         String html = "<!doctype html>"
                 + "<meta http-equiv='Cache-Control' content='no-store'>"
@@ -442,7 +444,6 @@ public class AuthController {
         }
         session.removeAttribute("FACEBOOK_OAUTH_STATE");
 
-        // 1) code -> token
         String tokenUrl = UriComponentsBuilder
                 .fromHttpUrl("https://graph.facebook.com/v19.0/oauth/access_token")
                 .queryParam("client_id", facebookClientId)
@@ -458,7 +459,6 @@ public class AuthController {
             return jsRedirect(frontBase + "/#/login-signup?err=token");
         }
 
-        // 2) 사용자 정보
         HttpHeaders h = new HttpHeaders();
         h.setBearerAuth(token.access_token);
         ResponseEntity<FacebookMe> meRes = rest.exchange(
