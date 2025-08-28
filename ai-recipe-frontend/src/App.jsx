@@ -11,6 +11,8 @@ import ShopPage from './pages/ShopPage'
 import AuthBootstrap from './auth/AuthBootstrap' 
 import AuthCallback from './pages/AuthCallback'; 
 import ForgotResetPage from './pages/ForgotResetPage';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 
 // ⚠️ Header는 Layout 내부에서만 렌더되므로 여기서 import 불필요
 // import Header from './compoments/Header'
