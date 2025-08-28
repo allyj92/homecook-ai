@@ -1,5 +1,6 @@
 package com.homecook.ai_recipe.auth;
 
+import com.homecook.ai_recipe.auth.UserAccount;
 import com.homecook.ai_recipe.dto.*;
 import com.homecook.ai_recipe.dto.LocalAuthDtos.LoginReq;
 import com.homecook.ai_recipe.dto.LocalAuthDtos.RegisterReq;
@@ -18,28 +19,21 @@ import java.net.URI;
 import java.security.SecureRandom;
 import java.util.Map;
 
-
-
-
 @RestController
 @RequestMapping("/api/auth")
 @lombok.RequiredArgsConstructor
 public class AuthController {
 
-    private final com.homecook.ai_recipe.service.LocalAuthService localAuth;      // ← 추가
-    private final com.homecook.ai_recipe.repo.UserAccountRepository userRepo;
-    private final com.homecook.ai_recipe.service.PasswordResetService passwordResetService ;
-    private final com.homecook.ai_recipe.service.MailService mailService;
+    private final LocalAuthService localAuth;
+    private final UserAccountRepository userRepo;
 
-    /* ===================== LOCAL (자체 로그인) ===================== */
+    // ===== LOCAL (자체 로그인) =====
     @PostMapping("/local/register")
-    public ResponseEntity<?> registerLocal(@RequestBody @Valid LocalAuthDtos.RegisterReq req, HttpSession session) {
+    public ResponseEntity<?> registerLocal(@RequestBody @Valid RegisterReq req, HttpSession session) {
         try {
             UserAccount u = localAuth.register(req.getEmail(), req.getPassword(), req.getName());
             // 자동 로그인
-            SessionUser su = new SessionUser(
-                    "local", String.valueOf(u.getId()), u.getEmail(), u.getName(), u.getAvatar()
-            );
+            SessionUser su = new SessionUser("local", String.valueOf(u.getId()), u.getEmail(), u.getName(), u.getAvatar());
             session.setAttribute("LOGIN_USER", su);
             return ResponseEntity.ok(su);
         } catch (IllegalArgumentException dup) {
@@ -55,10 +49,10 @@ public class AuthController {
                     session.setAttribute("LOGIN_USER", su);
                     return ResponseEntity.ok(su);
                 })
-                .orElseGet(() -> ResponseEntity.status(401).body(Map.of("message","잘못된 이메일 또는 비밀번호입니다.")));
+                .orElseGet(() -> ResponseEntity.status(401).body(Map.of("message", "잘못된 이메일 또는 비밀번호입니다.")));
     }
 
-    /* (선택) 비밀번호 변경 */
+    // (선택) 비밀번호 변경 (로그인 필요)
     @PostMapping("/local/change-password")
     public ResponseEntity<?> changePassword(@RequestBody Map<String,String> body, HttpSession session) {
         SessionUser me = (SessionUser) session.getAttribute("LOGIN_USER");
@@ -77,82 +71,66 @@ public class AuthController {
         return ResponseEntity.ok(Map.of("ok", true));
     }
 
-    // ===== 비밀번호/아이디 잊어버렸을때 =====
+    // ===== 비밀번호/아이디 찾기 (임시 스텁) =====
+    // 이메일/토큰 기능 구축 전까지는 안전하게 200 또는 404만 응답
     @PostMapping("/local/forgot")
     public ResponseEntity<?> forgot(@RequestBody Map<String,String> body) {
         String email = (body.getOrDefault("email","")+"").trim();
         if (email.isBlank()) return ResponseEntity.badRequest().body(Map.of("message","이메일을 입력하세요."));
 
-        // 과도한 요청 제한
-        if (!passwordResetService.canRequestNow(email)) {
-            // 존재여부는 숨기고 동일 응답
-            return ResponseEntity.ok(Map.of("ok", true));
+        var uOpt = userRepo.findByEmail(email);
+        if (uOpt.isEmpty()) {
+            // 존재 여부를 굳이 숨기지 않으려면 404, 숨기려면 200 고정으로 바꿔도 됨
+            return ResponseEntity.status(404).body(Map.of("message", "해당 이메일의 사용자가 없습니다."));
         }
-
-        var uOpt = passwordResetService.findUserByEmail(email);
-        uOpt.ifPresent(u -> {
-            String token = passwordResetService.createTokenFor(u);
-            // 프론트 라우팅: 해시 라우터(#) or SPA 경로 중 네가 쓰는 방식으로 선택
-            String link = frontBase + "/#/forgot?token=" + token; // 해시 라우터일 때
-            // String link = frontBase + "/forgot?token=" + token; // 브라우저 라우터일 때
-
-            mailService.sendPasswordReset(email, link);
-        });
-        return ResponseEntity.ok(Map.of("ok", true));
+        // 여기서 실제 메일 발송/토큰 저장은 추후 구현
+        return ResponseEntity.ok(Map.of("ok", true, "message", "비밀번호 재설정 안내 기능은 준비 중입니다."));
     }
 
+    // 구버전 경로 호환
+    @PostMapping("/local/forgot-password")
+    public ResponseEntity<?> forgotPassword(@RequestBody Map<String,String> body) {
+        String email = body.getOrDefault("email", "").trim();
+        if (email.isBlank()) return ResponseEntity.badRequest().body(Map.of("message","이메일을 입력하세요."));
+        var userOpt = userRepo.findByEmail(email);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.status(404).body(Map.of("message", "해당 이메일의 사용자가 없습니다."));
+        }
+        return ResponseEntity.ok(Map.of("ok", true, "message", "비밀번호 재설정 안내 기능은 준비 중입니다."));
+    }
+
+    // 토큰 소비/재설정은 아직 미구현 → 501
     @PostMapping("/local/reset")
     public ResponseEntity<?> reset(@RequestBody Map<String,String> body) {
-        String token = body.getOrDefault("token","");
-        String pw    = body.getOrDefault("password","");
-        if (token.isBlank() || pw.isBlank()) {
-            return ResponseEntity.badRequest().body(Map.of("message","토큰/비밀번호가 필요합니다."));
-        }
-        String hash = org.springframework.security.crypto.bcrypt.BCrypt.hashpw(pw, org.springframework.security.crypto.bcrypt.BCrypt.gensalt(12));
-
-        return passwordResetService.consumeTokenAndReset(token, hash)
-                .<ResponseEntity<?>>map(u -> ResponseEntity.ok(Map.of("ok", true)))
-                .orElseGet(() -> ResponseEntity.status(400).body(Map.of("message","유효하지 않거나 만료된 링크입니다.")));
+        return ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED)
+                .body(Map.of("message","비밀번호 재설정 토큰 기능은 준비 중입니다."));
     }
+
+    @PostMapping("/local/reset-password")
+    public ResponseEntity<?> resetPassword(@RequestBody Map<String,String> body) {
+        return ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED)
+                .body(Map.of("message","비밀번호 재설정 토큰 기능은 준비 중입니다."));
+    }
+
     // ===== NAVER =====
-    @Value("${naver.client-id:}")
-    private String naverClientId;
-
-    @Value("${naver.client-secret:}")
-    private String naverClientSecret;
-
-    @Value("${naver.redirect-uri:}")
-    private String naverRedirectUri;
+    @Value("${naver.client-id:}") private String naverClientId;
+    @Value("${naver.client-secret:}") private String naverClientSecret;
+    @Value("${naver.redirect-uri:}") private String naverRedirectUri;
 
     // ===== GOOGLE =====
-    @Value("${google.client-id:}")
-    private String googleClientId;
-
-    @Value("${google.client-secret:}")
-    private String googleClientSecret;
-
-    @Value("${google.redirect-uri:}")
-    private String googleRedirectUri;
+    @Value("${google.client-id:}") private String googleClientId;
+    @Value("${google.client-secret:}") private String googleClientSecret;
+    @Value("${google.redirect-uri:}") private String googleRedirectUri;
 
     // ===== KAKAO =====
-    @Value("${kakao.client-id:}")
-    private String kakaoClientId;   // REST API 키
-
-    @Value("${kakao.client-secret:}")
-    private String kakaoClientSecret; // 콘솔에서 비활성인 경우 비워둬도 됨
-
-    @Value("${kakao.redirect-uri:}")
-    private String kakaoRedirectUri;
+    @Value("${kakao.client-id:}") private String kakaoClientId;
+    @Value("${kakao.client-secret:}") private String kakaoClientSecret;
+    @Value("${kakao.redirect-uri:}") private String kakaoRedirectUri;
 
     // ===== FACEBOOK =====
-    @Value("${facebook.client-id:}")
-    private String facebookClientId;
-
-    @Value("${facebook.client-secret:}")
-    private String facebookClientSecret;
-
-    @Value("${facebook.redirect-uri:}")
-    private String facebookRedirectUri;
+    @Value("${facebook.client-id:}") private String facebookClientId;
+    @Value("${facebook.client-secret:}") private String facebookClientSecret;
+    @Value("${facebook.redirect-uri:}") private String facebookRedirectUri;
 
     // FRONT
     @Value("${app.front-base:http://localhost:5173}")
@@ -257,8 +235,6 @@ public class AuthController {
                 .queryParam("redirect_uri", googleRedirectUri)
                 .queryParam("scope", "openid email profile")
                 .queryParam("include_granted_scopes", "true")
-                // .queryParam("access_type", "offline")
-                // .queryParam("prompt", "consent")
                 .queryParam("state", state)
                 .encode()
                 .toUriString();
@@ -417,7 +393,7 @@ public class AuthController {
         String authUrl = UriComponentsBuilder
                 .fromHttpUrl("https://www.facebook.com/v19.0/dialog/oauth")
                 .queryParam("client_id", facebookClientId)
-                .queryParam("redirect_uri", facebookRedirectUri) // 반드시 백엔드 콜백
+                .queryParam("redirect_uri", facebookRedirectUri)
                 .queryParam("state", state)
                 .queryParam("response_type", "code")
                 .queryParam("scope", "email,public_profile")
@@ -462,7 +438,7 @@ public class AuthController {
             return jsRedirect(frontBase + "/#/login-signup?err=token");
         }
 
-        // 2) 사용자 정보 (Bearer 권장)
+        // 2) 사용자 정보
         HttpHeaders h = new HttpHeaders();
         h.setBearerAuth(token.access_token);
         ResponseEntity<FacebookMe> meRes = rest.exchange(
@@ -479,13 +455,7 @@ public class AuthController {
         String name = (me.name != null ? me.name : "FacebookUser");
         String avatar = (me.picture != null && me.picture.data != null) ? me.picture.data.url : null;
 
-        SessionUser user = new SessionUser(
-                "facebook",
-                me.id,
-                me.email,   // null 가능(권한 미승인 등)
-                name,
-                avatar
-        );
+        SessionUser user = new SessionUser("facebook", me.id, me.email, name, avatar);
         session.setAttribute("LOGIN_USER", user);
 
         return jsRedirect(frontBase + "/#/auth/callback");
@@ -533,7 +503,6 @@ public class AuthController {
     public ResponseEntity<?> logout(HttpSession session) {
         try { session.invalidate(); } catch (Exception ignored) {}
 
-        // 운영 배포 기준: secure=true, SameSite=None 유지 (크로스도메인 세션)
         ResponseCookie expired = ResponseCookie.from("JSESSIONID", "")
                 .path("/")
                 .httpOnly(true)
@@ -545,4 +514,5 @@ public class AuthController {
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, expired.toString())
                 .body(Map.of("ok", true));
-    }}
+    }
+}
