@@ -12,6 +12,7 @@ const BRAND = {
 
 /* ========== Utils: 인앱 감지 & Android Chrome 인텐트 ========== */
 function detectInApp() {
+  if (typeof navigator === 'undefined') return { inApp: false, isAndroid: false, isIOS: false, vendor: null };
   const ua = navigator.userAgent || '';
   const isAndroid = /Android/i.test(ua);
   const isIOS = /iPhone|iPad|iPod/i.test(ua);
@@ -31,11 +32,12 @@ function detectInApp() {
 }
 
 function buildChromeIntentUrl(absoluteUrl) {
-  // https://developer.chrome.com/docs/android/intents/
   const u = new URL(absoluteUrl);
-  return `intent://${u.host}${u.pathname}${u.search}${u.hash}` +
-    `#Intent;scheme=${u.protocol.replace(':','')};package=com.android.chrome;` +
-    `S.browser_fallback_url=${encodeURIComponent(absoluteUrl)};end`;
+  return (
+    `intent://${u.host}${u.pathname}${u.search}${u.hash}` +
+    `#Intent;scheme=${u.protocol.replace(':', '')};package=com.android.chrome;` +
+    `S.browser_fallback_url=${encodeURIComponent(absoluteUrl)};end`
+  );
 }
 
 /* ========== Icons ========== */
@@ -105,7 +107,11 @@ export default function LoginPage() {
   const { inApp, isAndroid, isIOS } = detectInApp();
   const [showInAppTip, setShowInAppTip] = useState(inApp);
 
-  const from = (location.state && location.state.from) || '/';
+  const from =
+    (location.state && location.state.from) ||
+    (typeof localStorage !== 'undefined' && localStorage.getItem('postLoginRedirect')) ||
+    '/';
+
   const emailValid = useMemo(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email), [email]);
 
   async function handleSubmit(e){
@@ -114,18 +120,33 @@ export default function LoginPage() {
     setTouched({ email:true });
     if (!emailValid) { setErr('이메일 형식을 확인해주세요.'); return; }
     setLoading(true);
-    setTimeout(() => {
-      if (!email || !pw) { setErr('이메일과 비밀번호를 입력하세요.'); setLoading(false); return; }
-      const demoUser = { id: 1, name: 'HomeCooker', email, avatar: 'https://picsum.photos/seed/user/64/64' };
-      try { localStorage.setItem('authUser', JSON.stringify(demoUser)); } catch {}
+
+    try {
+      const res = await fetch('/api/auth/local/login', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password: pw }),
+      });
+      if (!res.ok) {
+        const { message } = await res.json().catch(()=>({}));
+        throw new Error(message || '로그인 실패');
+      }
+      const user = await res.json(); // SessionUser
+      localStorage.setItem('authUser', JSON.stringify(user));
+      window.dispatchEvent(new Event('auth:changed'));
       navigate(from, { replace: true });
-    }, 700);
+    } catch (err) {
+      setErr(err.message || '로그인에 실패했습니다.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   function socialLogin(provider) {
     const backTo =
       (location.state && location.state.from) ||
-      localStorage.getItem('postLoginRedirect') ||
+      (typeof localStorage !== 'undefined' && localStorage.getItem('postLoginRedirect')) ||
       '/';
     try { localStorage.setItem('postLoginRedirect', backTo); } catch {}
 
@@ -135,7 +156,7 @@ export default function LoginPage() {
       return;
     }
 
-    const API_BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/+$/, '');
+    const API_BASE = (import.meta.env?.VITE_API_BASE || '').replace(/\/+$/, '');
     const startPath = `/api/auth/oauth/${provider}/start`;
     const absoluteStart = API_BASE ? `${API_BASE}${startPath}` : `${window.location.origin}${startPath}`;
 
@@ -191,6 +212,9 @@ export default function LoginPage() {
                   await navigator.clipboard.writeText(window.location.href);
                   alert('링크를 복사했어요. 기본 브라우저에 붙여넣어 열어주세요!');
                 } catch {
+                  // 일부 인앱 브라우저는 Clipboard API 미지원
+                  // fallback으로 prompt 사용
+                  // eslint-disable-next-line no-alert
                   prompt('아래 링크를 복사하세요', window.location.href);
                 }
               }}
@@ -234,7 +258,7 @@ export default function LoginPage() {
         </button>
       </div>
 
-      {/* 이메일/비번 (데모) */}
+      {/* 이메일/비번 */}
       <form className="login-card" onSubmit={handleSubmit} noValidate>
         <div className="form-grid">
           <div className="form-field">

@@ -1,21 +1,80 @@
 package com.homecook.ai_recipe.auth;
 
 import com.homecook.ai_recipe.dto.*;
+import com.homecook.ai_recipe.dto.LocalAuthDtos.LoginReq;
+import com.homecook.ai_recipe.dto.LocalAuthDtos.RegisterReq;
+import com.homecook.ai_recipe.repo.UserAccountRepository;
+import com.homecook.ai_recipe.service.LocalAuthService;
+import jakarta.servlet.http.HttpSession;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
-import jakarta.servlet.http.HttpSession;
 import java.math.BigInteger;
 import java.net.URI;
 import java.security.SecureRandom;
 import java.util.Map;
 
+
+
+
 @RestController
 @RequestMapping("/api/auth")
+@lombok.RequiredArgsConstructor
 public class AuthController {
+
+    private final com.homecook.ai_recipe.service.LocalAuthService localAuth;      // ← 추가
+    private final com.homecook.ai_recipe.repo.UserAccountRepository userRepo;
+
+
+    /* ===================== LOCAL (자체 로그인) ===================== */
+    @PostMapping("/local/register")
+    public ResponseEntity<?> registerLocal(@RequestBody @Valid LocalAuthDtos.RegisterReq req, HttpSession session) {
+        try {
+            UserAccount u = localAuth.register(req.getEmail(), req.getPassword(), req.getName());
+            // 자동 로그인
+            SessionUser su = new SessionUser(
+                    "local", String.valueOf(u.getId()), u.getEmail(), u.getName(), u.getAvatar()
+            );
+            session.setAttribute("LOGIN_USER", su);
+            return ResponseEntity.ok(su);
+        } catch (IllegalArgumentException dup) {
+            return ResponseEntity.badRequest().body(Map.of("message", dup.getMessage()));
+        }
+    }
+
+    @PostMapping("/local/login")
+    public ResponseEntity<?> loginLocal(@RequestBody @Valid LoginReq req, HttpSession session) {
+        return localAuth.login(req.getEmail(), req.getPassword())
+                .<ResponseEntity<?>>map(u -> {
+                    SessionUser su = new SessionUser("local", String.valueOf(u.getId()), u.getEmail(), u.getName(), u.getAvatar());
+                    session.setAttribute("LOGIN_USER", su);
+                    return ResponseEntity.ok(su);
+                })
+                .orElseGet(() -> ResponseEntity.status(401).body(Map.of("message","잘못된 이메일 또는 비밀번호입니다.")));
+    }
+
+    /* (선택) 비밀번호 변경 */
+    @PostMapping("/local/change-password")
+    public ResponseEntity<?> changePassword(@RequestBody Map<String,String> body, HttpSession session) {
+        SessionUser me = (SessionUser) session.getAttribute("LOGIN_USER");
+        if (me == null || !"local".equals(me.provider())) {
+            return ResponseEntity.status(401).body(Map.of("message","로그인이 필요합니다."));
+        }
+        String current = body.getOrDefault("current","");
+        String next = body.getOrDefault("next","");
+
+        var u = userRepo.findById(Long.valueOf(me.providerId())).orElse(null);
+        if (u == null || !org.springframework.security.crypto.bcrypt.BCrypt.checkpw(current, u.getPasswordHash())) {
+            return ResponseEntity.status(400).body(Map.of("message","현재 비밀번호가 올바르지 않습니다."));
+        }
+        u.setPasswordHash(org.springframework.security.crypto.bcrypt.BCrypt.hashpw(next, org.springframework.security.crypto.bcrypt.BCrypt.gensalt(12)));
+        userRepo.save(u);
+        return ResponseEntity.ok(Map.of("ok", true));
+    }
 
     // ===== NAVER =====
     @Value("${naver.client-id:}")

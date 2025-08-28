@@ -1,5 +1,5 @@
 // src/main/java/com/homecook/ai_recipe/repo/UserAccountRepository.java
-package com.homecook.ai_recipe.auth;
+package com.homecook.ai_recipe.repo;
 
 import com.homecook.ai_recipe.auth.UserAccount;
 import org.springframework.data.jpa.repository.JpaRepository;
