@@ -29,6 +29,7 @@ public class AuthController {
     private final com.homecook.ai_recipe.service.LocalAuthService localAuth;      // ← 추가
     private final com.homecook.ai_recipe.repo.UserAccountRepository userRepo;
     private final com.homecook.ai_recipe.service.PasswordResetService passwordResetService ;
+    private final com.homecook.ai_recipe.service.MailService mailService;
 
     /* ===================== LOCAL (자체 로그인) ===================== */
     @PostMapping("/local/register")
@@ -82,12 +83,20 @@ public class AuthController {
         String email = (body.getOrDefault("email","")+"").trim();
         if (email.isBlank()) return ResponseEntity.badRequest().body(Map.of("message","이메일을 입력하세요."));
 
+        // 과도한 요청 제한
+        if (!passwordResetService.canRequestNow(email)) {
+            // 존재여부는 숨기고 동일 응답
+            return ResponseEntity.ok(Map.of("ok", true));
+        }
+
         var uOpt = passwordResetService.findUserByEmail(email);
-        // 보안상 존재여부를 노출하지 않음: 항상 OK 응답
         uOpt.ifPresent(u -> {
             String token = passwordResetService.createTokenFor(u);
-            // (운영) 메일 전송 로직 필요. 지금은 로그로 대체.
-            System.out.println("[DEV] Password reset link: " + frontBase + "/#/forgot?token=" + token);
+            // 프론트 라우팅: 해시 라우터(#) or SPA 경로 중 네가 쓰는 방식으로 선택
+            String link = frontBase + "/#/forgot?token=" + token; // 해시 라우터일 때
+            // String link = frontBase + "/forgot?token=" + token; // 브라우저 라우터일 때
+
+            mailService.sendPasswordReset(email, link);
         });
         return ResponseEntity.ok(Map.of("ok", true));
     }

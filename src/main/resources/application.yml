@@ -1,7 +1,20 @@
+
+mail:
+  from: ${MAIL_FROM:no-reply@recipfree.com}
+  reset-subject: "[RecipFree] 비밀번호 재설정 링크"
 spring:
   mvc:
     async:
       request-timeout: 95s
+  mail:
+    host: ${SMTP_HOST:}
+    port: ${SMTP_PORT:}
+    username: ${SMTP_USER:}
+    password: ${SMTP_PASS:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+
 
 server:
   forward-headers-strategy: framework   # 프록시 뒤에서 HTTPS/Host 인지
@@ -39,3 +52,4 @@ facebook:
   client-id: ${FACEBOOK_CLIENT_ID:}
   client-secret: ${FACEBOOK_CLIENT_SECRET:}
   redirect-uri: ${FACEBOOK_REDIRECT_URI:https://recipfree.com/api/auth/oauth/facebook/callback}
+

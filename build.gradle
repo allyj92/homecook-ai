@@ -29,6 +29,9 @@ dependencies {
     // PostgreSQL 의존성
     implementation 'org.postgresql:postgresql:42.7.3'
 
+    implementation 'org.springframework.boot:spring-boot-starter-mail'
+    implementation 'org.springframework.boot:spring-boot-starter-thymeleaf' // (선택) 템플릿 메일 보낼 경우
+
 
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
