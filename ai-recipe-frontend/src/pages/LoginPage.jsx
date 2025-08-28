@@ -103,7 +103,7 @@ export default function LoginPage() {
   }, [params]);
 
   const [email, setEmail] = useState('');
-  the const [pw, setPw] = useState('');
+  const [pw, setPw] = useState('');
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
