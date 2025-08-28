@@ -1,11 +1,12 @@
 
 
 spring:
-  config:
-    import: optional:classpath:application-local.yml
-  mvc:
-    async:
-      request-timeout: 95s
+  profiles:
+    active: prod
+    test:
+      database:
+        replace: NONE
+
 #  mail:
 #    host: ${MAIL_HOST:}
 #    port: ${MAIL_PORT:587}
