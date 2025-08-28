@@ -91,6 +91,12 @@ export default function LoginPage() {
 
   const emailValid = useMemo(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email), [email]);
 
+  const computeTargetAndGo = () => {
+    const target = (from && !from.startsWith('/login-signup')) ? from : '/';
+    try { localStorage.removeItem('postLoginRedirect'); } catch {}
+    navigate(target, { replace: true });
+  };
+
   async function submitLogin(e){
     e.preventDefault();
     setErr('');
@@ -112,7 +118,7 @@ export default function LoginPage() {
       const user = await res.json();
       localStorage.setItem('authUser', JSON.stringify(user));
       window.dispatchEvent(new Event('auth:changed'));
-      navigate(from, { replace: true });
+      computeTargetAndGo();
     } catch (err) {
       setErr(err.message || '로그인에 실패했습니다.');
     } finally {
@@ -143,7 +149,7 @@ export default function LoginPage() {
       const user = await res.json(); // SessionUser (자동 로그인)
       localStorage.setItem('authUser', JSON.stringify(user));
       window.dispatchEvent(new Event('auth:changed'));
-      navigate(from, { replace: true });
+      computeTargetAndGo();
     } catch (err) {
       setErr(err.message || '회원가입에 실패했습니다.');
     } finally {
@@ -184,7 +190,7 @@ export default function LoginPage() {
   const title = mode === 'register' ? '회원가입' : '로그인';
 
   const switchTo = (m) => {
-    setParams(prev => { prev.set('mode', m); return prev; }, { replace: true });
+    setParams({ mode: m }, { replace: true });
   };
 
   return (
@@ -276,7 +282,25 @@ export default function LoginPage() {
               <PasswordInput id="pw" value={pw} onChange={e=>setPw(e.target.value)} placeholder="••••••••" />
             </div>
           </div>
-          {err && <div className="form-alert" role="alert">{err}</div>}
+
+          {err && (
+            <div className="form-alert" role="alert">
+              {err}
+              {/* UX: 로그인 실패 시 회원가입 유도 */}
+              <div style={{ marginTop: 6, fontSize: 13 }}>
+                계정이 없으신가요?{' '}
+                <button
+                  type="button"
+                  className="link-like"
+                  onClick={()=>switchTo('register')}
+                  style={{ color: '#0d6efd', background: 'transparent', border: 'none', padding: 0 }}
+                >
+                  회원가입
+                </button>
+              </div>
+            </div>
+          )}
+
           <button className="login-btn" disabled={loading} type="submit">
             {loading ? <span className="spinner" aria-hidden="true" /> : '로그인'}
           </button>
