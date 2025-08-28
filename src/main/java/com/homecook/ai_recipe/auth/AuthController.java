@@ -6,6 +6,8 @@ import com.homecook.ai_recipe.dto.LocalAuthDtos.LoginReq;
 import com.homecook.ai_recipe.dto.LocalAuthDtos.RegisterReq;
 import com.homecook.ai_recipe.repo.UserAccountRepository;
 import com.homecook.ai_recipe.service.LocalAuthService;
+import com.homecook.ai_recipe.service.MailService;
+import com.homecook.ai_recipe.service.PasswordResetService;
 import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Value;
@@ -16,6 +18,8 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import java.math.BigInteger;
 import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.Map;
 
@@ -26,6 +30,8 @@ public class AuthController {
 
     private final LocalAuthService localAuth;
     private final UserAccountRepository userRepo;
+    private final MailService mailService;
+    private final PasswordResetService passwordResetService;
 
     // ===== LOCAL (자체 로그인) =====
     @PostMapping("/local/register")
@@ -76,15 +82,29 @@ public class AuthController {
     @PostMapping("/local/forgot")
     public ResponseEntity<?> forgot(@RequestBody Map<String,String> body) {
         String email = (body.getOrDefault("email","")+"").trim();
-        if (email.isBlank()) return ResponseEntity.badRequest().body(Map.of("message","이메일을 입력하세요."));
+        if (email.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("message","이메일을 입력하세요."));
+        }
 
         var uOpt = userRepo.findByEmail(email);
         if (uOpt.isEmpty()) {
-            // 존재 여부를 굳이 숨기지 않으려면 404, 숨기려면 200 고정으로 바꿔도 됨
+            // 보안상 200을 주기도 하는데, 지금 로직 유지:
             return ResponseEntity.status(404).body(Map.of("message", "해당 이메일의 사용자가 없습니다."));
         }
-        // 여기서 실제 메일 발송/토큰 저장은 추후 구현
-        return ResponseEntity.ok(Map.of("ok", true, "message", "비밀번호 재설정 안내 기능은 준비 중입니다."));
+
+        UserAccount u = uOpt.get();
+
+        // 1) 토큰 발급
+        String token = passwordResetService.issueToken(u.getId());
+
+        // 2) 링크 생성
+        String link = frontBase + "/#/reset-password?token="
+                + URLEncoder.encode(token, StandardCharsets.UTF_8);
+
+        // 3) 메일 발송
+        mailService.sendPasswordReset(u.getEmail(), link);
+
+        return ResponseEntity.ok(Map.of("ok", true));
     }
 
     // 구버전 경로 호환
