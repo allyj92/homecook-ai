@@ -104,10 +104,11 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState('');
   const [pw, setPw] = useState('');
+  const [pw2, setPw2] = useState('');              // ← 확인 비밀번호
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
-  const [touched, setTouched] = useState({ email:false });
+  const [touched, setTouched] = useState({ email:false, pw:false, pw2:false });
 
   const { inApp, isAndroid, isIOS } = detectInApp();
   const [showInAppTip, setShowInAppTip] = useState(inApp);
@@ -128,7 +129,7 @@ export default function LoginPage() {
   async function submitLogin(e){
     e.preventDefault();
     setErr('');
-    setTouched({ email:true });
+    setTouched(s => ({...s, email:true}));
     if (!emailValid) { setErr('이메일 형식을 확인해주세요.'); return; }
     setLoading(true);
 
@@ -157,12 +158,14 @@ export default function LoginPage() {
   async function submitRegister(e) {
     e.preventDefault();
     setErr('');
-    setTouched({ email:true });
+    setTouched({ email:true, pw:true, pw2:true });
+
     if (!emailValid) { setErr('이메일 형식을 확인해주세요.'); return; }
     if (!name.trim()) { setErr('이름을 입력해주세요.'); return; }
     if (pw.length < 6) { setErr('비밀번호는 6자 이상 입력해주세요.'); return; }
-    setLoading(true);
+    if (pw !== pw2) { setErr('비밀번호가 일치하지 않습니다.'); return; }   // ← 확인
 
+    setLoading(true);
     try {
       const res = await fetch('/api/auth/local/register', {
         method: 'POST',
@@ -216,10 +219,10 @@ export default function LoginPage() {
   }
 
   const title = mode === 'register' ? '회원가입' : '로그인';
+  const switchTo = (m) => setParams({ mode: m }, { replace: true });
 
-  const switchTo = (m) => {
-    setParams({ mode: m }, { replace: true });
-  };
+  const passwordMismatch = useMemo(() => mode === 'register' && touched.pw2 && pw2.length > 0 && pw !== pw2, [mode, pw, pw2, touched.pw2]);
+  const passwordTooShort = useMemo(() => mode === 'register' && touched.pw && pw.length > 0 && pw.length < 6, [mode, pw, touched.pw]);
 
   return (
     <div className="login-wrap">
@@ -282,7 +285,7 @@ export default function LoginPage() {
 
       <div className="divider" role="separator" aria-label="또는">또는</div>
 
-      {/* 소셜 아이콘 줄 (복구됨) */}
+      {/* 소셜 아이콘 줄 */}
       <div className="social-row" role="group" aria-label="소셜 로그인">
         <button type="button" className="social-btn" title="네이버로 시작하기"
                 onClick={()=>socialLogin('naver')}>
@@ -349,7 +352,7 @@ export default function LoginPage() {
 
           <div className="help-links">
             <button type="button" className="help-link" onClick={()=>switchTo('register')}>회원가입하기</button>
-            <Link to="/forgot-password" className="help-link">아이디/비밀번호 찾기</Link>
+            <Link to="/forgot" className="help-link">아이디/비밀번호 찾기</Link>
           </div>
         </form>
       ) : (
@@ -371,17 +374,33 @@ export default function LoginPage() {
               />
               {touched.email && !emailValid && <div className="field-hint error">유효한 이메일을 입력하세요.</div>}
             </div>
+
             <div className="form-field">
               <label className="form-label" htmlFor="name">이름</label>
               <input id="name" className="form-input" value={name} onChange={e=>setName(e.target.value)} placeholder="홍길동" required />
             </div>
+
             <div className="form-field">
-              <label className="form-label" htmlFor="pw2">비밀번호</label>
-              <PasswordInput id="pw2" value={pw} onChange={e=>setPw(e.target.value)} placeholder="6자 이상" />
+              <label className="form-label" htmlFor="pw2-main">비밀번호</label>
+              <PasswordInput id="pw2-main" value={pw} onChange={e=>{ setPw(e.target.value); if (!touched.pw) setTouched(s=>({...s,pw:true})); }} placeholder="6자 이상" />
+              {passwordTooShort && <div className="field-hint error">비밀번호는 6자 이상이어야 합니다.</div>}
+            </div>
+
+            <div className="form-field">
+              <label className="form-label" htmlFor="pw2-confirm">비밀번호 확인</label>
+              <PasswordInput id="pw2-confirm" value={pw2} onChange={e=>{ setPw2(e.target.value); if (!touched.pw2) setTouched(s=>({...s,pw2:true})); }} placeholder="다시 한 번 입력" />
+              {passwordMismatch && <div className="field-hint error">비밀번호가 일치하지 않습니다.</div>}
             </div>
           </div>
+
           {err && <div className="form-alert" role="alert">{err}</div>}
-          <button className="login-btn" disabled={loading} type="submit">
+
+          <button
+            className="login-btn"
+            disabled={loading || !emailValid || !name.trim() || pw.length < 6 || pw !== pw2}
+            type="submit"
+            aria-disabled={loading || !emailValid || !name.trim() || pw.length < 6 || pw !== pw2}
+          >
             {loading ? <span className="spinner" aria-hidden="true" /> : '회원가입'}
           </button>
 
