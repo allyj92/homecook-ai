@@ -154,7 +154,7 @@ export default function Header({ cartCount = 0, onCartClick }) {
                 ) : (
                   <div className="d-grid gap-2">
                     <button className="btn btn-outline-success w-100" onClick={() => go('/login-signup?mode=login')}>로그인</button>
-                    <button className="btn btn-success text-white w-100" onClick={() => go('/login-signup?mode=register')}>회원가입</button>
+                  
                   </div>
                 )}
               </li>
