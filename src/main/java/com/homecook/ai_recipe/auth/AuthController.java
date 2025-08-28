@@ -28,7 +28,7 @@ public class AuthController {
 
     private final com.homecook.ai_recipe.service.LocalAuthService localAuth;      // ← 추가
     private final com.homecook.ai_recipe.repo.UserAccountRepository userRepo;
-
+    private final com.homecook.ai_recipe.service.PasswordResetService passwordResetService ;
 
     /* ===================== LOCAL (자체 로그인) ===================== */
     @PostMapping("/local/register")
@@ -76,6 +76,35 @@ public class AuthController {
         return ResponseEntity.ok(Map.of("ok", true));
     }
 
+    // ===== 비밀번호/아이디 잊어버렸을때 =====
+    @PostMapping("/local/forgot")
+    public ResponseEntity<?> forgot(@RequestBody Map<String,String> body) {
+        String email = (body.getOrDefault("email","")+"").trim();
+        if (email.isBlank()) return ResponseEntity.badRequest().body(Map.of("message","이메일을 입력하세요."));
+
+        var uOpt = passwordResetService.findUserByEmail(email);
+        // 보안상 존재여부를 노출하지 않음: 항상 OK 응답
+        uOpt.ifPresent(u -> {
+            String token = passwordResetService.createTokenFor(u);
+            // (운영) 메일 전송 로직 필요. 지금은 로그로 대체.
+            System.out.println("[DEV] Password reset link: " + frontBase + "/#/forgot?token=" + token);
+        });
+        return ResponseEntity.ok(Map.of("ok", true));
+    }
+
+    @PostMapping("/local/reset")
+    public ResponseEntity<?> reset(@RequestBody Map<String,String> body) {
+        String token = body.getOrDefault("token","");
+        String pw    = body.getOrDefault("password","");
+        if (token.isBlank() || pw.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("message","토큰/비밀번호가 필요합니다."));
+        }
+        String hash = org.springframework.security.crypto.bcrypt.BCrypt.hashpw(pw, org.springframework.security.crypto.bcrypt.BCrypt.gensalt(12));
+
+        return passwordResetService.consumeTokenAndReset(token, hash)
+                .<ResponseEntity<?>>map(u -> ResponseEntity.ok(Map.of("ok", true)))
+                .orElseGet(() -> ResponseEntity.status(400).body(Map.of("message","유효하지 않거나 만료된 링크입니다.")));
+    }
     // ===== NAVER =====
     @Value("${naver.client-id:}")
     private String naverClientId;
