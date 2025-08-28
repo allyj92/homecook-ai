@@ -349,7 +349,7 @@ export default function LoginPage() {
 
           <div className="help-links">
             <button type="button" className="help-link" onClick={()=>switchTo('register')}>회원가입하기</button>
-            <Link to="#" className="help-link">비밀번호 찾기</Link>
+            <Link to="/forgot" className="help-link">아이디/비밀번호 찾기</Link>
           </div>
         </form>
       ) : (

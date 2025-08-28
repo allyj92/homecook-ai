@@ -10,7 +10,7 @@ import LoginPage from './pages/LoginPage'
 import ShopPage from './pages/ShopPage'
 import AuthBootstrap from './auth/AuthBootstrap' 
 import AuthCallback from './pages/AuthCallback'; 
-
+import ForgotResetPage from './pages/ForgotResetPage';
 
 // ⚠️ Header는 Layout 내부에서만 렌더되므로 여기서 import 불필요
 // import Header from './compoments/Header'
@@ -35,6 +35,7 @@ export default function App() {
         <Route path="saved" element={<div>저장한 레시피 전체(추후)</div>} />
         <Route path="activity" element={<div>활동 내역(추후)</div>} />
         <Route path="login-signup" element={<LoginPage />} />
+        <Route path="/forgot" element={<ForgotResetPage />} />
        
       <Route path="login" element={<Navigate to="/login-signup" replace />} />
       <Route path="signup" element={<Navigate to="/login-signup" replace />} />
