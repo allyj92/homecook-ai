@@ -36,6 +36,8 @@ export default function App() {
         <Route path="activity" element={<div>활동 내역(추후)</div>} />
         <Route path="login-signup" element={<LoginPage />} />
         <Route path="/forgot" element={<ForgotResetPage />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
        
       <Route path="login" element={<Navigate to="/login-signup" replace />} />
       <Route path="signup" element={<Navigate to="/login-signup" replace />} />
