@@ -1,10 +1,11 @@
 // src/pages/ResultPage.jsx
 import { useLocation, Link } from 'react-router-dom';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { requestRecommend, requestRecommendTop } from '../api';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import BottomNav from '../compoments/BottomNav';
-// ㅇㄹ
+import { recipeKey, toggleWishlist, checkSaved } from '../lib/wishlist';
+
 /* ---------------- Goals 라벨 ---------------- */
 const GOAL_LABELS = {
   low_sodium: '저염',
@@ -223,12 +224,31 @@ export default function ResultPage() {
   /* --- 재료 기반 광고 상태 --- */
   const [adMap, setAdMap] = useState({}); // { [ingredientName]: [adItems] }
 
+  /* --- 찜 여부 상태 --- */
+  const [saved, setSaved] = useState(false);
+
   // 새로고침 후에도 goals 뱃지 보정(단일)
   useEffect(() => {
     if (data && !Array.isArray(data.goals)) {
       const lastReq = JSON.parse(localStorage.getItem('recipe_last_request') || 'null');
       if (lastReq?.goals) setData(prev => ({ ...(prev || {}), goals: lastReq.goals }));
     }
+  }, [data]);
+
+  // 단일 데이터가 생기면 찜 여부 선조회
+  useEffect(() => {
+    let aborted = false;
+    (async () => {
+      if (!data) return;
+      const key = recipeKey(data);
+      try {
+        const r = await checkSaved(key);
+        if (!aborted) setSaved(!!r.saved);
+      } catch {
+        if (!aborted) setSaved(false);
+      }
+    })();
+    return () => { aborted = true; };
   }, [data]);
 
   // 🔧 ESLint 경고 해결: data를 의존성으로 넣고 내부에서 가드
@@ -255,6 +275,29 @@ export default function ResultPage() {
   }, [adMap]);
 
   const hasAnyResult = list.length > 0 || !!data;
+
+  const onToggleWish = useCallback(async () => {
+    if (!data) return;
+    const key = recipeKey(data);
+    const meta = `${data.kcal ?? '?'}kcal · ${data.cook_time_min ?? '?'}분`;
+
+    // 낙관적 업데이트
+    setSaved(v => !v);
+    try {
+      const r = await toggleWishlist({
+        key,
+        title: data.title,
+        summary: data.summary,
+        image: data.image || null,
+        meta,
+        payload: data,
+      });
+      setSaved(!!r.saved);
+    } catch {
+      setSaved(v => !v);
+      alert('찜하기 처리에 실패했어요. 로그인 상태를 확인해 주세요.');
+    }
+  }, [data]);
 
   async function retrySameCondition() {
     const lastReq = JSON.parse(localStorage.getItem('recipe_last_request') || 'null');
@@ -369,7 +412,21 @@ export default function ResultPage() {
       {/* 단일 모드 */}
       {data && (
         <>
-          <h2 className="h4 fw-bold mb-2">{data.title}</h2>
+          {/* 타이틀 + 찜 토글 */}
+          <div className="d-flex align-items-start justify-content-between mb-2">
+            <h2 className="h4 fw-bold mb-0">{data.title}</h2>
+            <button
+              type="button"
+              className={`btn btn-sm ${saved ? 'btn-danger' : 'btn-outline-danger'}`}
+              onClick={onToggleWish}
+              aria-pressed={saved}
+              aria-label="찜하기"
+              title={saved ? '찜 해제' : '찜하기'}
+            >
+              {saved ? '♥ 찜됨' : '♡ 찜'}
+            </button>
+          </div>
+
           {data.summary && <p className="text-secondary mb-3">{data.summary}</p>}
 
           {toKoreanGoals(data.goals).length > 0 && (
