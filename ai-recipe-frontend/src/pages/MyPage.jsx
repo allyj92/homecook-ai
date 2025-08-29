@@ -26,21 +26,17 @@ export default function MyPage() {
 
   // 1) 현재 로그인 여부 (localStorage) 확인
   let me0 = null;
-  try {
-    me0 = JSON.parse(localStorage.getItem('authUser') || 'null');
-  } catch {
-    me0 = null; // 파싱 실패 시 미로그인 취급
-  }
+  try { me0 = JSON.parse(localStorage.getItem('authUser') || 'null'); } catch { me0 = null; }
 
   // 2) 로그아웃이면 로그인 화면으로 리다이렉트
   useEffect(() => {
     if (!me0) {
-      localStorage.setItem('postLoginRedirect', '/mypage'); // 로그인 후 다시 돌아오게
+      try { localStorage.setItem('postLoginRedirect', '/mypage'); } catch {}
       navigate('/login-signup', { replace: true, state: { from: '/mypage' } });
     }
   }, [me0, navigate]);
 
-  // 3) 리다이렉트 중엔 화면 렌더 안 함(깜빡임 방지)
+  // 3) 리다이렉트 중엔 화면 렌더 안 함
   if (!me0) return null;
 
   // 서버에서 받은 내 정보
@@ -48,16 +44,14 @@ export default function MyPage() {
 
   // 서버의 /api/auth/me 호출 → 로그인 상태면 실제 프로필 세팅
   useEffect(() => {
-    if (!me0) return; // ⬅️ 미로그인 시 호출 안 함
+    if (!me0) return;
     (async () => {
       try {
         const res = await apiFetch('/api/auth/me', { noAuthRedirect: true });
         if (!res.ok) return;
         const data = await res.json(); // { id, email, name, avatar, ... }
         setMe(data);
-      } catch {
-        // no-op
-      }
+      } catch {}
     })();
   }, [me0]);
 
@@ -95,22 +89,31 @@ export default function MyPage() {
   const [wishErr, setWishErr] = useState('');
   const [wishlist, setWishlist] = useState([]);
 
-  useEffect(() => {
-    let aborted = false;
-    (async () => {
-      if (!me0) return;
-      setWishLoading(true);
-      setWishErr('');
-      try {
-        const items = await fetchWishlist();
-        if (!aborted) setWishlist(items || []);
-      } catch {
-        if (!aborted) setWishErr('저장한 레시피를 불러오지 못했어요.');
-      } finally {
-        if (!aborted) setWishLoading(false);
+  async function loadWishlist(signal) {
+    setWishLoading(true);
+    setWishErr('');
+    try {
+      const items = await fetchWishlist({ signal });
+      setWishlist(items || []);
+    } catch (e) {
+      if (e?.status === 401) {
+        setWishErr('로그인이 필요합니다.');
+      } else if (e?.code === 'ETIMEDOUT' || e?.message === 'timeout') {
+        setWishErr('네트워크가 원활하지 않아요. 잠시 후 다시 시도해 주세요.');
+      } else {
+        setWishErr('저장한 레시피를 불러오지 못했어요.');
       }
-    })();
-    return () => { aborted = true; };
+    } finally {
+      setWishLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!me0) return;
+    const ac = new AbortController();
+    loadWishlist(ac.signal);
+    return () => ac.abort();
+    // me0가 바뀌지 않으므로 추가 의존성 불필요
   }, [me0]);
 
   async function onRemove(key) {
@@ -119,9 +122,10 @@ export default function MyPage() {
     try {
       const r = await removeWishlist(key);
       if (!r.removed) setWishlist(prev); // 롤백
-    } catch {
-      alert('삭제에 실패했어요.');
+    } catch (e) {
       setWishlist(prev); // 롤백
+      if (e?.status === 401) alert('로그인이 필요합니다.');
+      else alert('삭제에 실패했어요.');
     }
   }
 
@@ -169,7 +173,23 @@ export default function MyPage() {
           <div className="card shadow-sm mb-3">
             <div className="card-header d-flex justify-content-between align-items-center">
               <h5 className="m-0">저장한 레시피</h5>
-              <span className="text-secondary small">{wishlist.length}개</span>
+              <div className="d-flex align-items-center gap-2">
+                {!wishLoading && !wishErr && (
+                  <span className="text-secondary small">{wishlist.length}개</span>
+                )}
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline-secondary"
+                  onClick={() => {
+                    const ac = new AbortController();
+                    loadWishlist(ac.signal);
+                    setTimeout(() => ac.abort(), 10000); // 수동 안전장치
+                  }}
+                  disabled={wishLoading}
+                >
+                  {wishLoading ? '새로고침 중…' : '새로고침'}
+                </button>
+              </div>
             </div>
 
             {wishLoading && (
@@ -183,7 +203,35 @@ export default function MyPage() {
             )}
 
             {!wishLoading && wishErr && (
-              <div className="alert alert-danger m-3" role="alert">{wishErr}</div>
+              <div className="p-4 text-center">
+                <div className="alert alert-warning d-inline-block text-start mb-3" role="alert">
+                  {wishErr}
+                </div>
+                <div>
+                  {wishErr.includes('로그인') ? (
+                    <button
+                      className="btn btn-success"
+                      onClick={() => {
+                        try { localStorage.setItem('postLoginRedirect', '/mypage'); } catch {}
+                        navigate('/login-signup', { replace: true, state: { from: '/mypage' } });
+                      }}
+                    >
+                      로그인하러 가기
+                    </button>
+                  ) : (
+                    <button
+                      className="btn btn-outline-secondary"
+                      onClick={() => {
+                        const ac = new AbortController();
+                        loadWishlist(ac.signal);
+                        setTimeout(() => ac.abort(), 10000);
+                      }}
+                    >
+                      다시 시도
+                    </button>
+                  )}
+                </div>
+              </div>
             )}
 
             {!wishLoading && !wishErr && wishlist.length === 0 && (
@@ -198,7 +246,7 @@ export default function MyPage() {
             {!wishLoading && !wishErr && wishlist.length > 0 && (
               <div className="list-group list-group-flush">
                 {wishlist.map((w) => (
-                  <div key={w.id} className="list-group-item">
+                  <div key={w.id ?? w.itemKey} className="list-group-item">
                     <div className="d-flex align-items-center gap-3">
                       <div className="flex-shrink-0">
                         <div
@@ -216,8 +264,8 @@ export default function MyPage() {
                         {w.summary && <div className="small text-secondary text-truncate">{w.summary}</div>}
                       </div>
                       <div className="d-flex gap-2">
-                        {/* 상세 페이지가 있다면 라우팅 연결 */}
-                        {/* <Link className="btn btn-sm btn-outline-primary" to={`/recipe/${w.id ?? ''}`}>보기</Link> */}
+                        {/* 필요하면 상세로 라우팅 */}
+                        {/* <Link className="btn btn-sm btn-outline-primary" to={`/recipe/${w.itemKey}`}>보기</Link> */}
                         <button
                           className="btn btn-sm btn-outline-danger"
                           onClick={() => onRemove(w.itemKey)}
