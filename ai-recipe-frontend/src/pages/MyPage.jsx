@@ -24,38 +24,121 @@ export default function MyPage() {
   const navigate = useNavigate();
   useEffect(() => { window.scrollTo(0, 0); }, []);
 
-  // 1) 현재 로그인 여부 (localStorage) 확인
-  let me0 = null;
-  try { me0 = JSON.parse(localStorage.getItem('authUser') || 'null'); } catch { me0 = null; }
-
-  // 2) 로그아웃이면 로그인 화면으로 리다이렉트
-  useEffect(() => {
-    if (!me0) {
-      try { localStorage.setItem('postLoginRedirect', '/mypage'); } catch {}
-      navigate('/login-signup', { replace: true, state: { from: '/mypage' } });
-    }
-  }, [me0, navigate]);
-
-  // 3) 리다이렉트 중엔 화면 렌더 안 함
-  if (!me0) return null;
-
-  // 서버에서 받은 내 정보
+  // 프로필/세션
   const [me, setMe] = useState(null);
+  const [meLoading, setMeLoading] = useState(true);
 
-  // 서버의 /api/auth/me 호출 → 로그인 상태면 실제 프로필 세팅
+  // 환경설정 상태(데모)
+  const [notifOn, setNotifOn] = useState(true);
+  const [adPref, setAdPref] = useState('balanced');
+  const [dietGoal, setDietGoal] = useState('diet');
+
+  // 위시리스트
+  const [wishLoading, setWishLoading] = useState(false);
+  const [wishErr, setWishErr] = useState('');
+  const [wishlist, setWishlist] = useState([]);
+
+  // 최근 활동(데모)
+  const activities = useMemo(() => ([
+    { id: 1, type: 'comment', text: '“곤약 비빔 소스 꿀팁 감사합니다!”에 댓글', ago: '2시간 전' },
+    { id: 2, type: 'cook', text: '저염 닭가슴살 볶음 요리 완료 기록', ago: '어제' },
+    { id: 3, type: 'save', text: '두부 파프리카 볶음 저장함', ago: '2일 전' },
+  ]), []);
+
+  // 1) me 먼저 → 200일 때만 wishlist 호출
   useEffect(() => {
-    if (!me0) return;
+    let aborted = false;
+
     (async () => {
+      setMeLoading(true);
       try {
         const res = await apiFetch('/api/auth/me', { noAuthRedirect: true });
-        if (!res.ok) return;
-        const data = await res.json(); // { id, email, name, avatar, ... }
-        setMe(data);
-      } catch {}
-    })();
-  }, [me0]);
+        if (aborted) return;
 
-  // 데모 유저 데이터 (브랜딩: 레시프리)
+        if (res.status === 401) {
+          try { localStorage.removeItem('authUser'); } catch {}
+          localStorage.setItem('postLoginRedirect', '/mypage');
+          navigate('/login-signup', { replace: true, state: { from: '/mypage' } });
+          return; // ❗ 여기서 종료 → wishlist 안 불러옴
+        }
+        if (!res.ok) {
+          navigate('/login-signup', { replace: true, state: { from: '/mypage' } });
+          return;
+        }
+
+        const meData = await res.json();
+        if (aborted) return;
+        setMe(meData);
+
+        // 2) me OK → wishlist
+        setWishLoading(true);
+        setWishErr('');
+        try {
+          const items = await fetchWishlist(); // 내부에서 credentials: 'include'
+          if (!aborted) setWishlist(items || []);
+        } catch {
+          if (!aborted) setWishErr('저장한 레시피를 불러오지 못했어요.');
+        } finally {
+          if (!aborted) setWishLoading(false);
+        }
+      } finally {
+        if (!aborted) setMeLoading(false);
+      }
+    })();
+
+    return () => { aborted = true; };
+  }, [navigate]);
+
+  async function onRemove(key) {
+    const prev = wishlist;
+    setWishlist(arr => arr.filter(it => it.itemKey !== key)); // 낙관적 업데이트
+    try {
+      const r = await removeWishlist(key);
+      if (!r.removed) setWishlist(prev); // 롤백
+    } catch {
+      alert('삭제에 실패했어요.');
+      setWishlist(prev);
+    }
+  }
+
+  // 로딩 스켈레톤 (me)
+  if (meLoading) {
+    return (
+      <div className="container-xxl py-3">
+        <AdSlot id="ad-mypage-top" height={90} label="Top Banner (728×90)" />
+        <div className="row g-4">
+          <aside className="col-12 col-lg-4">
+            <div className="card shadow-sm mb-3">
+              <div className="card-body">
+                <div className="placeholder-glow">
+                  <div className="placeholder col-4 rounded-circle mb-3" style={{ height: 80 }} />
+                  <div className="placeholder col-6 mb-2" />
+                  <div className="placeholder col-4 mb-2" />
+                  <div className="placeholder col-8" />
+                </div>
+              </div>
+            </div>
+            <AdSlot id="ad-mypage-side" height={600} label="Skyscraper 300×600" sticky />
+          </aside>
+          <section className="col-12 col-lg-8">
+            <div className="card shadow-sm mb-3">
+              <div className="card-header"><h5 className="m-0">저장한 레시피</h5></div>
+              <div className="p-3">
+                <div className="placeholder-glow">
+                  <div className="placeholder col-12 mb-2" style={{ height: 18 }} />
+                  <div className="placeholder col-10 mb-2" style={{ height: 18 }} />
+                  <div className="placeholder col-8" style={{ height: 18 }} />
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+        <BottomNav />
+      </div>
+    );
+  }
+
+  // 데모 유저(표시용)
   const demoUser = {
     name: '레시프리',
     handle: '@recipfree',
@@ -71,63 +154,12 @@ export default function MyPage() {
     avatar: me.avatar || demoUser.avatar,
   } : demoUser;
 
-  const stats = { recipes: 18, saved: 42, comments: 67, streak: 6 };
-
-  const activities = useMemo(() => ([
-    { id: 1, type: 'comment', text: '“곤약 비빔 소스 꿀팁 감사합니다!”에 댓글', ago: '2시간 전' },
-    { id: 2, type: 'cook', text: '저염 닭가슴살 볶음 요리 완료 기록', ago: '어제' },
-    { id: 3, type: 'save', text: '두부 파프리카 볶음 저장함', ago: '2일 전' },
-  ]), []);
-
-  // 환경설정 상태
-  const [notifOn, setNotifOn] = useState(true);
-  const [adPref, setAdPref] = useState('balanced');
-  const [dietGoal, setDietGoal] = useState('diet');
-
-  /* ── 저장한 레시피(위시리스트) ───────────────────── */
-  const [wishLoading, setWishLoading] = useState(false);
-  const [wishErr, setWishErr] = useState('');
-  const [wishlist, setWishlist] = useState([]);
-
-  async function loadWishlist(signal) {
-    setWishLoading(true);
-    setWishErr('');
-    try {
-      const items = await fetchWishlist({ signal });
-      setWishlist(items || []);
-    } catch (e) {
-      if (e?.status === 401) {
-        setWishErr('로그인이 필요합니다.');
-      } else if (e?.code === 'ETIMEDOUT' || e?.message === 'timeout') {
-        setWishErr('네트워크가 원활하지 않아요. 잠시 후 다시 시도해 주세요.');
-      } else {
-        setWishErr('저장한 레시피를 불러오지 못했어요.');
-      }
-    } finally {
-      setWishLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    if (!me0) return;
-    const ac = new AbortController();
-    loadWishlist(ac.signal);
-    return () => ac.abort();
-    // me0가 바뀌지 않으므로 추가 의존성 불필요
-  }, [me0]);
-
-  async function onRemove(key) {
-    const prev = wishlist;
-    setWishlist(arr => arr.filter(it => it.itemKey !== key)); // 낙관적 업데이트
-    try {
-      const r = await removeWishlist(key);
-      if (!r.removed) setWishlist(prev); // 롤백
-    } catch (e) {
-      setWishlist(prev); // 롤백
-      if (e?.status === 401) alert('로그인이 필요합니다.');
-      else alert('삭제에 실패했어요.');
-    }
-  }
+  const stats = {
+    recipes: 18,
+    saved: wishlist.length, // 실데이터 반영
+    comments: 67,
+    streak: 6
+  };
 
   return (
     <div className="container-xxl py-3">
@@ -173,23 +205,7 @@ export default function MyPage() {
           <div className="card shadow-sm mb-3">
             <div className="card-header d-flex justify-content-between align-items-center">
               <h5 className="m-0">저장한 레시피</h5>
-              <div className="d-flex align-items-center gap-2">
-                {!wishLoading && !wishErr && (
-                  <span className="text-secondary small">{wishlist.length}개</span>
-                )}
-                <button
-                  type="button"
-                  className="btn btn-sm btn-outline-secondary"
-                  onClick={() => {
-                    const ac = new AbortController();
-                    loadWishlist(ac.signal);
-                    setTimeout(() => ac.abort(), 10000); // 수동 안전장치
-                  }}
-                  disabled={wishLoading}
-                >
-                  {wishLoading ? '새로고침 중…' : '새로고침'}
-                </button>
-              </div>
+              <span className="text-secondary small">{wishlist.length}개</span>
             </div>
 
             {wishLoading && (
@@ -203,35 +219,7 @@ export default function MyPage() {
             )}
 
             {!wishLoading && wishErr && (
-              <div className="p-4 text-center">
-                <div className="alert alert-warning d-inline-block text-start mb-3" role="alert">
-                  {wishErr}
-                </div>
-                <div>
-                  {wishErr.includes('로그인') ? (
-                    <button
-                      className="btn btn-success"
-                      onClick={() => {
-                        try { localStorage.setItem('postLoginRedirect', '/mypage'); } catch {}
-                        navigate('/login-signup', { replace: true, state: { from: '/mypage' } });
-                      }}
-                    >
-                      로그인하러 가기
-                    </button>
-                  ) : (
-                    <button
-                      className="btn btn-outline-secondary"
-                      onClick={() => {
-                        const ac = new AbortController();
-                        loadWishlist(ac.signal);
-                        setTimeout(() => ac.abort(), 10000);
-                      }}
-                    >
-                      다시 시도
-                    </button>
-                  )}
-                </div>
-              </div>
+              <div className="alert alert-danger m-3" role="alert">{wishErr}</div>
             )}
 
             {!wishLoading && !wishErr && wishlist.length === 0 && (
@@ -246,7 +234,7 @@ export default function MyPage() {
             {!wishLoading && !wishErr && wishlist.length > 0 && (
               <div className="list-group list-group-flush">
                 {wishlist.map((w) => (
-                  <div key={w.id ?? w.itemKey} className="list-group-item">
+                  <div key={w.id} className="list-group-item">
                     <div className="d-flex align-items-center gap-3">
                       <div className="flex-shrink-0">
                         <div
@@ -264,8 +252,6 @@ export default function MyPage() {
                         {w.summary && <div className="small text-secondary text-truncate">{w.summary}</div>}
                       </div>
                       <div className="d-flex gap-2">
-                        {/* 필요하면 상세로 라우팅 */}
-                        {/* <Link className="btn btn-sm btn-outline-primary" to={`/recipe/${w.itemKey}`}>보기</Link> */}
                         <button
                           className="btn btn-sm btn-outline-danger"
                           onClick={() => onRemove(w.itemKey)}
