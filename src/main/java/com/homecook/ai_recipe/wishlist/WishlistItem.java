@@ -1,45 +1,55 @@
+// src/main/java/com/homecook/ai_recipe/wishlist/WishlistItem.java
 package com.homecook.ai_recipe.wishlist;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.homecook.ai_recipe.auth.UserAccount;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.CreationTimestamp;
+
 import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "wishlist_item",
-        uniqueConstraints = @UniqueConstraint(name="uq_user_key", columnNames = {"user_id","item_key"}),
         indexes = {
-                @Index(name="idx_user", columnList = "user_id"),
-                @Index(name="idx_item_key", columnList = "item_key")
+                @Index(name="idx_wishlist_user", columnList = "user_id"),
+                @Index(name="idx_wishlist_key", columnList = "item_key")
         })
-@Access(AccessType.FIELD) // ✅ 필드 기반 매핑으로 고정(중복 매핑 방지)
-@Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
+@Getter @Setter
+@NoArgsConstructor @AllArgsConstructor @Builder
+// 하이버네이트 프록시 직렬화 시 잡음 제거
+@JsonIgnoreProperties({"hibernateLazyInitializer","handler"})
 public class WishlistItem {
 
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(optional = false, fetch = FetchType.LAZY)
-    @JoinColumn(name="user_id", nullable=false, foreignKey = @ForeignKey(name="fk_wishlist_user"))
+    @CreationTimestamp
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "user_id", nullable = false)
+    @JsonIgnore // 🔴 직렬화시 user를 제외해 순환/프록시 문제 방지
     private UserAccount user;
 
-    @Column(name="item_key", nullable=false, length=128)
+    @Column(name = "item_key", nullable = false, length = 255)
     private String itemKey;
 
-    @Column(nullable=false)
+    @Column(name = "title", length = 255)
     private String title;
 
+    @Column(name = "summary", length = 1000)
     private String summary;
+
+    @Column(name = "image", length = 1000)
     private String image;
+
+    @Column(name = "meta", length = 255)
     private String meta;
 
     @Lob
+    @Column(name = "payload_json")
     private String payloadJson;
-
-    // ✅ 'createdAt'은 필드에 "단 한 번만" 매핑. 게터/세터에는 절대 @Column 붙이지 마세요.
-    @Column(name="created_at", nullable=false, updatable=false)
-    private LocalDateTime createdAt;
-
-    @PrePersist
-    void onCreate() { this.createdAt = LocalDateTime.now(); }
 }

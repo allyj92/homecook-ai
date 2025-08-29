@@ -5,7 +5,7 @@
 
 [[redirects]]
   from = "/api/*"
-  to = "https://volt-sk-news-lucy.trycloudflare.com/api/:splat"  # ⬅️ 여기 ngrok 주소 바뀌면 즉시 업데이트
+  to = "https://api-that-rounds-financing.trycloudflare.com/api/:splat"  # ⬅️ 여기 ngrok 주소 바뀌면 즉시 업데이트
   status = 200
   force = true
 

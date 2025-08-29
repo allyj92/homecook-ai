@@ -1,4 +1,3 @@
-// src/main/java/com/homecook/ai_recipe/wishlist/WishlistItemRepository.java
 package com.homecook.ai_recipe.wishlist;
 
 import com.homecook.ai_recipe.auth.UserAccount;

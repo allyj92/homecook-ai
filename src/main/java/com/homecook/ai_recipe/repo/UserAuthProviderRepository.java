@@ -1,4 +1,3 @@
-// src/main/java/com/homecook/ai_recipe/repo/UserAuthProviderRepository.java
 package com.homecook.ai_recipe.repo;
 
 import com.homecook.ai_recipe.auth.UserAuthProvider;

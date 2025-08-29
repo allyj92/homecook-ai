@@ -11,6 +11,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -23,26 +25,37 @@ public class WishlistController {
     private final OAuthAccountService oauthService;
     private final ObjectMapper om = new ObjectMapper();
 
-    /** 세션에서 실제 UserAccount 찾아오기 (로컬/소셜 모두 지원) */
+    // 프론트에 줄 최소 필드만 담은 DTO
+    public record WishlistItemDto(
+            Long id,
+            String itemKey,
+            String title,
+            String summary,
+            String image,
+            String meta,
+            String createdAt,   // ISO 문자열
+            Integer payloadLen  // payload 길이 (진짜 payload는 필요할 때만 상세에서 파싱)
+    ) {}
+
+    private static final DateTimeFormatter ISO = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+
     private UserAccount requireUser(HttpSession session) {
         SessionUser su = (SessionUser) session.getAttribute("LOGIN_USER");
         if (su == null) throw new RuntimeException("401");
 
-        // 1) 로컬(or local-or-linked)은 providerId가 내부 user id(숫자)
+        // local(or local-or-linked) → providerId가 user PK
         if ("local".equalsIgnoreCase(su.provider()) || "local-or-linked".equalsIgnoreCase(su.provider())) {
             try {
                 Long uid = Long.valueOf(su.providerId());
                 return userRepo.findById(uid).orElseThrow(() -> new RuntimeException("401"));
-            } catch (NumberFormatException ignore) {
-                // 숫자 아닐 경우 아래로 폴백
-            }
+            } catch (NumberFormatException ignore) {}
         }
 
-        // 2) 소셜: provider/providerId 링크로 매칭
+        // 소셜 계정 링크
         var linked = oauthService.findByProvider(su.provider(), su.providerId());
         if (linked.isPresent()) return linked.get();
 
-        // 3) 이메일 매칭(일부 소셜에서 email 제공)
+        // 이메일로 폴백
         if (su.email() != null && !su.email().isBlank()) {
             var byEmail = userRepo.findByEmailIgnoreCase(su.email());
             if (byEmail.isPresent()) return byEmail.get();
@@ -51,13 +64,25 @@ public class WishlistController {
         throw new RuntimeException("401");
     }
 
-    /** 내 위시리스트 목록 */
+    /** 내 위시리스트 목록 (엔티티 → DTO 매핑하여 직렬화 오류 방지) */
     @GetMapping
     public ResponseEntity<?> list(HttpSession session) {
         try {
             var me = requireUser(session);
-            var list = repo.findByUserOrderByCreatedAtDesc(me);
-            return ResponseEntity.ok(list);
+            var rows = repo.findByUserOrderByCreatedAtDesc(me);
+            List<WishlistItemDto> dto = rows.stream().map(w ->
+                    new WishlistItemDto(
+                            w.getId(),
+                            w.getItemKey(),
+                            w.getTitle(),
+                            w.getSummary(),
+                            w.getImage(),
+                            w.getMeta(),
+                            w.getCreatedAt() == null ? null : w.getCreatedAt().format(ISO),
+                            w.getPayloadJson() == null ? null : w.getPayloadJson().length()
+                    )
+            ).toList();
+            return ResponseEntity.ok(dto);
         } catch (RuntimeException e) {
             if ("401".equals(e.getMessage()))
                 return ResponseEntity.status(401).body(Map.of("message","unauthenticated"));
@@ -85,7 +110,7 @@ public class WishlistController {
             String image   = opt(body, "image");
             String meta    = opt(body, "meta");
 
-            String payloadJson = null;
+            String payloadJson = "{}"; // 🔴 최소한 빈 JSON으로 저장(직렬화 실패/누락 방지)
             Object payload = body.get("payload");
             if (payload != null) {
                 try { payloadJson = om.writeValueAsString(payload); } catch (Exception ignored) {}
@@ -106,7 +131,7 @@ public class WishlistController {
         }
     }
 
-    /** 현재 저장 여부 조회 (카드 로드시 체크용) */
+    /** 현재 저장 여부 조회 */
     @GetMapping("/exists")
     public ResponseEntity<?> exists(@RequestParam("key") String key, HttpSession session) {
         try {
