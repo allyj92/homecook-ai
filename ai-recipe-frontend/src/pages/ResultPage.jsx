@@ -6,7 +6,7 @@ import 'bootstrap/dist/css/bootstrap.min.css';
 import BottomNav from '../compoments/BottomNav';
 import { recipeKey, toggleWishlist, checkSaved } from '../lib/wishlist';
 
-/* ---------------- Goals 라벨 ---------------- */
+/* ── 라벨 ─────────────────────────────── */
 const GOAL_LABELS = {
   low_sodium: '저염',
   vegan: '비건',
@@ -17,12 +17,10 @@ const GOAL_LABELS = {
   diet: '다이어트',
   quick: '간편',
 };
-function toKoreanGoals(goals) {
-  if (!Array.isArray(goals)) return [];
-  return goals.map(g => GOAL_LABELS[g]).filter(Boolean);
-}
+const toKoreanGoals = (goals) =>
+  Array.isArray(goals) ? goals.map((g) => GOAL_LABELS[g]).filter(Boolean) : [];
 
-/* ---------------- 재료명 정규화 유틸 ---------------- */
+/* ── 재료 정규화 ──────────────────────── */
 const UNIT_WORDS = [
   'g','kg','mg','ml','mL','L','ℓ','개','대','장','쪽','줄','줌','봉','팩','캔',
   '컵','스푼','숟가락','큰술','작은술','티스푼','꼬집','조금','약간','스틱'
@@ -45,19 +43,15 @@ function extractName(raw = '') {
     .replace(/[·\-*\u00B7]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-
   for (const [re, rep] of CANON) s = s.replace(re, rep);
   s = s.replace(/^(저염|무염|유기농|저지방|국산|수입)\s*/,'').trim();
-
-  // 간장 예외 처리
   if (/간장/.test(raw)) return '간장';
   return s;
 }
-function normalizeIngredients(list = []) {
-  return Array.from(new Set(list.map(extractName).filter(Boolean)));
-}
+const normalizeIngredients = (list = []) =>
+  Array.from(new Set(list.map(extractName).filter(Boolean)));
 
-/* ---------------- 광고 API (간이 목업) ---------------- */
+/* ── (데모) 광고 API ─────────────────── */
 async function fetchAdsByIngredients(ingredients = []) {
   try {
     const demo = {};
@@ -72,50 +66,34 @@ async function fetchAdsByIngredients(ingredients = []) {
       }];
     });
     return { results: demo };
-  } catch (e) {
-    console.warn('ads fetch failed', e);
+  } catch {
     return { results: {} };
   }
 }
 
-/* ---------------- 광고 카드 ---------------- */
-function IngredientAdCard({ item }) {
-  if (!item) return null;
-  return (
-    <a
-      className="text-decoration-none"
-      href={item.url}
-      target="_blank"
-      rel="noopener noreferrer"
-    >
-      <div className="card h-100 shadow-sm">
-        <div className="ratio ratio-16x9 bg-light">
-          <div
-            className="w-100 h-100"
-            style={{
-              backgroundImage: `url(${item.image})`,
-              backgroundSize: 'cover',
-              backgroundPosition: 'center'
-            }}
-            aria-hidden="true"
-          />
-        </div>
-        <div className="card-body d-flex justify-content-between align-items-start">
-          <div>
-            <div className="fw-semibold text-dark">{item.name}</div>
-            <div className="small text-secondary mt-1">
-              <span className="badge rounded-pill text-bg-light me-2 border">AD</span>
-              {item.shop}
-            </div>
+/* ── 토스트(간단) ───────────────────── */
+function useToast() {
+  const [toasts, setToasts] = useState([]);
+  const push = useCallback((msg, type = 'info', ttl = 2000) => {
+    const id = Math.random().toString(36).slice(2);
+    setToasts((t) => [...t, { id, msg, type }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), ttl);
+  }, []);
+  const View = () => (
+    <div className="position-fixed top-0 end-0 p-3" style={{ zIndex: 1100 }}>
+      {toasts.map((t) => (
+        <div key={t.id} className={`toast show align-items-center text-bg-${t.type === 'error' ? 'danger' : t.type === 'success' ? 'success' : 'secondary'} border-0 mb-2`} role="alert">
+          <div className="d-flex">
+            <div className="toast-body">{t.msg}</div>
           </div>
-          <div className="fw-bold text-dark">{item.price}</div>
         </div>
-      </div>
-    </a>
+      ))}
+    </div>
   );
+  return { push, View };
 }
 
-/* ---------------- 반응형 perView ---------------- */
+/* ── 반응형 perView ─────────────────── */
 function usePerView() {
   const [perView, setPerView] = useState(() => {
     const w = typeof window !== 'undefined' ? window.innerWidth : 1200;
@@ -135,7 +113,33 @@ function usePerView() {
   return perView;
 }
 
-/* ---------------- 멀티 카드 캐러셀 ---------------- */
+/* ── 멀티 카드 캐러셀 ───────────────── */
+function IngredientAdCard({ item }) {
+  if (!item) return null;
+  return (
+    <a className="text-decoration-none" href={item.url} target="_blank" rel="noopener noreferrer">
+      <div className="card h-100 shadow-sm">
+        <div className="ratio ratio-16x9 bg-light rounded-top">
+          <div
+            className="w-100 h-100 rounded-top"
+            style={{ backgroundImage: `url(${item.image})`, backgroundSize: 'cover', backgroundPosition: 'center' }}
+            aria-hidden="true"
+          />
+        </div>
+        <div className="card-body d-flex justify-content-between align-items-start">
+          <div>
+            <div className="fw-semibold text-dark">{item.name}</div>
+            <div className="small text-secondary mt-1">
+              <span className="badge rounded-pill text-bg-light me-2 border">AD</span>
+              {item.shop}
+            </div>
+          </div>
+          <div className="fw-bold text-dark">{item.price}</div>
+        </div>
+      </div>
+    </a>
+  );
+}
 function AdCarouselMulti({ items = [], interval = 3000 }) {
   const perView = usePerView();
   const [idx, setIdx] = useState(0);
@@ -149,93 +153,90 @@ function AdCarouselMulti({ items = [], interval = 3000 }) {
 
   useEffect(() => {
     if (!loopItems.length) return;
-    const t = setInterval(() => {
-      if (!paused) setIdx(i => (i + 1) % loopItems.length);
-    }, interval);
+    const t = setInterval(() => { if (!paused) setIdx((i) => (i + 1) % loopItems.length); }, interval);
     return () => clearInterval(t);
   }, [loopItems.length, interval, paused]);
 
   if (!loopItems.length) return null;
-
-  // 한 칸 = 100/perView %
   const basis = `${100 / perView}%`;
   const translateX = `translateX(-${(idx * 100) / perView}%)`;
 
   return (
-    <div
-      className="position-relative overflow-hidden"
-      onMouseEnter={() => setPaused(true)}
-      onMouseLeave={() => setPaused(false)}
-    >
-      <div
-        className="d-flex"
-        style={{
-          gap: 12,
-          transform: translateX,
-          transition: 'transform 400ms ease',
-          willChange: 'transform'
-        }}
-      >
+    <div className="position-relative overflow-hidden" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
+      <div className="d-flex" style={{ gap: 12, transform: translateX, transition: 'transform 400ms ease', willChange: 'transform' }}>
         {loopItems.map((item, i) => (
           <div key={`${item.id}-${i}`} style={{ flex: `0 0 ${basis}` }}>
             <IngredientAdCard item={item} />
           </div>
         ))}
       </div>
-
-      <button
-        type="button"
-        className="btn btn-light border position-absolute top-50 start-0 translate-middle-y shadow-sm"
-        onClick={() => setIdx(i => (i - 1 + loopItems.length) % loopItems.length)}
-        aria-label="이전"
-        style={{ zIndex: 2 }}
-      >
-        ‹
-      </button>
-      <button
-        type="button"
-        className="btn btn-light border position-absolute top-50 end-0 translate-middle-y shadow-sm"
-        onClick={() => setIdx(i => (i + 1) % loopItems.length)}
-        aria-label="다음"
-        style={{ zIndex: 2 }}
-      >
-        ›
-      </button>
+      <button type="button" className="btn btn-light border position-absolute top-50 start-0 translate-middle-y shadow-sm" onClick={() => setIdx((i) => (i - 1 + loopItems.length) % loopItems.length)} aria-label="이전" style={{ zIndex: 2 }}>‹</button>
+      <button type="button" className="btn btn-light border position-absolute top-50 end-0 translate-middle-y shadow-sm" onClick={() => setIdx((i) => (i + 1) % loopItems.length)} aria-label="다음" style={{ zIndex: 2 }}>›</button>
     </div>
   );
 }
 
+/* ── 하단 고정 액션바 ───────────────── */
+function StickyActionBar({ visible, saved, onToggle, onRetry, onEdit }) {
+  if (!visible) return null;
+  return (
+    <div
+      className="position-fixed bottom-0 start-0 end-0 border-top bg-white"
+      style={{ zIndex: 1050, boxShadow: '0 -8px 24px rgba(0,0,0,0.06)' }}
+    >
+      <div className="container-xxl py-2">
+        <div className="d-flex gap-2">
+          <button
+            type="button"
+            className={`btn btn-lg flex-grow-1 ${saved ? 'btn-danger' : 'btn-outline-danger'}`}
+            onClick={onToggle}
+            aria-pressed={saved}
+            aria-label="찜하기"
+            title={saved ? '찜 해제' : '찜하기'}
+          >
+            {saved ? '♥ 찜됨' : '♡ 찜하기'}
+          </button>
+          <button type="button" className="btn btn-lg btn-outline-secondary" onClick={onRetry} title="같은 조건으로 다시 추천">
+            다시 추천
+          </button>
+          <Link className="btn btn-lg btn-success" to="/input" onClick={onEdit}>
+            조건 변경
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── 페이지 ─────────────────────────── */
 export default function ResultPage() {
   const loc = useLocation();
+  const { push: toast, View: Toasts } = useToast();
 
-  // 최초 진입 데이터 (리스트 or 단일)
+  // 최초 데이터
   const initList =
-    loc.state?.list ||
-    JSON.parse(localStorage.getItem('recipe_result_list') || 'null');
+    loc.state?.list || JSON.parse(localStorage.getItem('recipe_result_list') || 'null');
   const initSingle =
-    (!loc.state?.list && loc.state) ||
-    JSON.parse(localStorage.getItem('recipe_result') || 'null');
+    (!loc.state?.list && loc.state) || JSON.parse(localStorage.getItem('recipe_result') || 'null');
 
   const [list, setList] = useState(Array.isArray(initList) ? initList : []);
   const [data, setData] = useState(!initList && initSingle ? initSingle : null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [adMap, setAdMap] = useState({});
 
-  /* --- 재료 기반 광고 상태 --- */
-  const [adMap, setAdMap] = useState({}); // { [ingredientName]: [adItems] }
-
-  /* --- 찜 여부 상태 --- */
+  /* 찜 상태 */
   const [saved, setSaved] = useState(false);
 
-  // 새로고침 후에도 goals 뱃지 보정(단일)
+  /* goals 보정 */
   useEffect(() => {
     if (data && !Array.isArray(data.goals)) {
       const lastReq = JSON.parse(localStorage.getItem('recipe_last_request') || 'null');
-      if (lastReq?.goals) setData(prev => ({ ...(prev || {}), goals: lastReq.goals }));
+      if (lastReq?.goals) setData((prev) => ({ ...(prev || {}), goals: lastReq.goals }));
     }
   }, [data]);
 
-  // 단일 데이터가 생기면 찜 여부 선조회
+  /* 찜 선조회 */
   useEffect(() => {
     let aborted = false;
     (async () => {
@@ -251,24 +252,21 @@ export default function ResultPage() {
     return () => { aborted = true; };
   }, [data]);
 
-  // 🔧 ESLint 경고 해결: data를 의존성으로 넣고 내부에서 가드
+  /* 광고 로딩 */
   useEffect(() => {
     if (!data || !Array.isArray(data.ingredients_list)) return;
     const names = normalizeIngredients(data.ingredients_list);
     let aborted = false;
-
     (async () => {
       const res = await fetchAdsByIngredients(names);
       if (!aborted) setAdMap(res?.results || {});
     })();
-
     return () => { aborted = true; };
   }, [data]);
 
-  // 캐러셀에 넣을 광고 아이템들 (재료별 1개씩)
   const carouselItems = useMemo(() => {
     const arr = [];
-    Object.values(adMap).forEach(items => {
+    Object.values(adMap).forEach((items) => {
       if (Array.isArray(items) && items[0]) arr.push(items[0]);
     });
     return arr;
@@ -281,8 +279,8 @@ export default function ResultPage() {
     const key = recipeKey(data);
     const meta = `${data.kcal ?? '?'}kcal · ${data.cook_time_min ?? '?'}분`;
 
-    // 낙관적 업데이트
-    setSaved(v => !v);
+    // 낙관적
+    setSaved((v) => !v);
     try {
       const r = await toggleWishlist({
         key,
@@ -293,16 +291,18 @@ export default function ResultPage() {
         payload: data,
       });
       setSaved(!!r.saved);
-    } catch {
-      setSaved(v => !v);
-      alert('찜하기 처리에 실패했어요. 로그인 상태를 확인해 주세요.');
+      toast(r.saved ? '저장했어요!' : '저장을 해제했어요.', 'success');
+    } catch (e) {
+      setSaved((v) => !v);
+      toast('찜하기에 실패했어요. 로그인 상태를 확인해 주세요.', 'error');
     }
-  }, [data]);
+  }, [data, toast]);
 
   async function retrySameCondition() {
     const lastReq = JSON.parse(localStorage.getItem('recipe_last_request') || 'null');
     if (!lastReq) {
       setError('이전 요청 정보가 없어요. 입력 페이지에서 다시 시도해 주세요.');
+      toast('이전 요청 정보가 없어요.', 'error');
       return;
     }
     try {
@@ -319,28 +319,25 @@ export default function ResultPage() {
       if (hadListBefore) {
         const resList = await requestRecommendTop(payload, 3);
         localStorage.setItem('recipe_result_list', JSON.stringify(resList));
-        const newly = resList.map(x => x?.id).filter(Boolean);
-        localStorage.setItem(
-          'served_ids',
-          JSON.stringify(Array.from(new Set([...(served || []), ...newly])))
-        );
+        const newly = resList.map((x) => x?.id).filter(Boolean);
+        localStorage.setItem('served_ids', JSON.stringify(Array.from(new Set([...(served || []), ...newly]))));
         setList(resList);
         setData(null);
       } else {
         const res = await requestRecommend(payload);
         localStorage.setItem('recipe_result', JSON.stringify(res));
         if (res?.id) {
-          localStorage.setItem(
-            'served_ids',
-            JSON.stringify(Array.from(new Set([...(served || []), res.id])))
-          );
+          localStorage.setItem('served_ids', JSON.stringify(Array.from(new Set([...(served || []), res.id]))));
         }
         setData(res);
         setList([]);
       }
+      toast('새 추천을 불러왔어요.', 'success');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (e) {
       const msg = e?.response?.data?.message || e?.message || '추천을 다시 불러오지 못했습니다.';
       setError(msg);
+      toast('추천을 다시 불러오지 못했어요.', 'error');
     } finally {
       setLoading(false);
     }
@@ -357,174 +354,165 @@ export default function ResultPage() {
   }
 
   return (
-    <main className="container-xxl py-4">
-      {/* 리스트 모드 */}
-      {list.length > 0 && (
-        <>
-          <div className="d-flex align-items-center justify-content-between mb-3">
-            <h2 className="h4 fw-bold m-0">추천 레시피 (Top {list.length})</h2>
-            <div className="d-none d-md-block text-secondary small">
-              목표/요약/주요 영양을 간단히 보여줘요
+    <>
+      <main className="container-xxl py-4">
+        {/* 리스트 모드 */}
+        {list.length > 0 && (
+          <>
+            <div className="d-flex align-items-center justify-content-between mb-3">
+              <h2 className="h4 fw-bold m-0">추천 레시피 (Top {list.length})</h2>
+              <div className="d-none d-md-block text-secondary small">목표/요약/주요 영양을 간단히 보여줘요</div>
             </div>
-          </div>
 
-          <div className="row g-3">
-            {list.map((it, idx) => {
-              const koreanGoals = toKoreanGoals(it.goals);
-              return (
-                <div key={idx} className="col-12 col-md-6 col-lg-4">
-                  <div className="card h-100 shadow-sm">
-                    <div className="card-body d-grid gap-2">
-                      <div className="d-flex align-items-start justify-content-between">
-                        <h3 className="h6 fw-bold mb-0 flex-grow-1 pe-2 text-truncate">{it.title}</h3>
-                        <span className="badge text-bg-light border">{it.cook_time_min}분</span>
-                      </div>
-
-                      {it.summary && <p className="small text-secondary mb-1">{it.summary}</p>}
-
-                      {koreanGoals.length > 0 && (
-                        <div className="d-flex flex-wrap gap-2">
-                          {koreanGoals.map((g, i) => (
-                            <span className="badge rounded-pill text-bg-success" key={`${g}-${i}`}>{g}</span>
-                          ))}
+            <div className="row g-3">
+              {list.map((it, idx) => {
+                const koreanGoals = toKoreanGoals(it.goals);
+                return (
+                  <div key={idx} className="col-12 col-md-6 col-lg-4">
+                    <div className="card h-100 shadow-sm">
+                      <div className="card-body d-grid gap-2">
+                        <div className="d-flex align-items-start justify-content-between">
+                          <h3 className="h6 fw-bold mb-0 flex-grow-1 pe-2 text-truncate">{it.title}</h3>
+                          <span className="badge text-bg-light border">{it.cook_time_min}분</span>
                         </div>
-                      )}
-
-                      <div className="d-flex flex-wrap gap-2 mt-1">
-                        <span className="badge text-bg-light border">열량 {it.kcal} kcal</span>
-                        <span className="badge text-bg-light border">단백질 {it.protein_g} g</span>
-                        <span className="badge text-bg-light border">탄수 {it.carbs_g} g</span>
+                        {it.summary && <p className="small text-secondary mb-1">{it.summary}</p>}
+                        {koreanGoals.length > 0 && (
+                          <div className="d-flex flex-wrap gap-2">
+                            {koreanGoals.map((g, i) => (
+                              <span className="badge rounded-pill text-bg-success" key={`${g}-${i}`}>{g}</span>
+                            ))}
+                          </div>
+                        )}
+                        <div className="d-flex flex-wrap gap-2 mt-1">
+                          <span className="badge text-bg-light border">열량 {it.kcal} kcal</span>
+                          <span className="badge text-bg-light border">단백질 {it.protein_g} g</span>
+                          <span className="badge text-bg-light border">탄수 {it.carbs_g} g</span>
+                        </div>
+                        <ul className="small mb-0 mt-1 ps-3">
+                          {(it.ingredients_list || []).slice(0, 4).map((x, i) => <li key={i}>{x}</li>)}
+                          {(it.ingredients_list || []).length > 4 && <li>…</li>}
+                        </ul>
                       </div>
-
-                      <ul className="small mb-0 mt-1 ps-3">
-                        {(it.ingredients_list || []).slice(0, 4).map((x, i) => <li key={i}>{x}</li>)}
-                        {(it.ingredients_list || []).length > 4 && <li>…</li>}
-                      </ul>
                     </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        </>
-      )}
-
-      {/* 단일 모드 */}
-      {data && (
-        <>
-          {/* 타이틀 + 찜 토글 */}
-          <div className="d-flex align-items-start justify-content-between mb-2">
-            <h2 className="h4 fw-bold mb-0">{data.title}</h2>
-            <button
-              type="button"
-              className={`btn btn-sm ${saved ? 'btn-danger' : 'btn-outline-danger'}`}
-              onClick={onToggleWish}
-              aria-pressed={saved}
-              aria-label="찜하기"
-              title={saved ? '찜 해제' : '찜하기'}
-            >
-              {saved ? '♥ 찜됨' : '♡ 찜'}
-            </button>
-          </div>
-
-          {data.summary && <p className="text-secondary mb-3">{data.summary}</p>}
-
-          {toKoreanGoals(data.goals).length > 0 && (
-            <div className="d-flex flex-wrap gap-2 mb-3">
-              {toKoreanGoals(data.goals).map((g, i) => (
-                <span className="badge rounded-pill text-bg-success" key={`${g}-${i}`}>{g}</span>
-              ))}
+                );
+              })}
             </div>
-          )}
+          </>
+        )}
 
-          {/* 예상 영양 */}
-          <div className="card shadow-sm mb-3">
-            <div className="card-body">
-              <div className="fw-semibold mb-2">예상 영양</div>
-              <div className="d-flex flex-wrap gap-2">
-                <span className="badge text-bg-light border">열량 {data.kcal} kcal</span>
-                <span className="badge text-bg-light border">탄수 {data.carbs_g} g</span>
-                <span className="badge text-bg-light border">단백질 {data.protein_g} g</span>
-                <span className="badge text-bg-light border">지방 {data.fat_g} g</span>
-                {data.sodium_mg != null && (
-                  <span className="badge text-bg-light border">나트륨 {data.sodium_mg} mg</span>
-                )}
-              </div>
-              <div className="mt-2">
-                <span className="badge text-bg-primary">⏱ 조리시간 약 {data.cook_time_min}분</span>
-              </div>
+        {/* 단일 모드 */}
+        {data && (
+          <>
+            {/* 타이틀 */}
+            <div className="mb-2">
+              <h1 className="h4 fw-bold mb-1">{data.title}</h1>
+              {data.summary && <p className="text-secondary mb-0">{data.summary}</p>}
             </div>
-          </div>
 
-          {/* 재료 */}
-          <div className="card shadow-sm mb-3">
-            <div className="card-body">
-              <div className="fw-semibold mb-2">재료</div>
-              <ul className="mb-0 ps-3">
-                {(data.ingredients_list || []).map((line, i) => (
-                  <li key={i}>{line}</li>
+            {/* 목표 배지 */}
+            {toKoreanGoals(data.goals).length > 0 && (
+              <div className="d-flex flex-wrap gap-2 mb-3">
+                {toKoreanGoals(data.goals).map((g, i) => (
+                  <span className="badge rounded-pill text-bg-success" key={`${g}-${i}`}>{g}</span>
                 ))}
-              </ul>
-            </div>
-          </div>
+              </div>
+            )}
 
-          {/* 추천 상품 캐러셀 */}
-          {carouselItems.length > 0 && (
+            {/* 예상 영양 */}
             <div className="card shadow-sm mb-3">
               <div className="card-body">
-                <div className="fw-semibold mb-2">추천 상품</div>
-                <AdCarouselMulti items={carouselItems} interval={2500} />
-                <p className="text-secondary small mt-2 mb-0">
-                  * 일부 링크는 제휴/광고일 수 있으며, 구매 시 수수료를 받을 수 있습니다.
-                </p>
+                <div className="fw-semibold mb-2">예상 영양</div>
+                <div className="d-flex flex-wrap gap-2">
+                  <span className="badge text-bg-light border">열량 {data.kcal} kcal</span>
+                  <span className="badge text-bg-light border">탄수 {data.carbs_g} g</span>
+                  <span className="badge text-bg-light border">단백질 {data.protein_g} g</span>
+                  <span className="badge text-bg-light border">지방 {data.fat_g} g</span>
+                  {data.sodium_mg != null && (
+                    <span className="badge text-bg-light border">나트륨 {data.sodium_mg} mg</span>
+                  )}
+                </div>
+                <div className="mt-2">
+                  <span className="badge text-bg-primary">⏱ 조리시간 약 {data.cook_time_min}분</span>
+                </div>
               </div>
             </div>
-          )}
 
-          {/* 만드는 법 */}
-          <div className="card shadow-sm mb-3">
-            <div className="card-body">
-              <div className="fw-semibold mb-2">만드는 법</div>
-              <ol className="mb-0 ps-3">
-                {(data.steps || []).map((x, i) => <li key={i}>{x}</li>)}
-              </ol>
-              {data.tips && <p className="text-secondary small mt-2 mb-0">Tip. {data.tips}</p>}
+            {/* 재료 */}
+            <div className="card shadow-sm mb-3">
+              <div className="card-body">
+                <div className="fw-semibold mb-2">재료</div>
+                <ul className="mb-0 ps-3">
+                  {(data.ingredients_list || []).map((line, i) => <li key={i}>{line}</li>)}
+                </ul>
+              </div>
             </div>
-          </div>
-        </>
-      )}
 
-      {/* 액션 */}
-      <div className="text-center mt-3">
-        <button
-          type="button"
-          className="btn btn-success"
-          onClick={retrySameCondition}
-          disabled={loading}
-        >
-          {loading && <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true" />}
-          {loading ? '다시 추천 중…' : '같은 조건으로 다시 추천'}
-        </button>
-        <span className="mx-2" />
-        <Link className="btn btn-outline-secondary" to="/input">조건 바꿔서 입력하기</Link>
-        {error && <div className="alert alert-danger mt-3" role="alert">{error}</div>}
-      </div>
+            {/* 추천 상품 캐러셀 */}
+            {carouselItems.length > 0 && (
+              <div className="card shadow-sm mb-3">
+                <div className="card-body">
+                  <div className="fw-semibold mb-2">추천 상품</div>
+                  <AdCarouselMulti items={carouselItems} interval={2500} />
+                  <p className="text-secondary small mt-2 mb-0">
+                    * 일부 링크는 제휴/광고일 수 있으며, 구매 시 수수료를 받을 수 있습니다.
+                  </p>
+                </div>
+              </div>
+            )}
 
-      {/* 전체 로딩 오버레이(선택) */}
-      {loading && (
-        <div
-          className="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
-          style={{ background: 'rgba(255,255,255,0.6)', zIndex: 1080, pointerEvents: 'none' }}
-          aria-hidden="true"
-        >
-          <div className="spinner-border" role="status" />
+            {/* 만드는 법 */}
+            <div className="card shadow-sm mb-5">
+              <div className="card-body">
+                <div className="fw-semibold mb-2">만드는 법</div>
+                <ol className="mb-0 ps-3">
+                  {(data.steps || []).map((x, i) => <li key={i}>{x}</li>)}
+                </ol>
+                {data.tips && <p className="text-secondary small mt-2 mb-0">Tip. {data.tips}</p>}
+              </div>
+            </div>
+
+            {/* 하단 고정 액션바 */}
+            <StickyActionBar
+              visible={!!data}
+              saved={saved}
+              onToggle={onToggleWish}
+              onRetry={retrySameCondition}
+              onEdit={() => {}}
+            />
+          </>
+        )}
+
+        {/* 액션 (보조) */}
+        <div className="text-center mt-3 mb-5">
+          <button type="button" className="btn btn-success" onClick={retrySameCondition} disabled={loading}>
+            {loading && <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true" />}
+            {loading ? '다시 추천 중…' : '같은 조건으로 다시 추천'}
+          </button>
+          <span className="mx-2" />
+          <Link className="btn btn-outline-secondary" to="/input">조건 바꿔서 입력하기</Link>
+          {error && <div className="alert alert-danger mt-3" role="alert">{error}</div>}
         </div>
-      )}
 
-      {/* 모바일 하단 네비 (필요시 모바일 전용으로) */}
-      <div className="d-md-none">
-        <BottomNav />
-      </div>
-    </main>
+        {/* 전체 로딩 오버레이 */}
+        {loading && (
+          <div
+            className="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
+            style={{ background: 'rgba(255,255,255,0.6)', zIndex: 1080, pointerEvents: 'none' }}
+            aria-hidden="true"
+          >
+            <div className="spinner-border" role="status" />
+          </div>
+        )}
+
+        {/* 모바일 하단 네비 */}
+        <div className="d-md-none">
+          <BottomNav />
+        </div>
+      </main>
+
+      {/* 토스트 */}
+      <Toasts />
+    </>
   );
 }
