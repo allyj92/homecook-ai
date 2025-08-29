@@ -531,24 +531,45 @@ public class AuthController {
 
     @GetMapping("/me")
     public ResponseEntity<?> me(HttpSession session) {
-        SessionUser u = (SessionUser) session.getAttribute("LOGIN_USER");
-        if (u == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .cacheControl(CacheControl.noStore())
-                .body(Map.of("message", "unauthenticated"));
-        return ResponseEntity.ok()
-                .cacheControl(CacheControl.noStore())
-                .body(u);
+        try {
+            Object obj = session.getAttribute("LOGIN_USER");
+            if (!(obj instanceof SessionUser u)) {
+                // 세션 없음 → 401
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .cacheControl(CacheControl.noStore())
+                        .body(Map.of("message", "unauthenticated"));
+            }
+            // 최소필드만 반환(직렬화 이슈 방지)
+            SessionUser safe = new SessionUser(u.provider(), u.providerId(), u.email(), u.name(), u.avatar());
+            return ResponseEntity.ok()
+                    .cacheControl(CacheControl.noStore())
+                    .body(safe);
+        } catch (Exception ex) {
+            // 어떤 예외든 401로 정리 (프론트는 이미 401 흐름 처리)
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .cacheControl(CacheControl.noStore())
+                    .body(Map.of("message", "unauthenticated"));
+        }
     }
 
     @PostMapping("/refresh")
     public ResponseEntity<?> refresh(HttpSession session) {
-        SessionUser u = (SessionUser) session.getAttribute("LOGIN_USER");
-        if (u == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .cacheControl(CacheControl.noStore())
-                .body(Map.of("message", "unauthenticated"));
-        return ResponseEntity.ok()
-                .cacheControl(CacheControl.noStore())
-                .body(Map.of("user", u));
+        try {
+            Object obj = session.getAttribute("LOGIN_USER");
+            if (!(obj instanceof SessionUser u)) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .cacheControl(CacheControl.noStore())
+                        .body(Map.of("message", "unauthenticated"));
+            }
+            SessionUser safe = new SessionUser(u.provider(), u.providerId(), u.email(), u.name(), u.avatar());
+            return ResponseEntity.ok()
+                    .cacheControl(CacheControl.noStore())
+                    .body(Map.of("user", safe));
+        } catch (Exception ex) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .cacheControl(CacheControl.noStore())
+                    .body(Map.of("message", "unauthenticated"));
+        }
     }
 
     @PostMapping("/logout")
