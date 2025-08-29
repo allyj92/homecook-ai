@@ -1,3 +1,4 @@
+// src/main/java/com/homecook/ai_recipe/auth/AuthController.java
 package com.homecook.ai_recipe.auth;
 
 import com.homecook.ai_recipe.dto.*;
@@ -6,9 +7,11 @@ import com.homecook.ai_recipe.dto.LocalAuthDtos.RegisterReq;
 import com.homecook.ai_recipe.repo.UserAccountRepository;
 import com.homecook.ai_recipe.service.LocalAuthService;
 import com.homecook.ai_recipe.service.MailService;
+import com.homecook.ai_recipe.service.OAuthAccountService;
 import com.homecook.ai_recipe.service.PasswordResetService;
 import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
@@ -21,10 +24,11 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.Map;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/auth")
-@lombok.RequiredArgsConstructor
+@RequiredArgsConstructor
 public class AuthController {
 
     private final LocalAuthService localAuth;
@@ -32,11 +36,14 @@ public class AuthController {
     private final MailService mailService;
     private final PasswordResetService passwordResetService;
 
+    // 소셜 로그인 JIT 가입/연결 담당
+    private final OAuthAccountService oauthService;
+
     // ===== LOCAL (자체 로그인) =====
     @PostMapping("/local/register")
     public ResponseEntity<?> registerLocal(@RequestBody @Valid RegisterReq req, HttpSession session) {
         try {
-            UserAccount u = localAuth.register(req.getEmail(), req.getPassword(), req.getName());
+            UserAccount u = localAuth.register(req.getEmail().trim(), req.getPassword().trim(), req.getName().trim());
             SessionUser su = new SessionUser("local", String.valueOf(u.getId()), u.getEmail(), u.getName(), u.getAvatar());
             session.setAttribute("LOGIN_USER", su);
             return ResponseEntity.ok(su);
@@ -47,7 +54,7 @@ public class AuthController {
 
     @PostMapping("/local/login")
     public ResponseEntity<?> loginLocal(@RequestBody @Valid LoginReq req, HttpSession session) {
-        return localAuth.login(req.getEmail(), req.getPassword())
+        return localAuth.login(req.getEmail().trim(), req.getPassword().trim())
                 .<ResponseEntity<?>>map(u -> {
                     SessionUser su = new SessionUser("local", String.valueOf(u.getId()), u.getEmail(), u.getName(), u.getAvatar());
                     session.setAttribute("LOGIN_USER", su);
@@ -65,6 +72,9 @@ public class AuthController {
         }
         String current = body.getOrDefault("current","").trim();
         String next = body.getOrDefault("next","").trim();
+        if (current.isBlank() || next.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("message","현재/새 비밀번호를 모두 입력하세요."));
+        }
 
         var u = userRepo.findById(Long.valueOf(me.providerId())).orElse(null);
         if (u == null || !org.springframework.security.crypto.bcrypt.BCrypt.checkpw(current, u.getPasswordHash())) {
@@ -85,11 +95,10 @@ public class AuthController {
 
         var uOpt = passwordResetService.findUserByEmail(email);
         if (uOpt.isEmpty()) {
-            // 보안상 200을 주는 전략도 가능하지만, 현재는 404 응답
+            // 보안상 200 을 주는 전략도 가능하지만 현재는 404
             return ResponseEntity.status(404).body(Map.of("message", "해당 이메일의 사용자가 없습니다."));
         }
 
-        // 토큰 발급 (요청 과다 시 429)
         final String token;
         try {
             token = passwordResetService.issueToken(email);
@@ -97,22 +106,18 @@ public class AuthController {
             return ResponseEntity.status(429).body(Map.of("message", tooSoon.getMessage()));
         }
 
-        // 프론트 라우팅 링크
         String link = frontBase + "/#/reset-password?token=" + URLEncoder.encode(token, StandardCharsets.UTF_8);
-
-        // 메일 발송 (실 SMTP 설정 없으면 콘솔로 대체)
         mailService.sendPasswordReset(email, link);
 
         return ResponseEntity.ok(Map.of("ok", true));
     }
 
-    // 구버전 호환 (동일 동작)
+    // 구버전 호환
     @PostMapping("/local/forgot-password")
     public ResponseEntity<?> forgotPassword(@RequestBody Map<String,String> body) {
         return forgot(body);
     }
 
-    // 토큰 소비 + 새 비밀번호 설정
     @PostMapping("/local/reset-password")
     public ResponseEntity<?> resetPassword(@RequestBody Map<String,String> body) {
         String token = body.getOrDefault("token","").trim();
@@ -126,6 +131,17 @@ public class AuthController {
             return ResponseEntity.status(400).body(Map.of("message","토큰이 유효하지 않거나 만료되었습니다."));
         }
         return ResponseEntity.ok(Map.of("ok", true));
+    }
+    @GetMapping("/oauth/link/consume")
+    public ResponseEntity<?> consumeLink(@RequestParam String token, HttpSession session) {
+        var opt = oauthService.consumeLinkToken(token);
+        if (opt.isEmpty()) {
+            return jsRedirect(frontBase + "/#/login-signup?link=invalid");
+        }
+        var u = opt.get();
+        SessionUser su = new SessionUser("local-or-linked", String.valueOf(u.getId()), u.getEmail(), u.getName(), u.getAvatar());
+        session.setAttribute("LOGIN_USER", su);
+        return jsRedirect(frontBase + "/#/auth/callback");
     }
 
     // 구버전 호환
@@ -173,6 +189,31 @@ public class AuthController {
                 .cacheControl(CacheControl.noStore())
                 .contentType(MediaType.TEXT_HTML)
                 .body(html);
+    }
+
+    /** 소셜 로그인 공통 처리: DB 연결(또는 생성) + 세션 저장 */
+    private ResponseEntity<?> finishSocialLogin(
+            HttpSession session,
+            String provider, String providerId,
+            String email, String name, String avatar,
+            boolean emailVerified
+    ) {
+        // 1) provider+providerId로 이미 연결된 유저 있으면 사용
+        Optional<UserAccount> linked = oauthService.findByProvider(provider, providerId);
+        UserAccount u = linked.orElseGet(() ->
+                // 2) 없으면: createUserAndLink 가 내부에서
+                //    동일 이메일 계정이 있으면 그 계정에 연결, 없으면 새로 생성
+                oauthService.createUserAndLink(email, name, avatar, provider, providerId, emailVerified)
+        );
+
+        // 3) 세션(프론트 호환을 위해 기존 형식 유지: provider/providerId 그대로 넣음)
+        String displayName = (name != null && !name.isBlank()) ? name
+                : (email != null && !email.isBlank() ? email.split("@")[0] : provider + "User");
+        SessionUser su = new SessionUser(provider, providerId, u.getEmail(), displayName, avatar);
+        session.setAttribute("LOGIN_USER", su);
+
+        // 4) 프론트로 이동
+        return jsRedirect(frontBase + "/#/auth/callback");
     }
 
     // ===================== NAVER =====================
@@ -235,10 +276,12 @@ public class AuthController {
         NaverProfileResponse.Profile p = (profRes.getBody() != null) ? profRes.getBody().response : null;
         if (p == null) return jsRedirect(frontBase + "/#/login-signup?err=profile");
 
-        SessionUser user = new SessionUser("naver", p.id, p.email, p.name, p.profile_image);
-        session.setAttribute("LOGIN_USER", user);
+        // Naver는 이메일 제공 동의가 없으면 email 이 null 일 수 있음
+        String email = p.email;
+        String name = p.name;
+        String avatar = p.profile_image;
 
-        return jsRedirect(frontBase + "/#/auth/callback");
+        return finishSocialLogin(session, "naver", p.id, email, name, avatar, /*emailVerified*/ email != null);
     }
 
     // ===================== GOOGLE =====================
@@ -308,16 +351,11 @@ public class AuthController {
         GoogleUserInfo info = userRes.getBody();
         if (info == null || info.sub == null) return jsRedirect(frontBase + "/#/login-signup?err=profile");
 
-        SessionUser user = new SessionUser(
-                "google",
-                info.sub,
-                info.email,
-                (info.name != null ? info.name : (info.email != null ? info.email.split("@")[0] : "GoogleUser")),
-                info.picture
-        );
-        session.setAttribute("LOGIN_USER", user);
+        String email = info.email;          // 일반적으로 제공됨
+        String name  = info.name;           // null 이면 후처리
+        String avatar = info.picture;
 
-        return jsRedirect(frontBase + "/#/auth/callback");
+        return finishSocialLogin(session, "google", info.sub, email, name, avatar, /*emailVerified*/ true);
     }
 
     // ===================== KAKAO =====================
@@ -394,12 +432,8 @@ public class AuthController {
                 avatar = ku.kakao_account.profile.profile_image_url;
             }
         }
-        if (name == null) name = "KakaoUser";
 
-        SessionUser user = new SessionUser("kakao", String.valueOf(ku.id), email, name, avatar);
-        session.setAttribute("LOGIN_USER", user);
-
-        return jsRedirect(frontBase + "/#/auth/callback");
+        return finishSocialLogin(session, "kakao", String.valueOf(ku.id), email, name, avatar, /*emailVerified*/ email != null);
     }
 
     // ===================== FACEBOOK =====================
@@ -472,13 +506,11 @@ public class AuthController {
             return jsRedirect(frontBase + "/#/login-signup?err=profile");
         }
 
-        String name = (me.name != null ? me.name : "FacebookUser");
+        String email = me.email; // null 일 수 있음
+        String name  = (me.name != null ? me.name : null);
         String avatar = (me.picture != null && me.picture.data != null) ? me.picture.data.url : null;
 
-        SessionUser user = new SessionUser("facebook", me.id, me.email, name, avatar);
-        session.setAttribute("LOGIN_USER", user);
-
-        return jsRedirect(frontBase + "/#/auth/callback");
+        return finishSocialLogin(session, "facebook", me.id, email, name, avatar, /*emailVerified*/ email != null);
     }
 
     // ===================== COMMON =====================

@@ -1,0 +1,49 @@
+spring:
+  config:
+    activate:
+      on-profile: prod
+  datasource:
+    url: ${JDBC_URL}          # 예: jdbc:postgresql://<host>:5432/recipfree
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate.jdbc.lob.non_contextual_creation: true
+
+  mail:
+    host: ${MAIL_HOST}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+
+app:
+  front-base: https://recipfree.com
+
+mail:
+  from: RecipFree <no-reply@recipfree.com>
+
+naver:
+  client-id: ${NAVER_CLIENT_ID:}
+  client-secret: ${NAVER_CLIENT_SECRET:}
+  redirect-uri: https://recipfree.com/api/auth/oauth/naver/callback
+
+google:
+  client-id: ${GOOGLE_CLIENT_ID:}
+  client-secret: ${GOOGLE_CLIENT_SECRET:}
+  redirect-uri: https://recipfree.com/api/auth/oauth/google/callback
+
+kakao:
+  client-id: ${KAKAO_CLIENT_ID:}
+  client-secret: ${KAKAO_CLIENT_SECRET:}
+  redirect-uri: https://recipfree.com/api/auth/oauth/kakao/callback
+
+facebook:
+  client-id: ${FACEBOOK_CLIENT_ID:}
+  client-secret: ${FACEBOOK_CLIENT_SECRET:}
+  redirect-uri: https://recipfree.com/api/auth/oauth/facebook/callback
