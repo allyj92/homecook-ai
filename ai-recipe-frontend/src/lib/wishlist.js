@@ -1,26 +1,40 @@
+// src/lib/wishlist.js
 import { apiFetch } from '../lib/http';
 
-// 레시피를 대표하는 "안정 키" 만들기 (id가 있으면 그걸 사용)
-export function recipeKey(recipe) {
-  if (recipe?.id) return `recipe:${recipe.id}`;
-  // id가 없다면 title+kcal+time 정도로 간단 해시 (충돌 줄이기)
-  const base = `${recipe?.title || ''}::${recipe?.kcal || ''}::${recipe?.cook_time_min || ''}`;
-  let h = 0; for (let i=0;i<base.length;i++) h = ((h<<5)-h) + base.charCodeAt(i) | 0;
-  return `rf:${Math.abs(h)}`;
+export function recipeKey(r) {
+  const base = (r?.title || 'recipe') + '|' + (r?.kcal ?? '?') + '|' + (r?.cook_time_min ?? '?');
+  return base.toLowerCase();
 }
 
 export async function toggleWishlist({ key, title, summary, image, meta, payload }) {
   const res = await apiFetch('/api/wishlist/toggle', {
     method: 'POST',
-    headers: { 'Content-Type':'application/json' },
     body: { key, title, summary, image, meta, payload },
   });
   if (!res.ok) throw new Error('toggle failed');
-  return await res.json(); // { saved: boolean }
+  return await res.json(); // { saved: true/false }
 }
 
 export async function checkSaved(key) {
-  const res = await apiFetch(`/api/wishlist/exists?key=${encodeURIComponent(key)}`, { method:'GET' });
+  const url = `/api/wishlist/exists?key=${encodeURIComponent(key)}`;
+  const res = await apiFetch(url, { method: 'GET', noAuthRedirect: true });
   if (!res.ok) return { saved: false };
   return await res.json(); // { saved: boolean }
+}
+
+/* ➕ 추가: 내 위시리스트 목록 */
+export async function fetchWishlist() {
+  const res = await apiFetch('/api/wishlist', { method: 'GET', noAuthRedirect: true });
+  if (!res.ok) throw new Error('list failed');
+  return await res.json(); // [{id,itemKey,title,summary,image,meta,createdAt,...}]
+}
+
+/* ➕ 추가: 항목 제거 */
+export async function removeWishlist(key) {
+  const res = await apiFetch(`/api/wishlist/${encodeURIComponent(key)}`, {
+    method: 'DELETE',
+    noAuthRedirect: true,
+  });
+  if (!res.ok) throw new Error('remove failed');
+  return await res.json(); // { removed: boolean }
 }

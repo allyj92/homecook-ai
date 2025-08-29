@@ -1,8 +1,9 @@
 // src/pages/MyPage.jsx
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import BottomNav from '../compoments/BottomNav';
 import { apiFetch } from '../lib/http';
+import { fetchWishlist, removeWishlist } from '../lib/wishlist';
 
 /* ── 광고 슬롯 ───────────────────── */
 function AdSlot({ id, height = 250, label = 'AD', sticky = false }) {
@@ -24,41 +25,41 @@ export default function MyPage() {
   useEffect(() => { window.scrollTo(0, 0); }, []);
 
   // 1) 현재 로그인 여부 (localStorage) 확인
-let me0 = null;
-try {
-  me0 = JSON.parse(localStorage.getItem('authUser') || 'null');
-} catch (e) {
-  me0 = null; // 파싱 실패 시 미로그인 취급
-}
-
-// 2) 로그아웃이면 로그인 화면으로 리다이렉트
-useEffect(() => {
-  if (!me0) {
-    localStorage.setItem('postLoginRedirect', '/mypage'); // 로그인 후 다시 돌아오게
-    navigate('/login-signup', { replace: true, state: { from: '/mypage' } });
+  let me0 = null;
+  try {
+    me0 = JSON.parse(localStorage.getItem('authUser') || 'null');
+  } catch {
+    me0 = null; // 파싱 실패 시 미로그인 취급
   }
-}, [me0, navigate]);
 
-// 3) 리다이렉트 중엔 화면 렌더 안 함(깜빡임 방지)
-if (!me0) return null;
+  // 2) 로그아웃이면 로그인 화면으로 리다이렉트
+  useEffect(() => {
+    if (!me0) {
+      localStorage.setItem('postLoginRedirect', '/mypage'); // 로그인 후 다시 돌아오게
+      navigate('/login-signup', { replace: true, state: { from: '/mypage' } });
+    }
+  }, [me0, navigate]);
+
+  // 3) 리다이렉트 중엔 화면 렌더 안 함(깜빡임 방지)
+  if (!me0) return null;
 
   // 서버에서 받은 내 정보
   const [me, setMe] = useState(null);
 
- // 서버의 /api/auth/me 호출 → 로그인 상태면 실제 프로필 세팅
-useEffect(() => {
-  if (!me0) return; // ⬅️ 미로그인 시 호출 안 함
-  (async () => {
-    try {
-      const res = await apiFetch('/api/auth/me', { noAuthRedirect: true });
-      if (!res.ok) return;
-      const data = await res.json(); // { id, email, name, avatar, ... }
-      setMe(data);
-    } catch {
-      // no-op
-    }
-  })();
-}, [me0]);
+  // 서버의 /api/auth/me 호출 → 로그인 상태면 실제 프로필 세팅
+  useEffect(() => {
+    if (!me0) return; // ⬅️ 미로그인 시 호출 안 함
+    (async () => {
+      try {
+        const res = await apiFetch('/api/auth/me', { noAuthRedirect: true });
+        if (!res.ok) return;
+        const data = await res.json(); // { id, email, name, avatar, ... }
+        setMe(data);
+      } catch {
+        // no-op
+      }
+    })();
+  }, [me0]);
 
   // 데모 유저 데이터 (브랜딩: 레시프리)
   const demoUser = {
@@ -78,13 +79,6 @@ useEffect(() => {
 
   const stats = { recipes: 18, saved: 42, comments: 67, streak: 6 };
 
-  const savedRecipes = useMemo(() => ([
-    { id: 101, title: '두부 파프리카 볶음', meta: '320kcal · 18분' },
-    { id: 102, title: '참치 곤약 비빔', meta: '410kcal · 12분' },
-    { id: 103, title: '닭가슴살 유부초밥', meta: '380kcal · 20분' },
-    { id: 104, title: '두유 된장국', meta: '160kcal · 10분' },
-  ]), []);
-
   const activities = useMemo(() => ([
     { id: 1, type: 'comment', text: '“곤약 비빔 소스 꿀팁 감사합니다!”에 댓글', ago: '2시간 전' },
     { id: 2, type: 'cook', text: '저염 닭가슴살 볶음 요리 완료 기록', ago: '어제' },
@@ -95,6 +89,41 @@ useEffect(() => {
   const [notifOn, setNotifOn] = useState(true);
   const [adPref, setAdPref] = useState('balanced');
   const [dietGoal, setDietGoal] = useState('diet');
+
+  /* ── 저장한 레시피(위시리스트) ───────────────────── */
+  const [wishLoading, setWishLoading] = useState(false);
+  const [wishErr, setWishErr] = useState('');
+  const [wishlist, setWishlist] = useState([]);
+
+  useEffect(() => {
+    let aborted = false;
+    (async () => {
+      if (!me0) return;
+      setWishLoading(true);
+      setWishErr('');
+      try {
+        const items = await fetchWishlist();
+        if (!aborted) setWishlist(items || []);
+      } catch {
+        if (!aborted) setWishErr('저장한 레시피를 불러오지 못했어요.');
+      } finally {
+        if (!aborted) setWishLoading(false);
+      }
+    })();
+    return () => { aborted = true; };
+  }, [me0]);
+
+  async function onRemove(key) {
+    const prev = wishlist;
+    setWishlist(arr => arr.filter(it => it.itemKey !== key)); // 낙관적 업데이트
+    try {
+      const r = await removeWishlist(key);
+      if (!r.removed) setWishlist(prev); // 롤백
+    } catch {
+      alert('삭제에 실패했어요.');
+      setWishlist(prev); // 롤백
+    }
+  }
 
   return (
     <div className="container-xxl py-3">
@@ -136,24 +165,72 @@ useEffect(() => {
 
         {/* 메인 */}
         <section className="col-12 col-lg-8">
-          {/* 저장한 레시피 */}
+          {/* 저장한 레시피 (실데이터) */}
           <div className="card shadow-sm mb-3">
             <div className="card-header d-flex justify-content-between align-items-center">
               <h5 className="m-0">저장한 레시피</h5>
-              <button className="btn btn-link btn-sm" onClick={() => navigate('/saved')}>전체보기</button>
+              <span className="text-secondary small">{wishlist.length}개</span>
             </div>
-            <div className="list-group list-group-flush">
-              {savedRecipes.map(r => (
-                <button
-                  key={r.id}
-                  className="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
-                  onClick={() => navigate(`/recipe/${r.id}`)}
-                >
-                  <span>{r.title}</span>
-                  <small className="text-secondary">{r.meta}</small>
-                </button>
-              ))}
-            </div>
+
+            {wishLoading && (
+              <div className="p-3">
+                <div className="placeholder-glow">
+                  <div className="placeholder col-12 mb-2" style={{ height: 18 }} />
+                  <div className="placeholder col-10 mb-2" style={{ height: 18 }} />
+                  <div className="placeholder col-8" style={{ height: 18 }} />
+                </div>
+              </div>
+            )}
+
+            {!wishLoading && wishErr && (
+              <div className="alert alert-danger m-3" role="alert">{wishErr}</div>
+            )}
+
+            {!wishLoading && !wishErr && wishlist.length === 0 && (
+              <div className="p-4 text-center text-secondary">
+                아직 저장한 레시피가 없어요.
+                <div className="mt-2">
+                  <Link className="btn btn-sm btn-success" to="/input">레시피 받으러 가기</Link>
+                </div>
+              </div>
+            )}
+
+            {!wishLoading && !wishErr && wishlist.length > 0 && (
+              <div className="list-group list-group-flush">
+                {wishlist.map((w) => (
+                  <div key={w.id} className="list-group-item">
+                    <div className="d-flex align-items-center gap-3">
+                      <div className="flex-shrink-0">
+                        <div
+                          className="rounded"
+                          style={{
+                            width: 72, height: 48, background: '#f3f3f3',
+                            backgroundImage: w.image ? `url(${w.image})` : undefined,
+                            backgroundSize: 'cover', backgroundPosition: 'center'
+                          }}
+                        />
+                      </div>
+                      <div className="flex-grow-1">
+                        <div className="fw-semibold text-truncate">{w.title}</div>
+                        {w.meta && <div className="small text-secondary">{w.meta}</div>}
+                        {w.summary && <div className="small text-secondary text-truncate">{w.summary}</div>}
+                      </div>
+                      <div className="d-flex gap-2">
+                        {/* 상세 페이지가 있다면 라우팅 연결 */}
+                        {/* <Link className="btn btn-sm btn-outline-primary" to={`/recipe/${w.id ?? ''}`}>보기</Link> */}
+                        <button
+                          className="btn btn-sm btn-outline-danger"
+                          onClick={() => onRemove(w.itemKey)}
+                          title="찜 해제"
+                        >
+                          제거
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* 광고 */}
