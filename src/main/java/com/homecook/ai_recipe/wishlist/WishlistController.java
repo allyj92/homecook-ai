@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.homecook.ai_recipe.auth.SessionUser;
 import com.homecook.ai_recipe.auth.UserAccount;
 import com.homecook.ai_recipe.repo.UserAccountRepository;
-import com.homecook.ai_recipe.service.OAuthAccountService; // ✅ 추가
+import com.homecook.ai_recipe.service.OAuthAccountService;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -20,7 +20,7 @@ public class WishlistController {
 
     private final WishlistItemRepository repo;
     private final UserAccountRepository userRepo;
-    private final OAuthAccountService oauthService;   // ✅ 추가 의존성
+    private final OAuthAccountService oauthService;
     private final ObjectMapper om = new ObjectMapper();
 
     /** 세션에서 실제 UserAccount 찾아오기 (로컬/소셜 모두 지원) */
@@ -28,23 +28,23 @@ public class WishlistController {
         SessionUser su = (SessionUser) session.getAttribute("LOGIN_USER");
         if (su == null) throw new RuntimeException("401");
 
-        // 1) 로컬(or local-or-linked) 은 providerId 가 내부 user id (숫자)로 저장됨
-        if ("local".equals(su.provider()) || "local-or-linked".equals(su.provider())) {
+        // 1) 로컬(or local-or-linked)은 providerId가 내부 user id(숫자)
+        if ("local".equalsIgnoreCase(su.provider()) || "local-or-linked".equalsIgnoreCase(su.provider())) {
             try {
                 Long uid = Long.valueOf(su.providerId());
                 return userRepo.findById(uid).orElseThrow(() -> new RuntimeException("401"));
-            } catch (NumberFormatException nfe) {
-                // 혹시라도 숫자가 아니면 아래 소셜 경로로 폴백
+            } catch (NumberFormatException ignore) {
+                // 숫자 아닐 경우 아래로 폴백
             }
         }
 
-        // 2) 소셜 로그인: provider/providerId 로 연결된 UserAccount 조회
+        // 2) 소셜: provider/providerId 링크로 매칭
         var linked = oauthService.findByProvider(su.provider(), su.providerId());
         if (linked.isPresent()) return linked.get();
 
-        // 3) 이메일이 있으면 이메일로도 시도(일부 소셜에서 email 제공)
+        // 3) 이메일 매칭(일부 소셜에서 email 제공)
         if (su.email() != null && !su.email().isBlank()) {
-            var byEmail = userRepo.findByEmail(su.email());
+            var byEmail = userRepo.findByEmailIgnoreCase(su.email());
             if (byEmail.isPresent()) return byEmail.get();
         }
 
@@ -70,7 +70,7 @@ public class WishlistController {
     public ResponseEntity<?> toggle(@RequestBody Map<String,Object> body, HttpSession session) {
         try {
             var me = requireUser(session);
-            String key = String.valueOf(body.getOrDefault("key","")).trim();
+            String key = safeStr(body.get("key")).trim();
             if (key.isBlank())
                 return ResponseEntity.badRequest().body(Map.of("message","key is required"));
 
@@ -80,14 +80,16 @@ public class WishlistController {
                 return ResponseEntity.ok(Map.of("saved", false));
             }
 
-            String title   = safeStr(body.get("title"));
+            String title   = safeStr(body.get("title")).trim();
             String summary = opt(body, "summary");
             String image   = opt(body, "image");
             String meta    = opt(body, "meta");
 
             String payloadJson = null;
             Object payload = body.get("payload");
-            if (payload != null) try { payloadJson = om.writeValueAsString(payload); } catch (Exception ignored) {}
+            if (payload != null) {
+                try { payloadJson = om.writeValueAsString(payload); } catch (Exception ignored) {}
+            }
 
             WishlistItem item = WishlistItem.builder()
                     .user(me).itemKey(key)
