@@ -1,4 +1,3 @@
-// 
 // src/pages/ResultPage.jsx
 import { useLocation, Link } from 'react-router-dom';
 import { useEffect, useMemo, useState, useCallback } from 'react';
@@ -83,7 +82,13 @@ function useToast() {
   const View = () => (
     <div className="position-fixed top-0 end-0 p-3" style={{ zIndex: 1100 }}>
       {toasts.map((t) => (
-        <div key={t.id} className={`toast show align-items-center text-bg-${t.type === 'error' ? 'danger' : t.type === 'success' ? 'success' : 'secondary'} border-0 mb-2`} role="alert">
+        <div
+          key={t.id}
+          className={`toast show align-items-center text-bg-${
+            t.type === 'error' ? 'danger' : t.type === 'success' ? 'success' : 'secondary'
+          } border-0 mb-2`}
+          role="alert"
+        >
           <div className="d-flex">
             <div className="toast-body">{t.msg}</div>
           </div>
@@ -178,7 +183,7 @@ function AdCarouselMulti({ items = [], interval = 3000 }) {
 }
 
 /* ── 하단 고정 액션바 ───────────────── */
-function StickyActionBar({ visible, saved, onToggle, onRetry, onEdit }) {
+function StickyActionBar({ visible, saved, onToggle, onRetry }) {
   if (!visible) return null;
   return (
     <div
@@ -200,9 +205,41 @@ function StickyActionBar({ visible, saved, onToggle, onRetry, onEdit }) {
           <button type="button" className="btn btn-lg btn-outline-secondary" onClick={onRetry} title="같은 조건으로 다시 추천">
             다시 추천
           </button>
-          <Link className="btn btn-lg btn-success" to="/input" onClick={onEdit}>
+          <Link className="btn btn-lg btn-success" to="/input">
             조건 변경
           </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── 읽기 쉬운 “예상 영양” 카드 ───────────────── */
+function NutritionTiles({ data }) {
+  const Item = ({ label, value, unit }) => (
+    <div className="col-6 col-md-3">
+      <div className="border rounded-3 p-3 text-center h-100">
+        <div className="text-secondary small mb-1">{label}</div>
+        <div className="fw-bold" style={{ fontSize: 22, lineHeight: 1.1 }}>
+          {value ?? '-'} <span className="text-secondary" style={{ fontSize: 14 }}>{unit}</span>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="card shadow-sm mb-3">
+      <div className="card-body">
+        <div className="d-flex align-items-center justify-content-between mb-3">
+          <div className="fw-semibold" style={{ fontSize: 18 }}>예상 영양</div>
+          <span className="badge text-bg-primary">⏱ 약 {data.cook_time_min}분</span>
+        </div>
+        <div className="row g-2 g-md-3">
+          <Item label="열량" value={data.kcal} unit="kcal" />
+          <Item label="탄수화물" value={data.carbs_g} unit="g" />
+          <Item label="단백질" value={data.protein_g} unit="g" />
+          <Item label="지방" value={data.fat_g} unit="g" />
+          {data.sodium_mg != null && <Item label="나트륨" value={data.sodium_mg} unit="mg" />}
         </div>
       </div>
     </div>
@@ -279,9 +316,7 @@ export default function ResultPage() {
     if (!data) return;
     const key = recipeKey(data);
     const meta = `${data.kcal ?? '?'}kcal · ${data.cook_time_min ?? '?'}분`;
-
-    // 낙관적
-    setSaved((v) => !v);
+    setSaved((v) => !v); // 낙관적
     try {
       const r = await toggleWishlist({
         key,
@@ -293,7 +328,7 @@ export default function ResultPage() {
       });
       setSaved(!!r.saved);
       toast(r.saved ? '저장했어요!' : '저장을 해제했어요.', 'success');
-    } catch (e) {
+    } catch {
       setSaved((v) => !v);
       toast('찜하기에 실패했어요. 로그인 상태를 확인해 주세요.', 'error');
     }
@@ -405,7 +440,7 @@ export default function ResultPage() {
         {/* 단일 모드 */}
         {data && (
           <>
-            {/* 타이틀 */}
+            {/* 타이틀 (상단 액션 버튼 완전 제거) */}
             <div className="mb-2">
               <h1 className="h4 fw-bold mb-1">{data.title}</h1>
               {data.summary && <p className="text-secondary mb-0">{data.summary}</p>}
@@ -420,24 +455,8 @@ export default function ResultPage() {
               </div>
             )}
 
-            {/* 예상 영양 */}
-            <div className="card shadow-sm mb-3">
-              <div className="card-body">
-                <div className="fw-semibold mb-2">예상 영양</div>
-                <div className="d-flex flex-wrap gap-2">
-                  <span className="badge text-bg-light border">열량 {data.kcal} kcal</span>
-                  <span className="badge text-bg-light border">탄수 {data.carbs_g} g</span>
-                  <span className="badge text-bg-light border">단백질 {data.protein_g} g</span>
-                  <span className="badge text-bg-light border">지방 {data.fat_g} g</span>
-                  {data.sodium_mg != null && (
-                    <span className="badge text-bg-light border">나트륨 {data.sodium_mg} mg</span>
-                  )}
-                </div>
-                <div className="mt-2">
-                  <span className="badge text-bg-primary">⏱ 조리시간 약 {data.cook_time_min}분</span>
-                </div>
-              </div>
-            </div>
+            {/* 읽기 쉬운 예상 영양 */}
+            <NutritionTiles data={data} />
 
             {/* 재료 */}
             <div className="card shadow-sm mb-3">
@@ -450,17 +469,22 @@ export default function ResultPage() {
             </div>
 
             {/* 추천 상품 캐러셀 */}
-            {carouselItems.length > 0 && (
-              <div className="card shadow-sm mb-3">
-                <div className="card-body">
-                  <div className="fw-semibold mb-2">추천 상품</div>
-                  <AdCarouselMulti items={carouselItems} interval={2500} />
-                  <p className="text-secondary small mt-2 mb-0">
-                    * 일부 링크는 제휴/광고일 수 있으며, 구매 시 수수료를 받을 수 있습니다.
-                  </p>
+            {(() => {
+              const names = normalizeIngredients(data.ingredients_list || []);
+              const items = names.flatMap((n) => (adMap[n] || []).slice(0, 1));
+              if (!items.length) return null;
+              return (
+                <div className="card shadow-sm mb-3">
+                  <div className="card-body">
+                    <div className="fw-semibold mb-2">추천 상품</div>
+                    <AdCarouselMulti items={items} interval={2500} />
+                    <p className="text-secondary small mt-2 mb-0">
+                      * 일부 링크는 제휴/광고일 수 있으며, 구매 시 수수료를 받을 수 있습니다.
+                    </p>
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* 만드는 법 */}
             <div className="card shadow-sm mb-5">
@@ -473,27 +497,15 @@ export default function ResultPage() {
               </div>
             </div>
 
-            {/* 하단 고정 액션바 */}
+            {/* 하단 고정 액션바 (주요 액션 모음) */}
             <StickyActionBar
               visible={!!data}
               saved={saved}
               onToggle={onToggleWish}
               onRetry={retrySameCondition}
-              onEdit={() => {}}
             />
           </>
         )}
-
-        {/* 액션 (보조) */}
-        <div className="text-center mt-3 mb-5">
-          <button type="button" className="btn btn-success" onClick={retrySameCondition} disabled={loading}>
-            {loading && <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true" />}
-            {loading ? '다시 추천 중…' : '같은 조건으로 다시 추천'}
-          </button>
-          <span className="mx-2" />
-          <Link className="btn btn-outline-secondary" to="/input">조건 바꿔서 입력하기</Link>
-          {error && <div className="alert alert-danger mt-3" role="alert">{error}</div>}
-        </div>
 
         {/* 전체 로딩 오버레이 */}
         {loading && (
@@ -510,6 +522,13 @@ export default function ResultPage() {
         <div className="d-md-none">
           <BottomNav />
         </div>
+
+        {/* 에러 메세지(보조) */}
+        {error && (
+          <div className="container-xxl">
+            <div className="alert alert-danger mt-3" role="alert">{error}</div>
+          </div>
+        )}
       </main>
 
       {/* 토스트 */}
