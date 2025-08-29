@@ -1,3 +1,4 @@
+// 
 // src/pages/ResultPage.jsx
 import { useLocation, Link } from 'react-router-dom';
 import { useEffect, useMemo, useState, useCallback } from 'react';
