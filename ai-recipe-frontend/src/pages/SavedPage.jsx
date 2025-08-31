@@ -1,168 +1,167 @@
 // src/pages/SavedPage.jsx
-import { useEffect, useState, useMemo } from 'react';
-import { listFavorites, removeFavorite } from '../lib/wishlist';
+import { useEffect, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import BottomNav from '../compoments/BottomNav';
-import { Link, useNavigate } from 'react-router-dom';
+import { listFavoritesPage, removeFavorite } from '../lib/wishlist';
 
-const PAGE_SIZE = 12;
+const PAGE_SIZE = 12; // 1페이지 아이템 수
 
 export default function SavedPage() {
-  const navigate = useNavigate();
+  const nav = useNavigate();
+  const [search, setSearch] = useSearchParams();
+  const pageFromUrl = Number(search.get('page') ?? '1'); // 1-based
+  const [page, setPage] = useState(Number.isFinite(pageFromUrl) && pageFromUrl > 0 ? pageFromUrl : 1);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState('');
-  const [items, setItems] = useState([]);
-  const [page, setPage] = useState(1);
+  const [data, setData] = useState({ items: [], page: 0, size: PAGE_SIZE, total: 0, totalPages: 1 });
 
-  useEffect(() => {
-    let aborted = false;
-    (async () => {
-      setLoading(true);
-      setErr('');
-      try {
-        const rows = await listFavorites();
-        if (!aborted) setItems(Array.isArray(rows) ? rows : []);
-      } catch (e) {
-        if (!aborted) setErr('저장한 레시피를 불러오지 못했어요.');
-      } finally {
-        if (!aborted) setLoading(false);
-      }
-    })();
-    return () => { aborted = true; };
-  }, []);
-
-  const total = items.length;
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const pageSafe = Math.min(Math.max(1, page), totalPages);
-
-  const paged = useMemo(() => {
-    const start = (pageSafe - 1) * PAGE_SIZE;
-    return items.slice(start, start + PAGE_SIZE);
-  }, [items, pageSafe]);
-
-  async function onRemove(recipeId) {
-    const rid = Number(recipeId);
-    if (!Number.isFinite(rid) || rid <= 0) return;
-    const prev = items;
-    setItems(arr => arr.filter(it => Number(it.recipeId) !== rid));
+  async function load(p = 1) {
+    setLoading(true);
+    setErr('');
     try {
-      await removeFavorite(rid);
-    } catch {
-      alert('삭제에 실패했어요.');
-      setItems(prev);
+      // 백엔드는 0-based
+      const res = await listFavoritesPage({ page: p - 1, size: PAGE_SIZE });
+      setData(res);
+    } catch (e) {
+      setErr(e?.message || '저장한 레시피를 불러오지 못했어요.');
+    } finally {
+      setLoading(false);
     }
   }
 
+  useEffect(() => {
+    // 로그인 확인
+    (async () => {
+      const me = await fetch('/api/auth/me', { credentials: 'include' });
+      if (me.status === 401) return nav('/login-signup', { replace: true, state: { from: '/saved' } });
+      await load(page);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, nav]);
+
+  // URL 동기화
+  useEffect(() => {
+    setSearch(prev => {
+      const sp = new URLSearchParams(prev);
+      sp.set('page', String(page));
+      return sp;
+    }, { replace: true });
+  }, [page, setSearch]);
+
+  async function onRemove(e, recipeId) {
+    e.preventDefault(); e.stopPropagation();
+    const prev = data;
+    setData(d => ({ ...d, items: d.items.filter(x => Number(x.recipeId) !== Number(recipeId)) }));
+    try { await removeFavorite(recipeId); }
+    catch {
+      alert('삭제 실패');
+      setData(prev);
+    }
+  }
+
+  const canPrev = page > 1;
+  const canNext = page < data.totalPages;
+
+  // 단순한 페이지네이터 (현재를 기준으로 좌우 몇 개)
+  function renderPager() {
+    if (data.totalPages <= 1) return null;
+    const window = 2;
+    const start = Math.max(1, page - window);
+    const end = Math.min(data.totalPages, page + window);
+    const nums = [];
+    for (let i = start; i <= end; i++) nums.push(i);
+
+    return (
+      <nav className="d-flex justify-content-center mt-3">
+        <ul className="pagination mb-0">
+          <li className={`page-item ${!canPrev ? 'disabled' : ''}`}>
+            <button className="page-link" onClick={() => canPrev && setPage(page - 1)}>‹</button>
+          </li>
+          {start > 1 && (
+            <>
+              <li className="page-item"><button className="page-link" onClick={() => setPage(1)}>1</button></li>
+              {start > 2 && <li className="page-item disabled"><span className="page-link">…</span></li>}
+            </>
+          )}
+          {nums.map(n => (
+            <li key={n} className={`page-item ${n === page ? 'active' : ''}`}>
+              <button className="page-link" onClick={() => setPage(n)}>{n}</button>
+            </li>
+          ))}
+          {end < data.totalPages && (
+            <>
+              {end < data.totalPages - 1 && <li className="page-item disabled"><span className="page-link">…</span></li>}
+              <li className="page-item"><button className="page-link" onClick={() => setPage(data.totalPages)}>{data.totalPages}</button></li>
+            </>
+          )}
+          <li className={`page-item ${!canNext ? 'disabled' : ''}`}>
+            <button className="page-link" onClick={() => canNext && setPage(page + 1)}>›</button>
+          </li>
+        </ul>
+      </nav>
+    );
+  }
+
   return (
-    <div className="container-xxl py-3">
+    <main className="container-xxl py-4">
       <div className="d-flex align-items-center justify-content-between mb-3">
         <h1 className="h4 fw-bold">저장한 레시피</h1>
-        <Link className="btn btn-outline-secondary btn-sm" to="/mypage">마이페이지로</Link>
+        <Link className="btn btn-outline-secondary btn-sm" to="/mypage">마이페이지</Link>
       </div>
 
       {loading && (
-        <div className="card shadow-sm">
-          <div className="p-3">
-            <div className="placeholder-glow">
-              <div className="placeholder col-12 mb-2" style={{ height: 18 }} />
-              <div className="placeholder col-10 mb-2" style={{ height: 18 }} />
-              <div className="placeholder col-8" style={{ height: 18 }} />
-            </div>
-          </div>
+        <div className="p-4 text-center"><div className="spinner-border" role="status" /></div>
+      )}
+
+      {!loading && err && <div className="alert alert-danger">{err}</div>}
+
+      {!loading && !err && data.items.length === 0 && (
+        <div className="p-4 text-center text-secondary">
+          아직 저장한 레시피가 없어요.
+          <div className="mt-2"><Link to="/input" className="btn btn-sm btn-success">레시피 받기</Link></div>
         </div>
       )}
 
-      {!loading && err && (
-        <div className="alert alert-danger">{err}</div>
-      )}
-
-      {!loading && !err && total === 0 && (
-        <div className="card shadow-sm">
-          <div className="p-4 text-center text-secondary">
-            아직 저장한 레시피가 없어요.
-            <div className="mt-2">
-              <Link className="btn btn-sm btn-success" to="/input">레시피 받으러 가기</Link>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {!loading && !err && total > 0 && (
+      {!loading && !err && data.items.length > 0 && (
         <>
-          <div className="list-group list-group-flush card shadow-sm">
-            {paged.map((w) => (
-              <div key={w.recipeId} className="list-group-item">
-                <div className="d-flex align-items-start gap-3">
-                  <div className="flex-shrink-0">
-                    <div
-                      className="rounded"
-                      style={{
-                        width: 96, height: 64, background: '#f3f3f3',
-                        backgroundImage: w.image ? `url(${w.image})` : undefined,
-                        backgroundSize: 'cover', backgroundPosition: 'center'
-                      }}
-                    />
-                  </div>
-
-                  {/* 텍스트 묶음: 한 줄 타이틀, 한 줄 메타, 한 줄 요약(… 처리) */}
-                  <div className="flex-grow-1" style={{ minWidth: 0 }}>
-                    <div className="fw-semibold text-truncate">{w.title ?? `레시피 #${w.recipeId}`}</div>
-                    {w.meta && <div className="small text-secondary text-truncate">{w.meta}</div>}
-                    {w.summary && (
+          <div className="list-group list-group-flush">
+            {data.items.map((w) => {
+              const key = w.id ?? w.recipeId;
+              const to  = `/result?id=${encodeURIComponent(w.recipeId)}`;
+              return (
+                <Link key={key} to={to} className="list-group-item list-group-item-action">
+                  <div className="d-flex align-items-center gap-3">
+                    <div className="flex-no-shrink">
                       <div
-                        className="small text-secondary"
-                        style={{
-                          display: '-webkit-box',
-                          WebkitLineClamp: 1,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden'
-                        }}
-                      >
-                        {w.summary}
-                      </div>
-                    )}
+                        className="bookmark-thumb"
+                        style={{ backgroundImage: w.image ? `url(${w.image})` : undefined }}
+                      />
+                    </div>
+                    <div className="flex-grow-1" style={{ minWidth: 0 }}>
+                      <div className="fw-semibold line-clamp-1">{w.title ?? `레시피 #${w.recipeId}`}</div>
+                      {w.meta && <div className="small text-secondary line-clamp-1">{w.meta}</div>}
+                      {w.summary && <div className="small text-secondary line-clamp-2">{w.summary}</div>}
+                    </div>
+                    <div className="d-flex gap-2 flex-no-shrink">
+                      <button className="btn btn-sm btn-outline-danger btn-remove" onClick={(e)=>onRemove(e,w.recipeId)}>제거</button>
+                    </div>
                   </div>
-
-                  <div className="d-flex flex-column align-items-end gap-2">
-                    <Link className="btn btn-sm btn-outline-primary" to={`/result?id=${w.recipeId}`}>
-                      보기
-                    </Link>
-                    <button
-                      className="btn btn-sm btn-outline-danger"
-                      style={{ minWidth: 64, height: 32, padding: '0 12px' }}
-                      onClick={() => onRemove(w.recipeId)}
-                    >
-                      제거
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
+                </Link>
+              );
+            })}
           </div>
 
-          {/* 페이지네이션 */}
-          <nav className="mt-3 d-flex justify-content-center">
-            <ul className="pagination mb-0">
-              <li className={`page-item ${pageSafe === 1 ? 'disabled' : ''}`}>
-                <button className="page-link" onClick={() => setPage(p => Math.max(1, p - 1))}>이전</button>
-              </li>
-              {Array.from({ length: totalPages }, (_, i) => i + 1)
-                .slice(Math.max(0, pageSafe - 3), Math.max(0, pageSafe - 3) + 5)
-                .map(n => (
-                  <li key={n} className={`page-item ${n === pageSafe ? 'active' : ''}`}>
-                    <button className="page-link" onClick={() => setPage(n)}>{n}</button>
-                  </li>
-                ))}
-              <li className={`page-item ${pageSafe === totalPages ? 'disabled' : ''}`}>
-                <button className="page-link" onClick={() => setPage(p => Math.min(totalPages, p + 1))}>다음</button>
-              </li>
-            </ul>
-          </nav>
+          {/* 카운트/페이지네이터 */}
+          <div className="d-flex justify-content-between align-items-center mt-3">
+            <div className="text-secondary small">
+              총 {data.total}개 · {page}/{data.totalPages} 페이지
+            </div>
+            {renderPager()}
+          </div>
         </>
       )}
 
-      <div className="d-md-none mt-4">
-        <BottomNav />
-      </div>
-    </div>
+      <BottomNav />
+    </main>
   );
 }

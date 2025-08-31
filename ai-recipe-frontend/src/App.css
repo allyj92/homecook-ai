@@ -96,3 +96,11 @@
   justify-content: center;
   white-space: nowrap;
 }
+
+/* 마이페이지 - 저장한 페이지 - 더보기 */
+/* e.g. src/styles/util.css */
+.bookmark-thumb{width:96px;height:64px;background:#f3f3f3;background-size:cover;background-position:center;border-radius:8px}
+.line-clamp-1{display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+.line-clamp-2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.flex-no-shrink{flex:0 0 auto}
+.btn-remove{min-width:72px}
