@@ -64,18 +64,36 @@ export async function listFavoritesPage({ page = 0, size = 12 } = {}) {
 }
 
 /** 찜 추가 (POST /api/me/favorites/{recipeId}) */
-export async function addFavorite(recipeId) {
-  const rid = toRecipeId(recipeId);
+export async function addFavorite(recipeOrId) {
+  const r = recipeOrId || {};
+  const rid = toRecipeId(typeof r === 'object' ? (r.id ?? r.recipeId) : recipeOrId);
+
+  // 객체가 오면 메타 추출
+  let body = undefined;
+  if (typeof r === 'object') {
+    body = {
+      title: r.title ?? null,
+      summary: r.summary ?? null,
+      image: r.image ?? null,
+      // 예: "320kcal · 10분" 같은 표시용 메타
+      meta: r.kcal != null || r.cook_time_min != null
+        ? `${r.kcal ?? '-'}kcal · ${r.cook_time_min ?? '-'}분`
+        : (r.meta ?? null),
+    };
+  }
+
   const res = await fetch(api(`/api/me/favorites/${rid}`), {
     method: 'POST',
     credentials: 'include',
+    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
   });
+
   if (!res.ok) {
     if (res.status === 401) throw new Error('로그인이 필요합니다.');
     throw new Error('찜 추가 실패');
   }
-  // { id, recipeId, createdAt }
-  return res.json();
+  return res.json(); // { id, recipeId, title, summary, image, meta, createdAt }
 }
 
 /** 찜 해제 (DELETE /api/me/favorites/{recipeId}) */
