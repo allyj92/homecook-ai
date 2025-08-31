@@ -1,4 +1,3 @@
-// src/main/java/com/homecook/ai_recipe/repo/FavoriteRepository.java
 package com.homecook.ai_recipe.repo;
 
 import com.homecook.ai_recipe.domain.Favorite;
@@ -9,12 +8,12 @@ import java.util.Optional;
 
 public interface FavoriteRepository extends JpaRepository<Favorite, Long> {
 
-    // ⚠️ user가 @ManyToOne(UserAccount user)이므로 필드 경로는 user.id 형태여야 함
-    List<Favorite> findByUser_IdOrderByCreatedAtDesc(Long userId);
+    // user.id 경로를 자동으로 풀어줍니다 (Spring Data JPA 규칙)
+    List<Favorite> findByUserIdOrderByCreatedAtDesc(Long userId);
 
-    boolean existsByUser_IdAndRecipeId(Long userId, Long recipeId);
+    boolean existsByUserIdAndRecipeId(Long userId, Long recipeId);
 
-    Optional<Favorite> findByUser_IdAndRecipeId(Long userId, Long recipeId);
+    Optional<Favorite> findByUserIdAndRecipeId(Long userId, Long recipeId);
 
-    void deleteByUser_IdAndRecipeId(Long userId, Long recipeId);
+    void deleteByUserIdAndRecipeId(Long userId, Long recipeId);
 }
