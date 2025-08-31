@@ -3,7 +3,7 @@ import { useLocation, Link } from 'react-router-dom';
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { requestRecommend, requestRecommendTop } from '../api';
 import 'bootstrap/dist/css/bootstrap.min.css';
-import BottomNav from '../components/BottomNav'; // ✅ 폴더 오타 수정
+import BottomNav from '../compoments/BottomNav'; // ✅ 폴더 오타 수정
 import { listFavorites, addFavorite, removeFavorite, isFavoriteIn } from '../lib/wishlist'; // ✅ 신규 API
 
 /* ── 라벨 ─────────────────────────────── */
