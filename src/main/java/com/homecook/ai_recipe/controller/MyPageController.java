@@ -77,6 +77,29 @@ public class MyPageController {
         throw new org.springframework.web.server.ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthenticated");
     }
 
+    // JSON 바디로 받는 버전: { recipeId, title, summary, image, meta }
+    @PostMapping("/favorites")
+    public FavoriteDto addFavoriteByBody(@RequestBody Map<String,Object> body, HttpSession session) {
+        Long userId = requireLogin(session);
+        if (body == null || body.get("recipeId") == null)
+            throw new org.springframework.web.server.ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "recipeId is required"
+            );
+
+        Long recipeId = Long.valueOf(String.valueOf(body.get("recipeId")));
+        String title   = body.get("title")   != null ? String.valueOf(body.get("title"))   : null;
+        String summary = body.get("summary") != null ? String.valueOf(body.get("summary")) : null;
+        String image   = body.get("image")   != null ? String.valueOf(body.get("image"))   : null;
+        String meta    = body.get("meta")    != null ? String.valueOf(body.get("meta"))    : null;
+
+        var f = favoriteService.add(userId, recipeId, title, summary, image, meta);
+        return new FavoriteDto(
+                f.getId(), f.getRecipeId(), f.getTitle(), f.getSummary(),
+                f.getImage(), f.getMeta(),
+                f.getCreatedAt() != null ? f.getCreatedAt().toString() : null
+        );
+    }
+
     /** 즐겨찾기 목록 */
     @GetMapping("/favorites")
     public ResponseEntity<?> favorites(HttpSession session) {
