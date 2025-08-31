@@ -36,7 +36,7 @@ export default function MyPage() {
   // 즐겨찾기
   const [wishLoading, setWishLoading] = useState(false);
   const [wishErr, setWishErr] = useState('');
-  const [wishlist, setWishlist] = useState([]); // [{id, recipeId, createdAt} 또는 서버 확장 필드]
+  const [wishlist, setWishlist] = useState([]); // [{ id, recipeId, createdAt }, ...] + (서버가 확장해주면 추가 필드)
 
   // 최근 활동(데모)
   const activities = useMemo(() => ([
@@ -229,7 +229,7 @@ export default function MyPage() {
               <div className="p-4 text-center text-secondary">
                 아직 저장한 레시피가 없어요.
                 <div className="mt-2">
-                  <Link className="btn btn-sm btn成功" to="/input">레시피 받으러 가기</Link>
+                  <Link className="btn btn-sm btn-success" to="/input">레시피 받으러 가기</Link>
                 </div>
               </div>
             )}
