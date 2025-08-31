@@ -3,8 +3,8 @@ import { useLocation, Link } from 'react-router-dom';
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { requestRecommend, requestRecommendTop } from '../api';
 import 'bootstrap/dist/css/bootstrap.min.css';
-import BottomNav from '../compoments/BottomNav';
-import { recipeKey, toggleWishlist, checkSaved } from '../lib/wishlist';
+import BottomNav from '../components/BottomNav'; // ✅ 폴더 오타 수정
+import { listFavorites, addFavorite, removeFavorite, isFavoriteIn } from '../lib/wishlist'; // ✅ 신규 API
 
 /* ── 라벨 ─────────────────────────────── */
 const GOAL_LABELS = {
@@ -274,15 +274,14 @@ export default function ResultPage() {
     }
   }, [data]);
 
-  /* 찜 선조회 */
+  /* 찜 선조회(신규 API 사용) */
   useEffect(() => {
     let aborted = false;
     (async () => {
-      if (!data) return;
-      const key = recipeKey(data);
+      if (!data || data.id == null) return;
       try {
-        const r = await checkSaved(key);
-        if (!aborted) setSaved(!!r.saved);
+        const favs = await listFavorites();
+        if (!aborted) setSaved(isFavoriteIn(favs, data.id));
       } catch {
         if (!aborted) setSaved(false);
       }
@@ -313,26 +312,28 @@ export default function ResultPage() {
   const hasAnyResult = list.length > 0 || !!data;
 
   const onToggleWish = useCallback(async () => {
-    if (!data) return;
-    const key = recipeKey(data);
-    const meta = `${data.kcal ?? '?'}kcal · ${data.cook_time_min ?? '?'}분`;
+    if (!data || data.id == null) return;
+    const rid = Number(data.id);
+    if (!Number.isFinite(rid) || rid <= 0) {
+      toast('유효하지 않은 레시피 ID입니다.', 'error');
+      return;
+    }
     setSaved((v) => !v); // 낙관적
     try {
-      const r = await toggleWishlist({
-        key,
-        title: data.title,
-        summary: data.summary,
-        image: data.image || null,
-        meta,
-        payload: data,
-      });
-      setSaved(!!r.saved);
-      toast(r.saved ? '저장했어요!' : '저장을 해제했어요.', 'success');
+      if (saved) {
+        await removeFavorite(rid);
+        setSaved(false);
+        toast('찜을 해제했어요.', 'success');
+      } else {
+        await addFavorite(rid);
+        setSaved(true);
+        toast('저장했어요!', 'success');
+      }
     } catch {
-      setSaved((v) => !v);
+      setSaved((v) => !v); // 롤백
       toast('찜하기에 실패했어요. 로그인 상태를 확인해 주세요.', 'error');
     }
-  }, [data, toast]);
+  }, [data, saved, toast]);
 
   async function retrySameCondition() {
     const lastReq = JSON.parse(localStorage.getItem('recipe_last_request') || 'null');
@@ -440,7 +441,7 @@ export default function ResultPage() {
         {/* 단일 모드 */}
         {data && (
           <>
-            {/* 타이틀 (상단 액션 버튼 완전 제거) */}
+            {/* 타이틀 */}
             <div className="mb-2">
               <h1 className="h4 fw-bold mb-1">{data.title}</h1>
               {data.summary && <p className="text-secondary mb-0">{data.summary}</p>}
@@ -497,7 +498,7 @@ export default function ResultPage() {
               </div>
             </div>
 
-            {/* 하단 고정 액션바 (주요 액션 모음) */}
+            {/* 하단 고정 액션바 */}
             <StickyActionBar
               visible={!!data}
               saved={saved}
