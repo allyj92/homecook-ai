@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useCallback } from 'react';
 import { requestRecommend, requestRecommendTop } from '../api';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import BottomNav from '../compoments/BottomNav'; // ✅ 폴더 오타 수정
-import { listFavorites, addFavorite, removeFavorite ,isFavoriteIn } from '../lib/wishlist'; // ✅ 신규 API
+import { listFavorites, addFavorite, removeFavorite  } from '../lib/wishlist'; // ✅ 신규 API
 
 /* ── 라벨 ─────────────────────────────── */
 const GOAL_LABELS = {
@@ -205,7 +205,7 @@ function StickyActionBar({ visible, saved, onToggle, onRetry }) {
           <button type="button" className="btn btn-lg btn-outline-secondary" onClick={onRetry} title="같은 조건으로 다시 추천">
             다시 추천
           </button>
-          <Link className="btn btn-lg btn成功" to="/input">
+          <Link className="btn btn-lg btn-success" to="/input">
             조건 변경
           </Link>
         </div>
@@ -281,7 +281,11 @@ export default function ResultPage() {
       if (!data || data.id == null) return;
       try {
         const favs = await listFavorites();
-        if (!aborted) setSaved(isFavoriteIn(favs, data.id));
+       if (!aborted) {
+        const rid = Number(data.id);
+        const ok = Array.isArray(favs) && favs.some(f => Number(f.recipeId) === rid);
+        setSaved(ok);
+      }
       } catch {
         if (!aborted) setSaved(false);
       }
