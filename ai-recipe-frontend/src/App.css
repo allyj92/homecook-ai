@@ -85,3 +85,14 @@
 
 /* 버튼 열이 줄바꿈에 끌려 내려가지 않도록 */
 .flex-no-shrink{ flex-shrink:0; }
+
+/* 찜 해제 버튼을 가로로 */
+.btn-remove {
+  min-width: 60px;   /* 버튼 최소 너비 */
+  height: 32px;      /* 고정 높이 (작은 버튼보다 살짝 크게) */
+  padding: 0 12px;   /* 좌우 여백 */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}

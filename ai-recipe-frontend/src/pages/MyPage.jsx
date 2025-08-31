@@ -266,7 +266,7 @@ export default function MyPage() {
             {/* 액션 버튼 (줄바꿈 영향 X) */}
             <div className="d-flex gap-2 flex-no-shrink">
               <button
-                className="btn btn-sm btn-outline-danger"
+                className="btn btn-sm btn-outline-danger btn-remove"
                 onClick={(e) => onRemove(e, w.recipeId)} // 링크 이동 방지+삭제
                 title="찜 해제"
               >
