@@ -13,6 +13,7 @@ import AuthCallback from './pages/AuthCallback';
 import ForgotResetPage from './pages/ForgotResetPage';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
+import SavedPage from './pages/SavedPage';
 
 // ⚠️ Header는 Layout 내부에서만 렌더되므로 여기서 import 불필요
 // import Header from './compoments/Header'
@@ -40,6 +41,7 @@ export default function App() {
         <Route path="/forgot" element={<ForgotResetPage />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/saved" element={<SavedPage />} />
        
       <Route path="login" element={<Navigate to="/login-signup" replace />} />
       <Route path="signup" element={<Navigate to="/login-signup" replace />} />

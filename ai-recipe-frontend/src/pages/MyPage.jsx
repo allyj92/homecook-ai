@@ -165,6 +165,15 @@ export default function MyPage() {
     streak: 6
   };
 
+  // 텍스트 줄임 스타일
+  const oneLine = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
+  const twoLine = {
+    display: '-webkit-box',
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: 'vertical',
+    overflow: 'hidden'
+  };
+
   return (
     <div className="container-xxl py-3">
       {/* 상단 배너 */}
@@ -205,11 +214,14 @@ export default function MyPage() {
 
         {/* 메인 */}
         <section className="col-12 col-lg-8">
-          {/* 저장한 레시피 (실데이터) */}
+          {/* 저장한 레시피 (미리보기 3개 + 전체보기 버튼) */}
           <div className="card shadow-sm mb-3">
             <div className="card-header d-flex justify-content-between align-items-center">
               <h5 className="m-0">저장한 레시피</h5>
-              <span className="text-secondary small">{wishlist.length}개</span>
+              <div className="d-flex align-items-center gap-2">
+                <span className="text-secondary small">{wishlist.length}개</span>
+                <Link className="btn btn-sm btn-outline-primary" to="/saved">전체보기</Link>
+              </div>
             </div>
 
             {wishLoading && (
@@ -226,59 +238,73 @@ export default function MyPage() {
               <div className="alert alert-danger m-3" role="alert">{wishErr}</div>
             )}
 
-           {!wishLoading && !wishErr && wishlist.length > 0 && (
-  <div className="list-group list-group-flush">
-    {wishlist.map((w) => {
-      const key = w.id ?? w.recipeId;
-      const to  = `/result?id=${encodeURIComponent(w.recipeId)}`;
-      return (
-        <Link
-          key={key}
-          to={to}
-          className="list-group-item list-group-item-action"
-        >
-          <div className="d-flex align-items-center gap-3">
-            {/* 썸네일 */}
-            <div className="flex-no-shrink">
-              <div
-                className="bookmark-thumb"
-                style={{ backgroundImage: w.image ? `url(${w.image})` : undefined }}
-              />
-            </div>
-
-            {/* 텍스트 영역 (늘어남) */}
-            <div className="flex-grow-1" style={{ minWidth: 0 }}>
-              <div className="fw-semibold line-clamp-1">
-                {w.title ?? `레시피 #${w.recipeId}`}
+            {!wishLoading && !wishErr && wishlist.length === 0 && (
+              <div className="p-4 text-center text-secondary">
+                아직 저장한 레시피가 없어요.
+                <div className="mt-2">
+                  <Link className="btn btn-sm btn-success" to="/input">레시피 받으러 가기</Link>
+                </div>
               </div>
-              {w.meta && (
-                <div className="small text-secondary line-clamp-1">
-                  {w.meta}
-                </div>
-              )}
-              {w.summary && (
-                <div className="small text-secondary line-clamp-2">
-                  {w.summary}
-                </div>
-              )}
-            </div>
+            )}
 
-            {/* 액션 버튼 (줄바꿈 영향 X) */}
-            <div className="d-flex gap-2 flex-no-shrink">
-              <button
-                className="btn btn-sm btn-outline-danger btn-remove"
-                onClick={(e) => onRemove(e, w.recipeId)} // 링크 이동 방지+삭제
-                title="찜 해제"
-              >
-                제거
-              </button>
-            </div>
-          </div>
-        </Link>
-      );
-    })}
-  </div>
-)}
+            {!wishLoading && !wishErr && wishlist.length > 0 && (
+              <div className="list-group list-group-flush">
+                {wishlist.slice(0, 3).map((w) => {
+                  const key = w.id ?? w.recipeId;
+                  const to  = `/result?id=${encodeURIComponent(w.recipeId)}`;
+                  return (
+                    <Link
+                      key={key}
+                      to={to}
+                      className="list-group-item list-group-item-action"
+                    >
+                      <div className="d-flex align-items-center gap-3">
+                        {/* 썸네일 */}
+                        <div className="flex-shrink-0">
+                          <div
+                            className="rounded"
+                            style={{
+                              width: 80, height: 56, background: '#f3f3f3',
+                              backgroundImage: w.image ? `url(${w.image})` : undefined,
+                              backgroundSize: 'cover', backgroundPosition: 'center'
+                            }}
+                          />
+                        </div>
+
+                        {/* 텍스트 영역 */}
+                        <div className="flex-grow-1" style={{ minWidth: 0 }}>
+                          <div className="fw-semibold" style={oneLine}>
+                            {w.title ?? `레시피 #${w.recipeId}`}
+                          </div>
+                          {w.meta && (
+                            <div className="small text-secondary" style={oneLine}>
+                              {w.meta}
+                            </div>
+                          )}
+                          {w.summary && (
+                            <div className="small text-secondary" style={twoLine}>
+                              {w.summary}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* 액션 버튼 (가로로 넓게) */}
+                        <div className="d-flex gap-2 flex-shrink-0">
+                          <button
+                            className="btn btn-sm btn-outline-danger"
+                            style={{ minWidth: 72, height: 32, padding: '0 12px' }}
+                            onClick={(e) => onRemove(e, w.recipeId)} // 링크 이동 방지+삭제
+                            title="찜 해제"
+                          >
+                            제거
+                          </button>
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* 광고 */}
