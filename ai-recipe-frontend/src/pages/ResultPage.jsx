@@ -118,6 +118,7 @@ function usePerView() {
   }, []);
   return perView;
 }
+// 
 
 /* ── 멀티 카드 캐러셀 ───────────────── */
 function IngredientAdCard({ item }) {
