@@ -4,6 +4,9 @@ package com.homecook.ai_recipe.controller;
 import com.homecook.ai_recipe.dto.FavoriteDto;
 import com.homecook.ai_recipe.service.FavoriteService;
 import com.homecook.ai_recipe.auth.SessionUser;
+import com.homecook.ai_recipe.auth.UserAccount;
+import com.homecook.ai_recipe.repo.UserAccountRepository;
+import com.homecook.ai_recipe.service.OAuthAccountService;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,26 +22,49 @@ import java.util.*;
 @Slf4j
 public class MyPageController {
     private final FavoriteService favoriteService;
+
+    // 🔽 추가: 유저 조회에 필요
+    private final UserAccountRepository userRepo;
+    private final OAuthAccountService oauthService;
+
     private static final DateTimeFormatter ISO = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 
-    /** 세션에서 로그인 사용자 PK 뽑기 (401은 401로 돌려보냄 — 500로 숨지지 않게) */
-    private ResponseEntity<?> extractUserIdOr401(HttpSession session) {
+    /** 세션 → 실제 UserAccount(PK) 찾기: 로컬PK → 소셜 링크 → 이메일 폴백 */
+    private ResponseEntity<?> resolveUserId(HttpSession session) {
         SessionUser su = (SessionUser) session.getAttribute("LOGIN_USER");
         if (su == null) {
             return ResponseEntity.status(401).body(Map.of("message","unauthenticated"));
         }
+
         try {
-            Long uid = Long.valueOf(su.providerId());
-            return ResponseEntity.ok(uid);
+            // 1) 로컬/연동-로컬: providerId가 곧 UserAccount PK
+            if ("local".equalsIgnoreCase(su.provider()) || "local-or-linked".equalsIgnoreCase(su.provider())) {
+                Long uid = Long.valueOf(su.providerId());
+                return ResponseEntity.ok(uid);
+            }
+
+            // 2) 소셜 링크 테이블에서 찾기
+            Optional<UserAccount> linked = oauthService.findByProvider(su.provider(), su.providerId());
+            if (linked.isPresent()) return ResponseEntity.ok(linked.get().getId());
+
+            // 3) 이메일로 폴백
+            if (su.email() != null && !su.email().isBlank()) {
+                var byEmail = userRepo.findByEmailIgnoreCase(su.email());
+                if (byEmail.isPresent()) return ResponseEntity.ok(byEmail.get().getId());
+            }
+
+            // 못 찾으면 401
+            return ResponseEntity.status(401).body(Map.of("message","unauthenticated"));
         } catch (NumberFormatException e) {
-            return ResponseEntity.status(401).body(Map.of("message","local account required"));
+            // providerId가 숫자가 아니었음(소셜). 위의 2,3 경로로 이미 처리했으므로 여기 오면 폴백 실패
+            return ResponseEntity.status(401).body(Map.of("message","unauthenticated"));
         }
     }
 
     @GetMapping("/favorites")
     public ResponseEntity<?> favorites(HttpSession session) {
-        var r = extractUserIdOr401(session);
-        if (r.getStatusCode().is4xxClientError()) return r; // 401 그대로 반환
+        var r = resolveUserId(session);
+        if (!r.getStatusCode().is2xxSuccessful()) return r;
         Long userId = (Long) r.getBody();
 
         try {
@@ -51,21 +77,19 @@ public class MyPageController {
                     .toList();
             return ResponseEntity.ok(list);
         } catch (Exception e) {
-            log.error("[/api/me/favorites] failed, userId={}", userId, e);
-            // 🔴 원인 노출: 프론트 콘솔/Network 탭에서 바로 볼 수 있음
+            log.error("[GET /api/me/favorites] failed, userId={}", userId, e);
             return ResponseEntity.status(500).body(Map.of(
-                    "message", "internal_error",
+                    "message","internal_error",
                     "exception", e.getClass().getName(),
-                    "error", Optional.ofNullable(e.getMessage()).orElse("no-message"),
-                    "cause", Optional.ofNullable(e.getCause()).map(Throwable::toString).orElse(null)
+                    "error", Optional.ofNullable(e.getMessage()).orElse("no-message")
             ));
         }
     }
 
     @PostMapping("/favorites/{recipeId}")
     public ResponseEntity<?> addFavorite(@PathVariable Long recipeId, HttpSession session) {
-        var r = extractUserIdOr401(session);
-        if (r.getStatusCode().is4xxClientError()) return r;
+        var r = resolveUserId(session);
+        if (!r.getStatusCode().is2xxSuccessful()) return r;
         Long userId = (Long) r.getBody();
 
         try {
@@ -77,7 +101,7 @@ public class MyPageController {
         } catch (Exception e) {
             log.error("[POST /api/me/favorites/{}] failed, userId={}", recipeId, userId, e);
             return ResponseEntity.status(500).body(Map.of(
-                    "message", "internal_error",
+                    "message","internal_error",
                     "exception", e.getClass().getName(),
                     "error", Optional.ofNullable(e.getMessage()).orElse("no-message")
             ));
@@ -86,8 +110,8 @@ public class MyPageController {
 
     @DeleteMapping("/favorites/{recipeId}")
     public ResponseEntity<?> removeFavorite(@PathVariable Long recipeId, HttpSession session) {
-        var r = extractUserIdOr401(session);
-        if (r.getStatusCode().is4xxClientError()) return r;
+        var r = resolveUserId(session);
+        if (!r.getStatusCode().is2xxSuccessful()) return r;
         Long userId = (Long) r.getBody();
 
         try {
@@ -96,7 +120,7 @@ public class MyPageController {
         } catch (Exception e) {
             log.error("[DELETE /api/me/favorites/{}] failed, userId={}", recipeId, userId, e);
             return ResponseEntity.status(500).body(Map.of(
-                    "message", "internal_error",
+                    "message","internal_error",
                     "exception", e.getClass().getName(),
                     "error", Optional.ofNullable(e.getMessage()).orElse("no-message")
             ));
