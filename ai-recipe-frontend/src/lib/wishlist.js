@@ -116,39 +116,44 @@ export async function listFavoritesPage({ page = 0, size = 12 } = {}) {
   };
 }
 
+
+
 /** 찜 추가 (POST /api/me/favorites/{recipeId}) — 메타 동봉 지원 */
 export async function addFavorite(recipeOrId) {
   const r = recipeOrId || {};
-  const rid = toRecipeId(typeof r === 'object' ? (r.id ?? r.recipeId) : recipeOrId);
+  const rid = typeof r === 'object' ? (r.id ?? r.recipeId) : recipeOrId;
 
-  // 객체면 메타 추출
-  let body;
-  if (typeof r === 'object') {
-    body = {
-      title: r.title ?? null,
-      summary: r.summary ?? null,
-      image: r.image ?? null,
-      // 예: "320kcal · 10분" 같은 표시용 메타
-      meta: (r.kcal != null || r.cook_time_min != null)
-        ? `${r.kcal ?? '-'}kcal · ${r.cook_time_min ?? '-'}분`
-        : (r.meta ?? null),
-    };
+  if (!Number.isFinite(Number(rid)) || Number(rid) <= 0) {
+    throw new Error(`유효하지 않은 recipeId: ${rid}`);
   }
 
-  const res = await fetchWithTimeout(api(`/api/me/favorites/${rid}`), {
+  const body = {
+    recipeId: Number(rid),
+    title:   typeof r === 'object' ? (r.title ?? null)   : null,
+    summary: typeof r === 'object' ? (r.summary ?? null) : null,
+    image:   typeof r === 'object' ? (r.image ?? null)   : null,
+    meta:
+      typeof r === 'object'
+        ? (r.meta ??
+           ((r.kcal != null || r.cook_time_min != null)
+              ? `${r.kcal ?? '-'}kcal · ${r.cook_time_min ?? '-'}분`
+              : null))
+        : null,
+  };
+
+  const res = await fetch(api(`/api/me/favorites`), {
     method: 'POST',
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
-    const server = await safeJson(res);
-    if (res.status === 401) throw new Error(pickServerMessage(server, '로그인이 필요합니다.'));
-    throw new Error(pickServerMessage(server, '찜 추가 실패'));
+    if (res.status === 401) throw new Error('로그인이 필요합니다.');
+    const t = await res.text().catch(()=>'');
+    throw new Error(`찜 추가 실패: ${res.status} ${t}`);
   }
-
-  const data = await safeJson(res);
-  return normalizeItem(data); // { id, recipeId, title, summary, image, meta, createdAt }
+  return res.json(); // { id, recipeId, title, summary, image, meta, createdAt }
 }
 
 /** 찜 해제 (DELETE /api/me/favorites/{recipeId}) */
