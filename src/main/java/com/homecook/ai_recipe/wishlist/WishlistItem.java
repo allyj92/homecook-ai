@@ -49,7 +49,6 @@ public class WishlistItem {
     @Column(name = "meta", length = 255)
     private String meta;
 
-    @Lob
-    @Column(name = "payload_json")
+    @Column(name="payload_json", columnDefinition = "text")
     private String payloadJson;
 }
