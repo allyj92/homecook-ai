@@ -1,7 +1,7 @@
 // src/pages/MyPage.jsx
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import BottomNav from '../components/BottomNav';            // ✅ 경로 수정
+import BottomNav from '../compoments/BottomNav';            // ✅ 경로 수정
 import { apiFetch } from '../lib/http';
 import { listBookmarks, removeBookmark } from '../lib/wishlist'; // ✅ 하나로 정리
 
