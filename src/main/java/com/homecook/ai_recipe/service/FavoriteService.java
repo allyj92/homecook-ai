@@ -4,12 +4,12 @@ package com.homecook.ai_recipe.service;
 import com.homecook.ai_recipe.auth.UserAccount;
 import com.homecook.ai_recipe.domain.Favorite;
 import com.homecook.ai_recipe.repo.FavoriteRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import lombok.RequiredArgsConstructor;
-import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -18,53 +18,39 @@ import java.util.List;
 public class FavoriteService {
     private final FavoriteRepository favoriteRepository;
 
+    @PersistenceContext
+    private EntityManager em;
+
     @Transactional(readOnly = true)
     public List<Favorite> list(Long userId) {
-        return favoriteRepository.findByUserIdOrderByCreatedAtDesc(userId);
+        return favoriteRepository.findByUser_IdOrderByCreatedAtDesc(userId);
     }
 
-    // 컨트롤러에서 쓰는 2인자 버전
+    // 컨트롤러에서 쓰는 2-인자 버전
     @Transactional
     public Favorite add(Long userId, Long recipeId) {
-        return add(userId, recipeId, null, null, null, null);
-    }
-
-    // 확장 버전
-    @Transactional
-    public Favorite add(Long userId, Long recipeId, String title, String summary, String image, String meta) {
-        // 이미 있으면 그대로 반환
+        // 이미 있으면 바로 반환
         var existing = favoriteRepository.findByUser_IdAndRecipeId(userId, recipeId);
         if (existing.isPresent()) return existing.get();
 
-        // 연관키만 셋
-        var ua = new UserAccount();
-        ua.setId(userId);
+        // 연관키는 프록시로만 설정 (DB hit 없이)
+        UserAccount ua = em.getReference(UserAccount.class, userId);
 
-        var f = new Favorite();
+        Favorite f = new Favorite();
         f.setUser(ua);
         f.setRecipeId(recipeId);
-        if (title   != null) f.setTitle(title);
-        if (summary != null) f.setSummary(summary);
-        if (image   != null) f.setImage(image);
-        if (meta    != null) f.setMeta(meta);
         if (f.getCreatedAt() == null) f.setCreatedAt(LocalDateTime.now());
 
         try {
-            return favoriteRepository.saveAndFlush(f);
-        } catch (DataIntegrityViolationException e) {
-            // 유니크 충돌 시 멱등 반환
-            var again = favoriteRepository.findByUser_IdAndRecipeId(userId, recipeId);
-            if (again.isPresent()) return again.get();
-            throw e;
-        } catch (ConstraintViolationException e) {
-            var again = favoriteRepository.findByUser_IdAndRecipeId(userId, recipeId);
-            if (again.isPresent()) return again.get();
-            throw e;
+            return favoriteRepository.save(f);
+        } catch (DataIntegrityViolationException dup) {
+            // 동시성/유니크 충돌 시 기존 행 반환
+            return favoriteRepository.findByUser_IdAndRecipeId(userId, recipeId).orElseThrow();
         }
     }
 
     @Transactional
     public void remove(Long userId, Long recipeId) {
-        favoriteRepository.deleteByUserIdAndRecipeId(userId, recipeId);
+        favoriteRepository.deleteByUser_IdAndRecipeId(userId, recipeId);
     }
 }
