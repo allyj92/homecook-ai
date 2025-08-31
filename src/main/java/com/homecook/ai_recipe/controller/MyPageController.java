@@ -26,6 +26,30 @@ public class MyPageController {
 
     private static final DateTimeFormatter ISO = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 
+    /* ───────────────── 로그인 확인 (WishlistController의 requireUser 동등) ───────────────── */
+    private Long requireLogin(HttpSession session) {
+        SessionUser su = (SessionUser) session.getAttribute("LOGIN_USER");
+        if (su == null) throw new RuntimeException("401");
+
+        // local(or local-or-linked) → providerId가 UserAccount PK
+        if ("local".equalsIgnoreCase(su.provider()) || "local-or-linked".equalsIgnoreCase(su.provider())) {
+            try { return Long.valueOf(su.providerId()); } catch (NumberFormatException ignore) {}
+        }
+
+        // 소셜 계정이 UserAccount에 링크되어 있으면 그 PK
+        var linked = oauthService.findByProvider(su.provider(), su.providerId());
+        if (linked.isPresent()) return linked.get().getId();
+
+        // 이메일 fallback
+        if (su.email() != null && !su.email().isBlank()) {
+            var byEmail = userRepo.findByEmailIgnoreCase(su.email());
+            if (byEmail.isPresent()) return byEmail.get().getId();
+        }
+
+        throw new RuntimeException("401");
+    }
+
+
     /** 세션에서 UserAccount 찾아오기 (로컬/소셜 모두 지원) */
     private UserAccount requireUser(HttpSession session) {
         SessionUser su = (SessionUser) session.getAttribute("LOGIN_USER");
@@ -75,19 +99,19 @@ public class MyPageController {
 
     /** 찜 추가 */
     @PostMapping("/favorites/{recipeId}")
-    public FavoriteDto addFavorite(@PathVariable Long recipeId, HttpSession session) {
-        var me = requireUser(session);
-        var f = favoriteService.add(me.getId(), recipeId);
+    public FavoriteDto addFavorite(@PathVariable Long recipeId,
+                                   @RequestBody(required = false) Map<String, Object> body,
+                                   HttpSession session) {
+        Long userId = requireLogin(session);
+        String title   = body != null ? (String) body.getOrDefault("title", null) : null;
+        String summary = body != null ? (String) body.getOrDefault("summary", null) : null;
+        String image   = body != null ? (String) body.getOrDefault("image", null) : null;
+        String meta    = body != null ? (String) body.getOrDefault("meta", null) : null;
 
-        return new FavoriteDto(
-                f.getId(),
-                f.getRecipeId(),
-                f.getTitle(),
-                f.getSummary(),
-                f.getImage(),
-                f.getMeta(),
-                f.getCreatedAt() == null ? null : ISO.format(f.getCreatedAt())
-        );
+        var f = favoriteService.add(userId, recipeId, title, summary, image, meta);
+        return new FavoriteDto(f.getId(), f.getRecipeId(), f.getTitle(), f.getSummary(),
+                f.getImage(), f.getMeta(),
+                f.getCreatedAt() != null ? f.getCreatedAt().toString() : null);
     }
 
     /** 찜 삭제 */

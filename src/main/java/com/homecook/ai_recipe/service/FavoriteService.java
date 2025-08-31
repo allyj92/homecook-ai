@@ -29,24 +29,24 @@ public class FavoriteService {
     // 컨트롤러에서 쓰는 2-인자 버전
     @Transactional
     public Favorite add(Long userId, Long recipeId) {
-        // 이미 있으면 바로 반환
-        var existing = favoriteRepository.findByUser_IdAndRecipeId(userId, recipeId);
-        if (existing.isPresent()) return existing.get();
+        return add(userId, recipeId, null, null, null, null);
+    }
 
-        // 연관키는 프록시로만 설정 (DB hit 없이)
-        UserAccount ua = em.getReference(UserAccount.class, userId);
-
-        Favorite f = new Favorite();
-        f.setUser(ua);
-        f.setRecipeId(recipeId);
-        if (f.getCreatedAt() == null) f.setCreatedAt(LocalDateTime.now());
-
-        try {
-            return favoriteRepository.save(f);
-        } catch (DataIntegrityViolationException dup) {
-            // 동시성/유니크 충돌 시 기존 행 반환
-            return favoriteRepository.findByUser_IdAndRecipeId(userId, recipeId).orElseThrow();
-        }
+    // 메타 저장 확장
+    @Transactional
+    public Favorite add(Long userId, Long recipeId, String title, String summary, String image, String meta) {
+        return favoriteRepository.findByUser_IdAndRecipeId(userId, recipeId)
+                .orElseGet(() -> {
+                    var ua = new UserAccount(); ua.setId(userId);
+                    var f = new Favorite();
+                    f.setUser(ua);
+                    f.setRecipeId(recipeId);
+                    f.setTitle(title);
+                    f.setSummary(summary);
+                    f.setImage(image);
+                    f.setMeta(meta);
+                    return favoriteRepository.save(f);
+                });
     }
 
     @Transactional
