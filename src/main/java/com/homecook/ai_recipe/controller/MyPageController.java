@@ -40,6 +40,7 @@ public class MyPageController {
     @PostMapping("/favorites/{recipeId}")
     public FavoriteDto addFavorite(@PathVariable Long recipeId, HttpSession session) {
         Long userId = requireLogin(session);
+        System.out.println("[FAV] userId=" + userId + ", recipeId=" + recipeId + ", JSESSIONID=" + session.getId());
         var f = favoriteService.add(userId, recipeId);
         return new FavoriteDto(f.getId(), f.getRecipeId(), f.getCreatedAt());
     }
