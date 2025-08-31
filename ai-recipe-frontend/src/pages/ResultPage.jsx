@@ -205,7 +205,7 @@ function StickyActionBar({ visible, saved, onToggle, onRetry }) {
           <button type="button" className="btn btn-lg btn-outline-secondary" onClick={onRetry} title="같은 조건으로 다시 추천">
             다시 추천
           </button>
-          <Link className="btn btn-lg btn-success" to="/input">
+          <Link className="btn btn-lg btn成功" to="/input">
             조건 변경
           </Link>
         </div>
@@ -274,7 +274,7 @@ export default function ResultPage() {
     }
   }, [data]);
 
-  /* 찜 선조회(신규 API 사용) */
+  /* 찜 선조회 */
   useEffect(() => {
     let aborted = false;
     (async () => {
@@ -318,7 +318,8 @@ export default function ResultPage() {
       toast('유효하지 않은 레시피 ID입니다.', 'error');
       return;
     }
-    setSaved((v) => !v); // 낙관적
+    // 낙관적 토글
+    setSaved((v) => !v);
     try {
       if (saved) {
         await removeFavorite(rid);
@@ -330,7 +331,8 @@ export default function ResultPage() {
         toast('저장했어요!', 'success');
       }
     } catch {
-      setSaved((v) => !v); // 롤백
+      // 실패 시 롤백
+      setSaved((v) => !v);
       toast('찜하기에 실패했어요. 로그인 상태를 확인해 주세요.', 'error');
     }
   }, [data, saved, toast]);
