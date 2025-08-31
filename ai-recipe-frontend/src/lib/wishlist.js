@@ -42,3 +42,36 @@ export async function removeWishlist(key) {
   if (!r.ok) throw new Error('remove failed');
   return r.json(); // { removed: boolean }
 }
+
+// 찜 추가
+export async function addBookmark(recipeId) {
+  const res = await fetch('/api/mypage/bookmarks', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ recipeId })
+  });
+  if (!res.ok) throw new Error('찜 추가 실패');
+  return res.json();
+}
+
+// 찜 삭제
+export async function removeBookmark(recipeId) {
+  const res = await fetch('/api/mypage/bookmarks', {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ recipeId })
+  });
+  if (!res.ok) throw new Error('찜 삭제 실패');
+  return res.json();
+}
+
+// 찜 목록 조회
+export async function listBookmarks() {
+  const res = await fetch('/api/mypage/bookmarks', {
+    credentials: 'include'
+  });
+  if (!res.ok) throw new Error('찜 목록 조회 실패');
+  return res.json();
+}

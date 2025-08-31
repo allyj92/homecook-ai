@@ -1,9 +1,9 @@
 // src/pages/MyPage.jsx
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import BottomNav from '../compoments/BottomNav';
+import BottomNav from '../components/BottomNav';            // ✅ 경로 수정
 import { apiFetch } from '../lib/http';
-import { fetchWishlist, removeWishlist } from '../lib/wishlist';
+import { listBookmarks, removeBookmark } from '../lib/wishlist'; // ✅ 하나로 정리
 
 /* ── 광고 슬롯 ───────────────────── */
 function AdSlot({ id, height = 250, label = 'AD', sticky = false }) {
@@ -36,7 +36,7 @@ export default function MyPage() {
   // 위시리스트
   const [wishLoading, setWishLoading] = useState(false);
   const [wishErr, setWishErr] = useState('');
-  const [wishlist, setWishlist] = useState([]);
+  const [wishlist, setWishlist] = useState([]); // [{recipeId, title, image, summary, ...}]
 
   // 최근 활동(데모)
   const activities = useMemo(() => ([
@@ -59,7 +59,7 @@ export default function MyPage() {
           try { localStorage.removeItem('authUser'); } catch {}
           localStorage.setItem('postLoginRedirect', '/mypage');
           navigate('/login-signup', { replace: true, state: { from: '/mypage' } });
-          return; // ❗ 여기서 종료 → wishlist 안 불러옴
+          return;
         }
         if (!res.ok) {
           navigate('/login-signup', { replace: true, state: { from: '/mypage' } });
@@ -74,8 +74,8 @@ export default function MyPage() {
         setWishLoading(true);
         setWishErr('');
         try {
-          const items = await fetchWishlist(); // 내부에서 credentials: 'include'
-          if (!aborted) setWishlist(items || []);
+          const items = await listBookmarks(); // 내부에서 credentials: 'include'
+          if (!aborted) setWishlist(Array.isArray(items) ? items : []);
         } catch {
           if (!aborted) setWishErr('저장한 레시피를 불러오지 못했어요.');
         } finally {
@@ -89,12 +89,13 @@ export default function MyPage() {
     return () => { aborted = true; };
   }, [navigate]);
 
-  async function onRemove(key) {
+  // 찜 해제: recipeId 기준
+  async function onRemove(recipeId) {
     const prev = wishlist;
-    setWishlist(arr => arr.filter(it => it.itemKey !== key)); // 낙관적 업데이트
+    setWishlist(arr => arr.filter(it => it.recipeId !== recipeId)); // 낙관적 업데이트
     try {
-      const r = await removeWishlist(key);
-      if (!r.removed) setWishlist(prev); // 롤백
+      const r = await removeBookmark(recipeId); // { removed: true } 기대
+      if (!r || r.removed !== true) setWishlist(prev); // 롤백
     } catch {
       alert('삭제에 실패했어요.');
       setWishlist(prev);
@@ -234,7 +235,7 @@ export default function MyPage() {
             {!wishLoading && !wishErr && wishlist.length > 0 && (
               <div className="list-group list-group-flush">
                 {wishlist.map((w) => (
-                  <div key={w.id} className="list-group-item">
+                  <div key={w.recipeId} className="list-group-item">
                     <div className="d-flex align-items-center gap-3">
                       <div className="flex-shrink-0">
                         <div
@@ -247,14 +248,14 @@ export default function MyPage() {
                         />
                       </div>
                       <div className="flex-grow-1">
-                        <div className="fw-semibold text-truncate">{w.title}</div>
+                        <div className="fw-semibold text-truncate">{w.title ?? `레시피 #${w.recipeId}`}</div>
                         {w.meta && <div className="small text-secondary">{w.meta}</div>}
                         {w.summary && <div className="small text-secondary text-truncate">{w.summary}</div>}
                       </div>
                       <div className="d-flex gap-2">
                         <button
                           className="btn btn-sm btn-outline-danger"
-                          onClick={() => onRemove(w.itemKey)}
+                          onClick={() => onRemove(w.recipeId)}   // ✅ recipeId로 통일
                           title="찜 해제"
                         >
                           제거
