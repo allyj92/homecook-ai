@@ -17,7 +17,7 @@ public class FavoriteService {
 
     @Transactional(readOnly = true)
     public List<Favorite> list(Long userId) {
-        return favoriteRepository.findByUserIdOrderByCreatedAtDesc(userId);
+        return favoriteRepository.findByUser_IdOrderByCreatedAtDesc(userId);
     }
 
     // ✅ 컨트롤러가 부르는 2-인자 버전 그대로 둠
