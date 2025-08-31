@@ -331,7 +331,7 @@ export default function ResultPage() {
         setSaved(false);
         toast('찜을 해제했어요.', 'success');
       } else {
-        await addFavorite(rid);
+        await addFavorite(data);
         setSaved(true);
         toast('저장했어요!', 'success');
       }
