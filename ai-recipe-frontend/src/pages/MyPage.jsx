@@ -1,9 +1,9 @@
 // src/pages/MyPage.jsx
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import BottomNav from '../compoments/BottomNav';            // ✅ 경로 수정
+import BottomNav from '../compoments/BottomNav';             // ✅ 경로 수정
 import { apiFetch } from '../lib/http';
-import { listBookmarks, removeBookmark } from '../lib/wishlist'; // ✅ 하나로 정리
+import { listFavorites, removeFavorite } from '../lib/wishlist'; // ✅ 즐겨찾기 API
 
 /* ── 광고 슬롯 ───────────────────── */
 function AdSlot({ id, height = 250, label = 'AD', sticky = false }) {
@@ -33,10 +33,10 @@ export default function MyPage() {
   const [adPref, setAdPref] = useState('balanced');
   const [dietGoal, setDietGoal] = useState('diet');
 
-  // 위시리스트
+  // 즐겨찾기
   const [wishLoading, setWishLoading] = useState(false);
   const [wishErr, setWishErr] = useState('');
-  const [wishlist, setWishlist] = useState([]); // [{recipeId, title, image, summary, ...}]
+  const [wishlist, setWishlist] = useState([]); // [{id, recipeId, createdAt} 또는 서버 확장 필드]
 
   // 최근 활동(데모)
   const activities = useMemo(() => ([
@@ -45,7 +45,7 @@ export default function MyPage() {
     { id: 3, type: 'save', text: '두부 파프리카 볶음 저장함', ago: '2일 전' },
   ]), []);
 
-  // 1) me 먼저 → 200일 때만 wishlist 호출
+  // 1) me 먼저 → 200일 때만 favorites 호출
   useEffect(() => {
     let aborted = false;
 
@@ -70,11 +70,11 @@ export default function MyPage() {
         if (aborted) return;
         setMe(meData);
 
-        // 2) me OK → wishlist
+        // 2) me OK → favorites
         setWishLoading(true);
         setWishErr('');
         try {
-          const items = await listBookmarks(); // 내부에서 credentials: 'include'
+          const items = await listFavorites(); // 내부에서 credentials: 'include'
           if (!aborted) setWishlist(Array.isArray(items) ? items : []);
         } catch {
           if (!aborted) setWishErr('저장한 레시피를 불러오지 못했어요.');
@@ -91,14 +91,16 @@ export default function MyPage() {
 
   // 찜 해제: recipeId 기준
   async function onRemove(recipeId) {
+    const rid = Number(recipeId);
+    if (!Number.isFinite(rid) || rid <= 0) return;
+
     const prev = wishlist;
-    setWishlist(arr => arr.filter(it => it.recipeId !== recipeId)); // 낙관적 업데이트
+    setWishlist(arr => arr.filter(it => Number(it.recipeId) !== rid)); // 낙관적 업데이트
     try {
-      const r = await removeBookmark(recipeId); // { removed: true } 기대
-      if (!r || r.removed !== true) setWishlist(prev); // 롤백
+      await removeFavorite(rid); // 200 OK면 성공
     } catch {
       alert('삭제에 실패했어요.');
-      setWishlist(prev);
+      setWishlist(prev); // 롤백
     }
   }
 
@@ -227,7 +229,7 @@ export default function MyPage() {
               <div className="p-4 text-center text-secondary">
                 아직 저장한 레시피가 없어요.
                 <div className="mt-2">
-                  <Link className="btn btn-sm btn-success" to="/input">레시피 받으러 가기</Link>
+                  <Link className="btn btn-sm btn成功" to="/input">레시피 받으러 가기</Link>
                 </div>
               </div>
             )}
