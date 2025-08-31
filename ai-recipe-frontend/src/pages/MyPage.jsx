@@ -1,9 +1,9 @@
 // src/pages/MyPage.jsx
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import BottomNav from '../compoments/BottomNav';             // ✅ 경로 수정
+import BottomNav from '../compoments/BottomNav';             // 프로젝트 구조상 compoments 맞음
 import { apiFetch } from '../lib/http';
-import { listFavorites, removeFavorite } from '../lib/wishlist'; // ✅ 즐겨찾기 API
+import { listFavorites, removeFavorite } from '../lib/wishlist';
 
 /* ── 광고 슬롯 ───────────────────── */
 function AdSlot({ id, height = 250, label = 'AD', sticky = false }) {
@@ -36,7 +36,7 @@ export default function MyPage() {
   // 즐겨찾기
   const [wishLoading, setWishLoading] = useState(false);
   const [wishErr, setWishErr] = useState('');
-  const [wishlist, setWishlist] = useState([]); // [{ id, recipeId, createdAt }, ...] + (서버가 확장해주면 추가 필드)
+  const [wishlist, setWishlist] = useState([]); // [{ id, recipeId, title, summary, image, meta, createdAt }]
 
   // 최근 활동(데모)
   const activities = useMemo(() => ([
@@ -74,7 +74,7 @@ export default function MyPage() {
         setWishLoading(true);
         setWishErr('');
         try {
-          const items = await listFavorites(); // 내부에서 credentials: 'include'
+          const items = await listFavorites(); // credentials: 'include'
           if (!aborted) setWishlist(Array.isArray(items) ? items : []);
         } catch {
           if (!aborted) setWishErr('저장한 레시피를 불러오지 못했어요.');
@@ -90,7 +90,8 @@ export default function MyPage() {
   }, [navigate]);
 
   // 찜 해제: recipeId 기준
-  async function onRemove(recipeId) {
+  async function onRemove(e, recipeId) {
+    if (e) { e.preventDefault(); e.stopPropagation(); } // 링크 이동 방지
     const rid = Number(recipeId);
     if (!Number.isFinite(rid) || rid <= 0) return;
 
@@ -236,36 +237,46 @@ export default function MyPage() {
 
             {!wishLoading && !wishErr && wishlist.length > 0 && (
               <div className="list-group list-group-flush">
-                {wishlist.map((w) => (
-                  <div key={w.recipeId} className="list-group-item">
-                    <div className="d-flex align-items-center gap-3">
-                      <div className="flex-shrink-0">
-                        <div
-                          className="rounded"
-                          style={{
-                            width: 72, height: 48, background: '#f3f3f3',
-                            backgroundImage: w.image ? `url(${w.image})` : undefined,
-                            backgroundSize: 'cover', backgroundPosition: 'center'
-                          }}
-                        />
+                {wishlist.map((w) => {
+                  const key = w.id ?? w.recipeId;
+                  const to = `/result?id=${encodeURIComponent(w.recipeId)}`;
+                  return (
+                    <Link
+                      key={key}
+                      to={to}
+                      className="list-group-item list-group-item-action"
+                    >
+                      <div className="d-flex align-items-center gap-3">
+                        <div className="flex-shrink-0">
+                          <div
+                            className="rounded"
+                            style={{
+                              width: 96, height: 64, background: '#f3f3f3',
+                              backgroundImage: w.image ? `url(${w.image})` : undefined,
+                              backgroundSize: 'cover', backgroundPosition: 'center'
+                            }}
+                          />
+                        </div>
+                        <div className="flex-grow-1">
+                          <div className="fw-semibold text-truncate">
+                            {w.title ?? `레시피 #${w.recipeId}`}
+                          </div>
+                          {w.meta && <div className="small text-secondary">{w.meta}</div>}
+                          {w.summary && <div className="small text-secondary text-truncate">{w.summary}</div>}
+                        </div>
+                        <div className="d-flex gap-2">
+                          <button
+                            className="btn btn-sm btn-outline-danger"
+                            onClick={(e) => onRemove(e, w.recipeId)}   // 링크 막고 삭제만
+                            title="찜 해제"
+                          >
+                            제거
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex-grow-1">
-                        <div className="fw-semibold text-truncate">{w.title ?? `레시피 #${w.recipeId}`}</div>
-                        {w.meta && <div className="small text-secondary">{w.meta}</div>}
-                        {w.summary && <div className="small text-secondary text-truncate">{w.summary}</div>}
-                      </div>
-                      <div className="d-flex gap-2">
-                        <button
-                          className="btn btn-sm btn-outline-danger"
-                          onClick={() => onRemove(w.recipeId)}   // ✅ recipeId로 통일
-                          title="찜 해제"
-                        >
-                          제거
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                    </Link>
+                  );
+                })}
               </div>
             )}
           </div>

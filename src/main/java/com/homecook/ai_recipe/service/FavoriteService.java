@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+// src/main/java/com/homecook/ai_recipe/service/FavoriteService.java
 @Service
 @RequiredArgsConstructor
 public class FavoriteService {
@@ -21,31 +22,20 @@ public class FavoriteService {
     }
 
     @Transactional
-    public Favorite add(Long userId, Long recipeId) {
-        // 이미 있으면 그대로 반환
-        if (favoriteRepository.existsByUserIdAndRecipeId(userId, recipeId)) {
-            return favoriteRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
-                    .filter(f -> f.getRecipeId().equals(recipeId))
-                    .findFirst()
-                    .orElseGet(() -> {
-                        Favorite f = new Favorite();
-                        f.setUserId(userId);
-                        f.setRecipeId(recipeId);
-                        return favoriteRepository.save(f);
-                    });
-        }
-        try {
-            Favorite f = new Favorite();
-            f.setUserId(userId);
-            f.setRecipeId(recipeId);
-            return favoriteRepository.save(f);
-        } catch (DataIntegrityViolationException e) {
-            // 유니크 충돌/제약 충돌 시에도 최대한 기존 레코드 리턴
-            return favoriteRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
-                    .filter(f -> f.getRecipeId().equals(recipeId))
-                    .findFirst()
-                    .orElseThrow();
-        }
+    public Favorite add(Long userId, Long recipeId, String title, String summary, String image, String meta) {
+        var existed = favoriteRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
+                .filter(f -> f.getRecipeId().equals(recipeId))
+                .findFirst();
+        if (existed.isPresent()) return existed.get();
+
+        var f = new Favorite();
+        f.setUserId(userId);
+        f.setRecipeId(recipeId);
+        f.setTitle(title);
+        f.setSummary(summary);
+        f.setImage(image);
+        f.setMeta(meta);
+        return favoriteRepository.save(f);
     }
 
     @Transactional
