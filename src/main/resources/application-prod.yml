@@ -14,13 +14,13 @@ spring:
       hibernate.jdbc.lob.non_contextual_creation: true
 
   mail:
-    host: ${MAIL_HOST}
+    host: ${MAIL_HOST:}
     port: ${MAIL_PORT:587}
-    username: ${MAIL_USERNAME}
-    password: ${MAIL_PASSWORD}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
     properties:
-      mail.smtp.auth: true
-      mail.smtp.starttls.enable: true
+      mail.smtp.auth: ${MAIL_SMTP_AUTH:false}
+      mail.smtp.starttls.enable: ${MAIL_SMTP_STARTTLS:false}
 
 app:
   front-base: https://recipfree.com
