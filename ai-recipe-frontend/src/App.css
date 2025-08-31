@@ -62,3 +62,26 @@
   font-weight: 700;
   box-shadow: inset 0 0 0 1px rgba(200,76,24,0.2);
 }
+
+/* MyPage - liked */
+.line-clamp-1{
+  display:-webkit-box; -webkit-line-clamp:1; -webkit-box-orient:vertical;
+  overflow:hidden;
+}
+.line-clamp-2{
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+  overflow:hidden;
+}
+.line-clamp-3{
+  display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical;
+  overflow:hidden;
+}
+
+/* 썸네일 고정(레이아웃 안정) */
+.bookmark-thumb{
+  width:96px; height:64px; background:#f3f3f3;
+  background-size:cover; background-position:center; border-radius:.5rem;
+}
+
+/* 버튼 열이 줄바꿈에 끌려 내려가지 않도록 */
+.flex-no-shrink{ flex-shrink:0; }

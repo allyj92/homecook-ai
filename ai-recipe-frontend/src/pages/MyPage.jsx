@@ -226,59 +226,59 @@ export default function MyPage() {
               <div className="alert alert-danger m-3" role="alert">{wishErr}</div>
             )}
 
-            {!wishLoading && !wishErr && wishlist.length === 0 && (
-              <div className="p-4 text-center text-secondary">
-                아직 저장한 레시피가 없어요.
-                <div className="mt-2">
-                  <Link className="btn btn-sm btn-success" to="/input">레시피 받으러 가기</Link>
-                </div>
-              </div>
-            )}
+           {!wishLoading && !wishErr && wishlist.length > 0 && (
+  <div className="list-group list-group-flush">
+    {wishlist.map((w) => {
+      const key = w.id ?? w.recipeId;
+      const to  = `/result?id=${encodeURIComponent(w.recipeId)}`;
+      return (
+        <Link
+          key={key}
+          to={to}
+          className="list-group-item list-group-item-action"
+        >
+          <div className="d-flex align-items-center gap-3">
+            {/* 썸네일 */}
+            <div className="flex-no-shrink">
+              <div
+                className="bookmark-thumb"
+                style={{ backgroundImage: w.image ? `url(${w.image})` : undefined }}
+              />
+            </div>
 
-            {!wishLoading && !wishErr && wishlist.length > 0 && (
-              <div className="list-group list-group-flush">
-                {wishlist.map((w) => {
-                  const key = w.id ?? w.recipeId;
-                  const to = `/result?id=${encodeURIComponent(w.recipeId)}`;
-                  return (
-                    <Link
-                      key={key}
-                      to={to}
-                      className="list-group-item list-group-item-action"
-                    >
-                      <div className="d-flex align-items-center gap-3">
-                        <div className="flex-shrink-0">
-                          <div
-                            className="rounded"
-                            style={{
-                              width: 96, height: 64, background: '#f3f3f3',
-                              backgroundImage: w.image ? `url(${w.image})` : undefined,
-                              backgroundSize: 'cover', backgroundPosition: 'center'
-                            }}
-                          />
-                        </div>
-                        <div className="flex-grow-1">
-                          <div className="fw-semibold text-truncate">
-                            {w.title ?? `레시피 #${w.recipeId}`}
-                          </div>
-                          {w.meta && <div className="small text-secondary">{w.meta}</div>}
-                          {w.summary && <div className="small text-secondary text-truncate">{w.summary}</div>}
-                        </div>
-                        <div className="d-flex gap-2">
-                          <button
-                            className="btn btn-sm btn-outline-danger"
-                            onClick={(e) => onRemove(e, w.recipeId)}   // 링크 막고 삭제만
-                            title="찜 해제"
-                          >
-                            제거
-                          </button>
-                        </div>
-                      </div>
-                    </Link>
-                  );
-                })}
+            {/* 텍스트 영역 (늘어남) */}
+            <div className="flex-grow-1" style={{ minWidth: 0 }}>
+              <div className="fw-semibold line-clamp-1">
+                {w.title ?? `레시피 #${w.recipeId}`}
               </div>
-            )}
+              {w.meta && (
+                <div className="small text-secondary line-clamp-1">
+                  {w.meta}
+                </div>
+              )}
+              {w.summary && (
+                <div className="small text-secondary line-clamp-2">
+                  {w.summary}
+                </div>
+              )}
+            </div>
+
+            {/* 액션 버튼 (줄바꿈 영향 X) */}
+            <div className="d-flex gap-2 flex-no-shrink">
+              <button
+                className="btn btn-sm btn-outline-danger"
+                onClick={(e) => onRemove(e, w.recipeId)} // 링크 이동 방지+삭제
+                title="찜 해제"
+              >
+                제거
+              </button>
+            </div>
+          </div>
+        </Link>
+      );
+    })}
+  </div>
+)}
           </div>
 
           {/* 광고 */}
