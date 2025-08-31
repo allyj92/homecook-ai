@@ -35,7 +35,6 @@ export default function App() {
         <Route path="mypage" element={<MyPage />} />
         <Route path="profile" element={<div>프로필 편집(추후)</div>} />
         <Route path="settings" element={<div>계정/보안(추후)</div>} />
-        <Route path="saved" element={<div>저장한 레시피 전체(추후)</div>} />
         <Route path="activity" element={<div>활동 내역(추후)</div>} />
         <Route path="login-signup" element={<LoginPage />} />
         <Route path="/forgot" element={<ForgotResetPage />} />
