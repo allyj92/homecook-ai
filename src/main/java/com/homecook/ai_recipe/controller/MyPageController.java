@@ -1,6 +1,7 @@
 // src/main/java/com/homecook/ai_recipe/controller/MyPageController.java
 package com.homecook.ai_recipe.controller;
 
+import com.homecook.ai_recipe.dto.FavoriteCreateRequest;
 import com.homecook.ai_recipe.dto.FavoriteDto;
 import com.homecook.ai_recipe.service.FavoriteService;
 import com.homecook.ai_recipe.auth.SessionUser;
@@ -100,18 +101,27 @@ public class MyPageController {
     /** 찜 추가 */
     @PostMapping("/favorites/{recipeId}")
     public FavoriteDto addFavorite(@PathVariable Long recipeId,
-                                   @RequestBody(required = false) Map<String, Object> body,
+                                   @RequestBody(required = false) FavoriteCreateRequest req,
                                    HttpSession session) {
         Long userId = requireLogin(session);
-        String title   = body != null ? (String) body.getOrDefault("title", null) : null;
-        String summary = body != null ? (String) body.getOrDefault("summary", null) : null;
-        String image   = body != null ? (String) body.getOrDefault("image", null) : null;
-        String meta    = body != null ? (String) body.getOrDefault("meta", null) : null;
+
+        String title   = norm(req == null ? null : req.getTitle());
+        String summary = norm(req == null ? null : req.getSummary());
+        String image   = norm(req == null ? null : req.getImage());
+        String meta    = norm(req == null ? null : req.getMeta());
 
         var f = favoriteService.add(userId, recipeId, title, summary, image, meta);
-        return new FavoriteDto(f.getId(), f.getRecipeId(), f.getTitle(), f.getSummary(),
-                f.getImage(), f.getMeta(),
-                f.getCreatedAt() != null ? f.getCreatedAt().toString() : null);
+        return new FavoriteDto(
+                f.getId(), f.getRecipeId(),
+                f.getTitle(), f.getSummary(), f.getImage(), f.getMeta(),
+                f.getCreatedAt() == null ? null : ISO.format(f.getCreatedAt())
+        );
+    }
+
+    private static String norm(String s) {
+        if (s == null) return null;
+        String t = s.trim();
+        return t.isEmpty() ? null : t;
     }
 
     /** 찜 삭제 */

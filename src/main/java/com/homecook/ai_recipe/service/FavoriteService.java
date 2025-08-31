@@ -36,7 +36,14 @@ public class FavoriteService {
     @Transactional
     public Favorite add(Long userId, Long recipeId, String title, String summary, String image, String meta) {
         return favoriteRepository.findByUser_IdAndRecipeId(userId, recipeId)
-                .orElseGet(() -> {
+                .map(f -> { // ✅ 업데이트
+                    if (title   != null) f.setTitle(title);
+                    if (summary != null) f.setSummary(summary);
+                    if (image   != null) f.setImage(image);
+                    if (meta    != null) f.setMeta(meta);
+                    return favoriteRepository.save(f);
+                })
+                .orElseGet(() -> { // ✅ 생성
                     var ua = new UserAccount(); ua.setId(userId);
                     var f = new Favorite();
                     f.setUser(ua);
