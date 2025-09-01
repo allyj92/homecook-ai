@@ -1,3 +1,5 @@
+export { createCommunityPost } from "./community.js";
+
 // src/api/index.js
 import axios from 'axios';
 
