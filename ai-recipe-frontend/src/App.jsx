@@ -33,7 +33,6 @@ export default function App() {
         <Route path="/write" element={<WritePage />} />
         <Route path="community" element={<CommunityPage />} />
         <Route path="community/:id" element={<div>포스트 상세 (추후 구현)</div>} />
-        <Route path="write" element={<div>글쓰기 (추후 구현)</div>} />
         <Route path="mypage" element={<MyPage />} />
         <Route path="profile" element={<div>프로필 편집(추후)</div>} />
         <Route path="settings" element={<div>계정/보안(추후)</div>} />
