@@ -32,7 +32,7 @@ export default function App() {
         <Route path="result" element={<ResultPage />} />
         <Route path="/write" element={<WritePage />} />
         <Route path="/community" element={<CommunityPage />} />
-        <Route path="/community/:id" element={<div>TODO: 상세</div>} />
+        <Route path="/community/:id" element={<PostDetailPage />} />
         <Route path="*" element={<CommunityPage />} />
         <Route path="mypage" element={<MyPage />} />
         <Route path="profile" element={<div>프로필 편집(추후)</div>} />
