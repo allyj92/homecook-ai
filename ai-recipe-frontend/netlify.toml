@@ -5,7 +5,7 @@
 
 [[redirects]]
   from = "/api/*"
-  to = "https://murder-conflicts-tragedy-consult.trycloudflare.com/api/:splat"  # ⬅️ 여기 ngrok 주소 바뀌면 즉시 업데이트
+  to = "https://heel-lan-surely-prove.trycloudflare.com/api/:splat"  # ⬅️ 여기 ngrok 주소 바뀌면 즉시 업데이트
   status = 200
   force = true
 
