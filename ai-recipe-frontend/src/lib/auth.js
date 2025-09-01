@@ -25,27 +25,42 @@ export function clearAuthCache() {
   setCachedUser(null);
 }
 
+/** 현재 SPA 경로 계산 (HashRouter/BrowserRouter 모두 대응) */
+function currentSpaPath() {
+  const { hash, pathname, search } = window.location;
+  return hash && hash.startsWith('#') ? hash.slice(1) : (pathname + search);
+}
+
+/** 안전 JSON 파싱 */
+async function safeJson(res) {
+  try { return await res.json(); } catch { return null; }
+}
+
 /** =============================
  *  백엔드 세션 기반 API
  *  (Spring 세션 쿠키 사용: credentials: 'include')
  * ============================== */
 
-// 현재 세션 사용자(캐시 무시하고 서버 확인)
+// 현재 세션 사용자 (401이면 null)
 export async function fetchMe() {
   const res = await fetch('/api/auth/me', { credentials: 'include' });
+  if (res.status === 401) return null;
   if (!res.ok) return null;
-  return await res.json(); // SessionUser
+  const data = await safeJson(res);
+  // 백엔드: { authenticated: true, id, email, name, picture, provider } 형태
+  if (data?.authenticated) return data;
+  return null;
 }
 
-// 세션 갱신(백엔드가 { user } 반환)
+// 세션 갱신 → 갱신 성공 시 다시 /me 호출하여 사용자 반환
 export async function refreshSession() {
   const res = await fetch('/api/auth/refresh', {
     method: 'POST',
     credentials: 'include',
   });
   if (!res.ok) return null;
-  const data = await res.json(); // { user }
-  return data?.user ?? null;
+  // 바디가 {accessToken} 등이어도 여기선 의미 없음. 유저는 /me에서 확인.
+  return await fetchMe();
 }
 
 // 로그아웃
@@ -61,7 +76,7 @@ export async function logout() {
 }
 
 /** =============================
- *  자체(local) 로그인/회원가입
+ *  자체(local) 로그인/회원가입 (백엔드에 엔드포인트가 있을 때만 사용)
  * ============================== */
 export async function registerLocal(email, password, name) {
   const res = await fetch('/api/auth/local/register', {
@@ -74,7 +89,7 @@ export async function registerLocal(email, password, name) {
     const err = await safeJson(res);
     throw new Error(err?.message || '회원가입에 실패했습니다.');
   }
-  const user = await res.json(); // SessionUser
+  const user = await safeJson(res);
   setCachedUser(user);
   return user;
 }
@@ -90,7 +105,7 @@ export async function loginLocal(email, password) {
     const err = await safeJson(res);
     throw new Error(err?.message || '이메일 또는 비밀번호가 올바르지 않습니다.');
   }
-  const user = await res.json(); // SessionUser
+  const user = await safeJson(res);
   setCachedUser(user);
   return user;
 }
@@ -99,15 +114,15 @@ export async function loginLocal(email, password) {
  *  로그인 보장 헬퍼
  *  1) 캐시가 있으면 즉시 반환
  *  2) /api/auth/refresh 시도 (세션 있으면 성공)
- *  3) 없으면 로그인 페이지로 이동 (postLoginRedirect 저장)
+ *  3) 없으면 로그인 화면 또는 소셜 자동 시작
  *
  *  옵션:
- *   - nextPath: 로그인 후 돌아올 경로(기본: 현 위치)
+ *   - nextPath: 로그인 후 돌아올 경로(기본: 현재 SPA 경로)
  *   - preferProvider: 'kakao' | 'naver' | 'google' | 'facebook' | 'local'
- *     → 자동 소셜 시작을 원하면 지정. 미지정이면 로그인 페이지로만 보냄.
+ *   - router: 'hash' | 'browser' (기본 'browser')
  * ============================== */
 export async function ensureLogin(
-  nextPath = window.location.pathname + window.location.search,
+  nextPath = currentSpaPath(),
   options = {}
 ) {
   // 1) 캐시 우선
@@ -126,25 +141,14 @@ export async function ensureLogin(
     localStorage.setItem('postLoginRedirect', nextPath);
   } catch {}
 
-  const { preferProvider } = options || {};
+  const { preferProvider, router = 'browser' } = options || {};
   if (preferProvider && ['kakao','naver','google','facebook'].includes(preferProvider)) {
-    // 소셜 자동 시작을 진짜로 원할 때만 사용
+    // 소셜 자동 시작 (백엔드가 /api/auth/oauth/{provider}/start → /oauth2/authorization/{provider} 리다이렉트)
     window.location.href = `/api/auth/oauth/${preferProvider}/start`;
   } else {
-    // 기본: 로그인/회원가입 화면으로 이동 (사용자에게 선택권 부여)
-    // 라우트가 '/login-signup' 인 것으로 프로젝트에 맞춤
-    window.location.href = '/login-signup';
+    // 로그인/회원가입 화면으로 이동 (라우터 타입에 맞춰 경로 선택)
+    const loginPath = router === 'hash' ? '/#/login-signup' : '/login-signup';
+    window.location.href = loginPath;
   }
-  return null; // 여기서 보통 페이지 이동
-}
-
-/** =============================
- *  기타 헬퍼
- * ============================== */
-async function safeJson(res) {
-  try {
-    return await res.json();
-  } catch {
-    return null;
-  }
+  return null;
 }

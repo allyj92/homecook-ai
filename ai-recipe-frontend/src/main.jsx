@@ -1,18 +1,32 @@
 // src/main.jsx
-import React from 'react'
-import ReactDOM from 'react-dom/client'
-import { HashRouter  } from 'react-router-dom'
-import App from './App'
-import './index.css'
-import 'bootstrap/dist/css/bootstrap.min.css'
-import 'bootstrap/dist/js/bootstrap.bundle.min.js'
+import React, { useEffect } from "react";
+import ReactDOM from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
+import App from "./App";
 import axios from "axios";
+import { getMe } from "./api/auth";
+
 axios.defaults.withCredentials = true;
 
-ReactDOM.createRoot(document.getElementById('root')).render(
+export function BootProbe() {   // ← export 추가!
+  useEffect(() => {
+    (async () => {
+      try {
+        const me = await getMe();
+        console.log("me:", me);
+      } catch (e) {
+        console.error("getMe failed", e);
+      }
+    })();
+  }, []);
+  return null;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <HashRouter >
+    <BrowserRouter>
+      <BootProbe />
       <App />
-    </HashRouter >
+    </BrowserRouter>
   </React.StrictMode>
-)
+);
