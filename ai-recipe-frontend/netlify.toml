@@ -18,15 +18,15 @@
   force  = true
   headers = { X-Forwarded-Host = "recipfree.com", X-Forwarded-Proto = "https" }
 
-
+# ★ 콜백 경로도 반드시 프록시
 [[redirects]]
-  from = "/api/*"
-  to   = "https://url-morrison-dash-proof.trycloudflare.com/api/:splat"
+  from = "/login/oauth2/*"
+  to   = "https://url-morrison-dash-proof.trycloudflare.com/login/oauth2/:splat"
   status = 200
   force  = true
   headers = { X-Forwarded-Host = "recipfree.com", X-Forwarded-Proto = "https" }
 
-# (옵션) /oauth2, /login/oauth2 응답도 캐시 금지
+# 캐시 금지
 [[headers]]
   for = "/oauth2/*"
   [headers.values]
@@ -37,13 +37,12 @@
   [headers.values]
     Cache-Control = "no-store"
 
-# API 응답 캐시 금지(세션/쿠키 문제 예방)
 [[headers]]
   for = "/api/*"
   [headers.values]
     Cache-Control = "no-store"
 
-# ⚠️ SPA 캐치올은 맨 마지막!
+# SPA 캐치올은 맨 마지막!
 [[redirects]]
   from = "/*"
   to   = "/index.html"

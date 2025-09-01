@@ -37,36 +37,27 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-                // 세션은 필요할 때만 생성 (OAuth2 로그인 시 생성)
-                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
-                // 인증 성공 후 SecurityContext를 자동 저장(명시 저장 요구 X)
-                .securityContext(sc -> sc.requireExplicitSave(false))
-
                 .cors(c -> c.configurationSource(corsConfigurationSource()))
                 .csrf(csrf -> csrf.disable())
-
+                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)) // ★ 필요 시 세션 생성
                 .authorizeHttpRequests(auth -> auth
-                        // OAuth 시작/콜백 공개
                         .requestMatchers("/oauth2/**", "/login/oauth2/**").permitAll()
-                        // 인증/세션 관련 공개 엔드포인트
                         .requestMatchers("/api/auth/**").permitAll()
-                        // 커뮤니티
                         .requestMatchers(HttpMethod.GET, "/api/community/posts/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/community/posts").authenticated()
                         .anyRequest().permitAll()
                 )
-
                 .oauth2Login(o -> o
                         .userInfoEndpoint(u -> u.userService(customOAuth2UserService))
                         .successHandler(successHandler())
                         .failureHandler(failureHandler())
                 )
-
                 .formLogin(f -> f.disable())
                 .httpBasic(b -> b.disable());
-
         return http.build();
     }
+
+
 
     /** 운영: 정확한 오리진만 허용 (credentials=true와 '*' 조합 금지) */
     @Bean
@@ -88,26 +79,14 @@ public class SecurityConfig {
         return source;
     }
 
-    /** 로그인 성공: 세션 보장 + refresh 쿠키 발급 + 프론트로 리다이렉트 */
+
+
     @Bean
     public AuthenticationSuccessHandler successHandler() {
         return (request, response, authentication) -> {
-            // ★ JSESSIONID 발급 보장
-            request.getSession(true);
+            request.getSession(true); // ★ 세션 확실히 생성
 
-            // TODO: 실제 리프레시 토큰 생성 로직으로 교체
-            String refreshToken = "NEW_REFRESH_TOKEN";
-
-            ResponseCookie refreshCookie = ResponseCookie.from("refresh_token", refreshToken)
-                    .httpOnly(true)
-                    .secure(true)
-                    .domain(".recipfree.com")
-                    .path("/")
-                    .sameSite("Lax") // cross-site 필요하면 "None"(HTTPS 필수)
-                    .maxAge(Duration.ofDays(30))
-                    .build();
-            response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie.toString());
-
+            // refresh_token 쿠키 세팅 (생략)
             response.sendRedirect(frontBase + "/auth/callback?ok=1");
         };
     }
