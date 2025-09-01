@@ -1,9 +1,36 @@
+// src/pages/PostDetailPage.jsx
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import "bootstrap/dist/css/bootstrap.min.css";
 import BottomNav from "../compoments/BottomNav";
 import { ensureLogin } from "../auth/ensureLogin";
 import { getCommunityPost } from "../api/community.js";
+
+/** API 응답을 화면용으로 정규화 */
+function normalizePost(raw) {
+  if (!raw) return null;
+  let d = raw;
+
+  // Netlify 함수가 텍스트/래핑으로 줄 수도 있어 방어
+  if (typeof d === "string") {
+    try { d = JSON.parse(d); } catch { /* 그대로 사용 */ }
+  }
+  if (d && d.bodyPreview && !d.id) {
+    // 디버그 래핑 형태 {status, ok, bodyPreview} → bodyPreview 파싱 시도
+    try { d = JSON.parse(d.bodyPreview); } catch { /* noop */ }
+  }
+
+  return {
+    id: d.id ?? d.postId ?? null,
+    title: d.title ?? d.subject ?? "",
+    category: d.category ?? d.type ?? "",
+    content: d.content ?? d.body ?? "",
+    tags: Array.isArray(d.tags) ? d.tags : (Array.isArray(d.tagList) ? d.tagList : []),
+    authorId: d.authorId ?? d.userId ?? null,
+    createdAt: d.createdAt ?? d.created_at ?? null,
+    updatedAt: d.updatedAt ?? d.updated_at ?? null,
+  };
+}
 
 function Meta({ author, createdAt }) {
   const dt = createdAt ? new Date(createdAt) : null;
@@ -30,8 +57,11 @@ export default function PostDetailPage() {
     (async () => {
       try {
         setLoading(true);
-        const data = await getCommunityPost(id);
-        if (alive) setPost(data);
+        const raw = await getCommunityPost(id);
+        console.log("[PostDetail] raw =", raw);
+        const norm = normalizePost(raw);
+        console.log("[PostDetail] normalized =", norm);
+        if (alive) setPost(norm);
       } catch (e) {
         console.error(e);
         if (alive) setErr(e);
@@ -96,21 +126,25 @@ export default function PostDetailPage() {
 
       <article className="card shadow-sm">
         <div className="card-body">
-          <div className="d-flex align-items-center gap-2 mb-2">
-            <span className="badge rounded-pill bg-light text-dark border">{post.category}</span>
-            {post.tags?.map((t) => (
-              <span key={t} className="badge rounded-pill bg-light text-dark border">#{t}</span>
-            ))}
-          </div>
+          {(post.category || (post.tags && post.tags.length)) && (
+            <div className="d-flex align-items-center gap-2 mb-2">
+              {post.category && (
+                <span className="badge rounded-pill bg-light text-dark border">{post.category}</span>
+              )}
+              {post.tags?.map((t) => (
+                <span key={t} className="badge rounded-pill bg-light text-dark border">#{t}</span>
+              ))}
+            </div>
+          )}
 
-          <h1 className="h4 mb-1">{post.title}</h1>
+          <h1 className="h4 mb-1">{post.title || "제목 없음"}</h1>
           <Meta author={post.authorId} createdAt={post.createdAt || post.updatedAt} />
 
           <hr />
 
           {/* 내용은 우선 프리텍스트로 표시 (마크다운은 추후) */}
           <div className="mt-2" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-            {post.content}
+            {post.content ? post.content : <span className="text-secondary">내용이 비어 있습니다.</span>}
           </div>
         </div>
       </article>
