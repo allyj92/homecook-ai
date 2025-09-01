@@ -20,3 +20,7 @@
   for = "/api/*"
   [headers.values]
     Cache-Control = "no-store"
+
+[functions]
+directory = "netlify/functions"
+node_bundler = "esbuild"   
