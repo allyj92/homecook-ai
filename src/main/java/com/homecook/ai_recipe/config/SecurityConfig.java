@@ -1,27 +1,28 @@
 package com.homecook.ai_recipe.config;
 
-
 import com.homecook.ai_recipe.service.CustomOAuth2UserService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpMethod;
+import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseCookie;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.web.cors.*;
-
-import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.AuthenticationFailureHandler;
+import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.time.Duration;
 import java.util.List;
 
 @Configuration
 @EnableMethodSecurity
+@Profile("!test") // 테스트 프로필에선 이 구성 제외
 public class SecurityConfig {
 
     private final CustomOAuth2UserService customOAuth2UserService;
@@ -72,6 +73,7 @@ public class SecurityConfig {
         cfg.setAllowedHeaders(List.of("*"));
         cfg.setAllowCredentials(true);
         cfg.setMaxAge(3600L);
+
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", cfg);
         return source;
@@ -81,8 +83,8 @@ public class SecurityConfig {
     @Bean
     public AuthenticationSuccessHandler successHandler() {
         return (request, response, authentication) -> {
-            // TODO: 여기에 실제 토큰 발급 로직 연결 (user 정보는 authentication.getPrincipal())
-            String refreshToken = "NEW_REFRESH_TOKEN"; // 예시. 실제 서비스 토큰으로 교체
+            // TODO: 실제 리프레시 토큰 생성 로직으로 교체하세요.
+            String refreshToken = "NEW_REFRESH_TOKEN";
 
             ResponseCookie refreshCookie = ResponseCookie.from("refresh_token", refreshToken)
                     .httpOnly(true)
