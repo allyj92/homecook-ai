@@ -14,7 +14,10 @@ export async function createCommunityPost(payload) {
     return data; // { id }
   }
   const fUrl = "/.netlify/functions/communityCreate";
-  const { data } = await axios.post(fUrl, payload, { timeout: 30000 });
+  const { data } = await axios.post(fUrl, payload, {
+   withCredentials: true,   // ★ 함수 호출도 같은 오리진이라 쿠키 붙일 수 있음
+   timeout: 30000,
+ });
   return data;
 }
 

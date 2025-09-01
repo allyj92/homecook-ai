@@ -19,7 +19,7 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-mail'
     // jakarta.mail-api 는 starter-mail 안에 들어있으니 제거
     // implementation 'jakarta.mail:jakarta.mail-api:2.1.3'  // ← 삭제
-
+    implementation 'org.springframework.boot:spring-boot-starter-security'
     // OpenAI
     implementation 'com.openai:openai-java:3.0.3'
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.2'
