@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import "bootstrap/dist/css/bootstrap.min.css";
 import BottomNav from "../compoments/BottomNav";
 import { ensureLogin } from "../auth/ensureLogin";
-import { createCommunityPost } from "../api/community";
+import { createCommunityPost } from "../api";
 
 const DRAFT_KEY = "draft:community";
 
