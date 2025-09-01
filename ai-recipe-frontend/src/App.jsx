@@ -26,7 +26,7 @@ export default function App() {
       <Route element={<><AuthBootstrap /><Layout /></>}>
         {/* "/" */}
         <Route index element={<MainPage />} />
-{/*  */}
+
         {/* 자식 경로(상대경로로 작성) */}
         <Route path="input" element={<InputPage />} />
         <Route path="result" element={<ResultPage />} />
