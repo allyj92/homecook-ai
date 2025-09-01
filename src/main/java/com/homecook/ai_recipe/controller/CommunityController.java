@@ -18,17 +18,18 @@ public class CommunityController {
         this.service = service;
     }
 
-    /** 글 생성 */
+    /**
+     * 생성: id만 반환
+     */
     @PostMapping("/posts")
-    public Map<String, Long> create(@Valid @RequestBody CreatePostReq req
-            /*, @AuthenticationPrincipal UserPrincipal me */) {
-        // 로그인 아직이면 authorId = null
-        Long authorId = null; // me != null ? me.getId() : null;
-        Long id = service.create(authorId, req);
+    public Map<String, Long> create(@Valid @RequestBody CreatePostReq req) {
+        Long id = service.create(null, req); // 로그인 붙이면 authorId 주입
         return Map.of("id", id);
     }
 
-    /** 단건 조회 */
+    /**
+     * 단건 조회: 전체 정보를 DTO로 반환
+     */
     @GetMapping("/posts/{id}")
     public PostRes getOne(@PathVariable Long id) {
         return service.getOne(id);
