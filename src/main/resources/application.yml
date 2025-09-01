@@ -14,15 +14,16 @@ spring:
 
 
 server:
-  forward-headers-strategy: framework   # 프록시 뒤에서 HTTPS/Host 인지
+  forward-headers-strategy: framework      # 프록시 뒤에서 Host/Proto 신뢰
   servlet:
     session:
       cookie:
         name: JSESSIONID
-        http-only: true
-        secure: true         # 운영(https)에서는 true
-        same-site: None      # 크로스사이트 리다이렉트/요청에서도 쿠키 전송
+        domain: .recipfree.com             # 쿠키를 반드시 recipfree.com에
         path: /
+        http-only: true
+        secure: true
+        same-site: LAX                     # 또는 NONE(HTTPS 필수)
 
 openai:
   model: gpt-4.1-mini
