@@ -15,6 +15,20 @@
   to = "/index.html"
   status = 200
 
+# /oauth2 → 백엔드 (Spring이 내부적으로 쓰는 경로)
+[[redirects]]
+  from = "/oauth2/*"
+  to   = "https://<BACKEND>/oauth2/:splat"
+  status = 200
+  force  = true
+
+# /login/oauth2 → 백엔드 (Spring 콜백 경로)
+[[redirects]]
+  from = "/login/oauth2/*"
+  to   = "https://<BACKEND>/login/oauth2/:splat"
+  status = 200
+  force  = true  
+
 # API 응답은 캐시 금지(세션/쿠키 이슈 예방)
 [[headers]]
   for = "/api/*"
