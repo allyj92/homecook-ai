@@ -1,69 +1,113 @@
-// src/main/java/com/homecook/ai_recipe/config/SecurityConfig.java
 package com.homecook.ai_recipe.config;
 
+
+import com.homecook.ai_recipe.service.CustomOAuth2UserService;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
-
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
-import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.*;
 
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
+import org.springframework.security.web.authentication.AuthenticationFailureHandler;
+
+import java.time.Duration;
 import java.util.List;
 
 @Configuration
-@EnableMethodSecurity // @PreAuthorize 등 사용하려면 유지
+@EnableMethodSecurity
 public class SecurityConfig {
+
+    private final CustomOAuth2UserService customOAuth2UserService;
+
+    @Value("${app.front-base}")
+    private String frontBase; // ex) https://recipfree.com
+
+    public SecurityConfig(CustomOAuth2UserService customOAuth2UserService) {
+        this.customOAuth2UserService = customOAuth2UserService;
+    }
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-                // CORS (필요 시 도메인 화이트리스트로 제한)
-                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-                // REST API면 CSRF 비활성화가 일반적
+                .cors(c -> c.configurationSource(corsConfigurationSource()))
                 .csrf(csrf -> csrf.disable())
-                // 경로별 권한
                 .authorizeHttpRequests(auth -> auth
-                        // 커뮤니티 상세 조회는 공개
+                        // OAuth 시작/콜백 공개
+                        .requestMatchers("/oauth2/**", "/login/oauth2/**").permitAll()
+                        .requestMatchers("/api/auth/**").permitAll()
+                        // 커뮤니티
                         .requestMatchers(HttpMethod.GET, "/api/community/posts/**").permitAll()
-                        // 커뮤니티 글 생성은 인증 필요
                         .requestMatchers(HttpMethod.POST, "/api/community/posts").authenticated()
-                        // 예시: 레시피 추천은 로그인 필요(기존 요구사항 유지)
-                        .requestMatchers("/api/recommend").authenticated()
-                        // 그 외는 모두 허용(원하면 더 좁히세요)
                         .anyRequest().permitAll()
                 )
-                // 로그인/세션 관련 (프론트에서 처리하므로 폼/Basic 비활성화)
-                .formLogin(form -> form.disable())
-                .httpBasic(basic -> basic.disable());
+                .oauth2Login(o -> o
+                        .userInfoEndpoint(u -> u.userService(customOAuth2UserService))
+                        .successHandler(successHandler())
+                        .failureHandler(failureHandler())
+                )
+                .formLogin(f -> f.disable())
+                .httpBasic(b -> b.disable());
 
         return http.build();
     }
 
-    /** CORS 기본 설정: 개발 편의용(모든 Origin/헤더/메서드 허용) */
+    /** 운영: 오리진을 명시. credentials=true와 '*'는 절대 함께 쓰지 말 것 */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration cfg = new CorsConfiguration();
-
-        // ★ 여기에 실제 프론트 오리진만 명시
-        cfg.setAllowedOrigins(List.of(
+        cfg.setAllowedOriginPatterns(List.of(
                 "https://recipfree.com",
-                "https://www.recipfree.com"
+                "https://www.recipfree.com",
+                "http://localhost:*",
+                "http://127.0.0.1:*"
         ));
-        // 개발용(원할 때만 추가)
-        // cfg.addAllowedOrigin("http://localhost:5173");
-        // cfg.addAllowedOrigin("http://127.0.0.1:5173");
-
         cfg.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
-        cfg.setAllowedHeaders(List.of("Content-Type","Authorization","Cookie","X-Requested-With"));
-        cfg.setAllowCredentials(true); // 쿠키/인증 허용
+        cfg.setAllowedHeaders(List.of("*"));
+        cfg.setAllowCredentials(true);
         cfg.setMaxAge(3600L);
-
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", cfg);
         return source;
+    }
+
+    /** 로그인 성공 시: refresh 쿠키 발급 + 프론트로 리다이렉트 */
+    @Bean
+    public AuthenticationSuccessHandler successHandler() {
+        return (request, response, authentication) -> {
+            // TODO: 여기에 실제 토큰 발급 로직 연결 (user 정보는 authentication.getPrincipal())
+            String refreshToken = "NEW_REFRESH_TOKEN"; // 예시. 실제 서비스 토큰으로 교체
+
+            ResponseCookie refreshCookie = ResponseCookie.from("refresh_token", refreshToken)
+                    .httpOnly(true)
+                    .secure(true)
+                    .domain(".recipfree.com")
+                    .path("/")
+                    .sameSite("Lax") // cross-site 필요하면 "None"
+                    .maxAge(Duration.ofDays(30))
+                    .build();
+            response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie.toString());
+
+            // 프론트 콜백 라우트로 이동 (필요 파라미터 추가 가능)
+            response.sendRedirect(frontBase + "/auth/callback?ok=1");
+        };
+    }
+
+    /** 로그인 실패 시: 프론트로 에러 전달 */
+    @Bean
+    public AuthenticationFailureHandler failureHandler() {
+        return (request, response, exception) -> {
+            String msg = java.net.URLEncoder.encode(
+                    exception.getMessage() == null ? "login_failed" : exception.getMessage(),
+                    java.nio.charset.StandardCharsets.UTF_8
+            );
+            response.sendRedirect(frontBase + "/auth/callback?error=" + msg);
+        };
     }
 }
