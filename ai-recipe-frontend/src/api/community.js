@@ -15,7 +15,7 @@ export async function createCommunityPost(payload) {
   }
   const fUrl = "/.netlify/functions/communityCreate";
   const { data } = await axios.post(fUrl, payload, { timeout: 30000 });
-  return data; // { id }
+  return data;
 }
 
 /** 글 단건 조회 */
@@ -25,7 +25,7 @@ export async function getCommunityPost(id) {
       withCredentials: true,
       timeout: 30000,
     });
-    return data; // { id, title, category, content, ... }
+    return data;
   }
   const { data } = await axios.get(
     `/.netlify/functions/communityGet?id=${encodeURIComponent(id)}`,

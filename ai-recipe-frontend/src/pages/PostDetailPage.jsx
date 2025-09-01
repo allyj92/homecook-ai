@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import "bootstrap/dist/css/bootstrap.min.css";
 import BottomNav from "../compoments/BottomNav";
 import { ensureLogin } from "../auth/ensureLogin";
-import { getCommunityPost } from "../api"; // 경로 맞춰주세요
+import { getCommunityPost } from "../api/community.js";
 
 function Meta({ author, createdAt }) {
   const dt = createdAt ? new Date(createdAt) : null;
