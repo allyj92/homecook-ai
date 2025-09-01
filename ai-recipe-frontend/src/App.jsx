@@ -5,6 +5,7 @@ import MainPage from './pages/MainPage'
 import InputPage from './pages/InputPage'
 import ResultPage from './pages/ResultPage'
 import CommunityPage from './pages/CommunityPage'
+import WritePage from "./pages/WritePage";
 import MyPage from './pages/MyPage'
 import LoginPage from './pages/LoginPage'
 import ShopPage from './pages/ShopPage'
@@ -29,6 +30,7 @@ export default function App() {
         {/* 자식 경로(상대경로로 작성) */}
         <Route path="input" element={<InputPage />} />
         <Route path="result" element={<ResultPage />} />
+        <Route path="/write" element={<WritePage />} />
         <Route path="community" element={<CommunityPage />} />
         <Route path="community/:id" element={<div>포스트 상세 (추후 구현)</div>} />
         <Route path="write" element={<div>글쓰기 (추후 구현)</div>} />
