@@ -66,3 +66,8 @@ server:
 
 app:
   front-base: https://recipfree.com
+
+logging:
+  level:
+    com.homecook.ai_recipe: DEBUG
+    org.springframework.security: DEBUG
