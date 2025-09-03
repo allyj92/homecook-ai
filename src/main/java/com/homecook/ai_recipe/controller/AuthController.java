@@ -3,14 +3,14 @@ package com.homecook.ai_recipe.controller;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.core.context.*;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
@@ -25,24 +25,31 @@ import java.util.*;
 public class AuthController {
 
     private final SecurityContextRepository securityContextRepository;
-    private final SecurityContextHolderStrategy ctxHolder = SecurityContextHolder.getContextHolderStrategy();
 
-    public AuthController(ObjectProvider<SecurityContextRepository> repoProvider) {
-        this.securityContextRepository = repoProvider.getIfAvailable(HttpSessionSecurityContextRepository::new);
+    public AuthController(SecurityContextRepository securityContextRepository) {
+        this.securityContextRepository = securityContextRepository;
     }
 
     @GetMapping("/me")
     public ResponseEntity<?> me(@AuthenticationPrincipal OAuth2User user) {
-        if (user == null) return ResponseEntity.status(401).body(Map.of("authenticated", false));
+        if (user == null) {
+            return ResponseEntity.status(401).body(Map.of("authenticated", false));
+        }
         Map<String, Object> a = user.getAttributes();
         return ResponseEntity.ok(Map.of(
                 "authenticated", true,
-                "id", a.get("id"), "email", a.get("email"),
-                "name", a.get("name"), "picture", a.get("picture"),
+                "id", a.get("id"),
+                "email", a.get("email"),
+                "name", a.get("name"),
+                "picture", a.get("picture"),
                 "provider", a.get("provider")
         ));
     }
 
+    /**
+     * 부트스트랩 모드: refresh_token 없더라도 일단 세션/쿠키를 만들어 준다.
+     * (실서비스 전에는 반드시 원복하거나 토글 플래그로 제한)
+     */
     @PostMapping("/refresh")
     public ResponseEntity<?> refresh(
             @CookieValue(name = "refresh_token", required = false) String refreshToken,
@@ -50,31 +57,31 @@ public class AuthController {
             HttpServletResponse res
     ) {
         try {
-            if (refreshToken == null || refreshToken.isBlank()) {
-                return ResponseEntity.status(401).body(Map.of("message", "unauthenticated"));
-            }
+            boolean bootstrap = (refreshToken == null || refreshToken.isBlank());
 
-            // TODO: refreshToken 검증 → 사용자 조회
+            // 0) 사용자 속성(데모)
             Map<String, Object> attrs = new LinkedHashMap<>();
-            attrs.put("id", "rf:" + refreshToken.substring(0, Math.min(8, refreshToken.length())));
-            attrs.put("name", "SessionUser");
-            attrs.put("provider", "refresh");
+            if (bootstrap) {
+                attrs.put("id", "dev:" + UUID.randomUUID().toString().substring(0, 8));
+                attrs.put("name", "DevUser");
+                attrs.put("provider", "bootstrap");
+            } else {
+                attrs.put("id", "rf:" + refreshToken.substring(0, Math.min(8, refreshToken.length())));
+                attrs.put("name", "SessionUser");
+                attrs.put("provider", "refresh");
+            }
 
             var authorities = List.of(new SimpleGrantedAuthority("ROLE_USER"));
             var principal = new DefaultOAuth2User(new HashSet<>(authorities), attrs, "id");
             var auth = new UsernamePasswordAuthenticationToken(principal, null, authorities);
 
-            // 1) 중복 JSESSIONID 정리: host-only / .recipfree.com 둘 다 제거
+            // 1) 이전 JSESSIONID 클리어(혹시 모를 중복 제거)
             res.addHeader(HttpHeaders.SET_COOKIE,
-                    ResponseCookie.from("JSESSIONID","").httpOnly(true).secure(true)
-                            .path("/").maxAge(0).build().toString());
-            res.addHeader(HttpHeaders.SET_COOKIE,
-                    ResponseCookie.from("JSESSIONID","").httpOnly(true).secure(true)
-                            .domain(".recipfree.com").path("/").maxAge(0).build().toString());
+                    ResponseCookie.from("JSESSIONID", "").httpOnly(true).secure(true).path("/").maxAge(0).build().toString());
 
-            // 2) 새 세션 보장 + 새 세션ID 강제 발급
+            // 2) 세션 생성 + 새 세션ID 발급
             req.getSession(true);
-            String newSid = req.changeSessionId(); // ← 톰캣이 JSESSIONID 교체하도록 강제
+            String newSid = req.changeSessionId();
 
             // 3) SecurityContext 저장
             SecurityContext ctx = SecurityContextHolder.createEmptyContext();
@@ -87,49 +94,39 @@ public class AuthController {
                         HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY, ctx);
             }
 
-            // 4) (중요) JSESSIONID를 수동으로도 내려서 확실히 브라우저에 심는다
-            //    — 운영에서 하나만 쓰세요: host-only *또는* .recipfree.com
-            // (A) host-only(아펙스만 쓸 때)
+            // 4) JSESSIONID 수동 세팅(★ host-only로 우선 고정) — 둘 중 하나만 사용!
             res.addHeader(HttpHeaders.SET_COOKIE,
                     ResponseCookie.from("JSESSIONID", newSid)
-                            .httpOnly(true).secure(true)
-                            .path("/")
+                            .httpOnly(true)
+                            .secure(true)
+                            .path("/")       // host-only
                             .sameSite("Lax")
                             .build().toString());
-            // (B) 도메인 공유(서브도메인까지 쓸 때) ⇒ 위(A) 대신 이 한 줄만 사용
-            // res.addHeader(HttpHeaders.SET_COOKIE,
-            //         ResponseCookie.from("JSESSIONID", newSid)
-            //                 .httpOnly(true).secure(true)
-            //                 .domain(".recipfree.com")
-            //                 .path("/")
-            //                 .sameSite("Lax")
-            //                 .build().toString());
 
-            // 5) (선택) refresh_token 회전
+            // 5) refresh_token도 보장(부트스트랩이면 새로 발급)
+            String newRefresh = bootstrap ? ("DEV_REFRESH_" + UUID.randomUUID()) : "NEW_REFRESH_TOKEN";
             res.addHeader(HttpHeaders.SET_COOKIE,
-                    ResponseCookie.from("refresh_token", "NEW_REFRESH_TOKEN")
-                            .httpOnly(true).secure(true)
-                            .domain(".recipfree.com")   // refresh는 도메인 전체 공유가 보통 편함
+                    ResponseCookie.from("refresh_token", newRefresh)
+                            .httpOnly(true)
+                            .secure(true)
+                            .domain(".recipfree.com") // refresh는 도메인 공유가 편함
                             .path("/")
                             .sameSite("Lax")
-                            .maxAge(java.time.Duration.ofDays(30))
+                            .maxAge(Duration.ofDays(30))
                             .build().toString());
 
-            return ResponseEntity.ok(Map.of("user", Map.copyOf(attrs), "sessionId", newSid));
+            return ResponseEntity.ok(Map.of("user", Map.copyOf(attrs), "sessionId", newSid, "bootstrap", bootstrap));
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body(Map.of(
-                    "message", "refresh_failed",
-                    "error", e.getClass().getSimpleName(),
-                    "detail", e.getMessage()
+                    "message","refresh_failed", "error", e.getClass().getSimpleName(), "detail", e.getMessage()
             ));
         }
     }
 
     @PostMapping("/logout")
     public ResponseEntity<?> logout() {
-        var clear = ResponseCookie.from("refresh_token","")
-                .httpOnly(true).secure(true).domain(".recipfree.com").path("/")
-                .sameSite("Lax").maxAge(0).build();
+        ResponseCookie clear = ResponseCookie.from("refresh_token", "")
+                .httpOnly(true).secure(true).domain(".recipfree.com").path("/").sameSite("Lax").maxAge(0).build();
         return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, clear.toString()).body(Map.of("ok", true));
     }
 }
