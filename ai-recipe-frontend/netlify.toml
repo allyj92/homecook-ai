@@ -21,7 +21,7 @@
 # ★ 콜백 경로도 반드시 프록시
 [[redirects]]
   from = "/login/oauth2/*"
-  to   = "https://forestry-gains-arrangement-garmin.trycloudflare.com/login/oauth2/:splat"
+  to   = "https://url-morrison-dash-proof.trycloudflare.com/login/oauth2/:splat"
   status = 200
   force  = true
   headers = { X-Forwarded-Host = "recipfree.com", X-Forwarded-Proto = "https" }
