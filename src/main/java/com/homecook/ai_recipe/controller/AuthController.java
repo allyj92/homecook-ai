@@ -53,16 +53,35 @@ public class AuthController {
     @PostMapping("/refresh")
     public ResponseEntity<?> refresh(
             @CookieValue(name = "refresh_token", required = false) String refreshToken,
-            HttpServletRequest req,
-            HttpServletResponse res
+            HttpServletRequest request,
+            HttpServletResponse response
     ) {
         try {
             boolean bootstrap = (refreshToken == null || refreshToken.isBlank());
 
-            // 0) 사용자 속성(데모)
+            // 0) 기존에 섞여 있을 가능성이 있는 JSESSIONID 쿠키 둘 다 제거(도메인/호스트)
+            //   - host-only 삭제 (Domain 미지정)
+            response.addHeader(HttpHeaders.SET_COOKIE,
+                    ResponseCookie.from("JSESSIONID","")
+                            .httpOnly(true).secure(true)
+                            .path("/")
+                            .sameSite("Lax")
+                            .maxAge(0)
+                            .build().toString());
+            //   - 도메인 쿠키 삭제 (Domain=.recipfree.com)
+            response.addHeader(HttpHeaders.SET_COOKIE,
+                    ResponseCookie.from("JSESSIONID","")
+                            .httpOnly(true).secure(true)
+                            .domain(".recipfree.com")
+                            .path("/")
+                            .sameSite("Lax")
+                            .maxAge(0)
+                            .build().toString());
+
+            // 1) 유저 속성(데모)
             Map<String, Object> attrs = new LinkedHashMap<>();
             if (bootstrap) {
-                attrs.put("id", "dev:" + UUID.randomUUID().toString().substring(0, 8));
+                attrs.put("id", "dev:" + java.util.UUID.randomUUID().toString().substring(0,8));
                 attrs.put("name", "DevUser");
                 attrs.put("provider", "bootstrap");
             } else {
@@ -71,54 +90,39 @@ public class AuthController {
                 attrs.put("provider", "refresh");
             }
 
-            var authorities = List.of(new SimpleGrantedAuthority("ROLE_USER"));
-            var principal = new DefaultOAuth2User(new HashSet<>(authorities), attrs, "id");
-            var auth = new UsernamePasswordAuthenticationToken(principal, null, authorities);
+            var authorities = java.util.List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_USER"));
+            var principal   = new org.springframework.security.oauth2.core.user.DefaultOAuth2User(new java.util.HashSet<>(authorities), attrs, "id");
+            var auth        = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(principal, null, authorities);
 
-            // 1) 이전 JSESSIONID 클리어(혹시 모를 중복 제거)
-            res.addHeader(HttpHeaders.SET_COOKIE,
-                    ResponseCookie.from("JSESSIONID", "").httpOnly(true).secure(true).path("/").maxAge(0).build().toString());
+            // 2) 세션 보장 (여기서 JSESSIONID는 컨테이너가 발급)
+            request.getSession(true);
 
-            // 2) 세션 생성 + 새 세션ID 발급
-            req.getSession(true);
-            String newSid = req.changeSessionId();
-
-            // 3) SecurityContext 저장
-            SecurityContext ctx = SecurityContextHolder.createEmptyContext();
+            // 3) SecurityContext 저장 (수동으로 JSESSIONID를 설정하지 않음!)
+            var ctx = org.springframework.security.core.context.SecurityContextHolder.createEmptyContext();
             ctx.setAuthentication(auth);
-            SecurityContextHolder.setContext(ctx);
-            try {
-                securityContextRepository.saveContext(ctx, req, res);
-            } catch (Exception ignore) {
-                req.getSession(true).setAttribute(
-                        HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY, ctx);
-            }
+            org.springframework.security.core.context.SecurityContextHolder.setContext(ctx);
+            securityContextRepository.saveContext(ctx, request, response);
 
-            // 4) JSESSIONID 수동 세팅(★ host-only로 우선 고정) — 둘 중 하나만 사용!
-            res.addHeader(HttpHeaders.SET_COOKIE,
-                    ResponseCookie.from("JSESSIONID", newSid)
-                            .httpOnly(true)
-                            .secure(true)
-                            .path("/")       // host-only
-                            .sameSite("Lax")
-                            .build().toString());
-
-            // 5) refresh_token도 보장(부트스트랩이면 새로 발급)
-            String newRefresh = bootstrap ? ("DEV_REFRESH_" + UUID.randomUUID()) : "NEW_REFRESH_TOKEN";
-            res.addHeader(HttpHeaders.SET_COOKIE,
+            // 4) refresh_token은 계속 발급(필요 시)
+            String newRefresh = bootstrap ? ("DEV_REFRESH_" + java.util.UUID.randomUUID()) : "NEW_REFRESH_TOKEN";
+            response.addHeader(HttpHeaders.SET_COOKIE,
                     ResponseCookie.from("refresh_token", newRefresh)
-                            .httpOnly(true)
-                            .secure(true)
-                            .domain(".recipfree.com") // refresh는 도메인 공유가 편함
+                            .httpOnly(true).secure(true)
+                            .domain(".recipfree.com") // 필요 없으면 이 줄 제거해서 host-only로 통일해도 OK
                             .path("/")
                             .sameSite("Lax")
-                            .maxAge(Duration.ofDays(30))
+                            .maxAge(java.time.Duration.ofDays(30))
                             .build().toString());
 
-            return ResponseEntity.ok(Map.of("user", Map.copyOf(attrs), "sessionId", newSid, "bootstrap", bootstrap));
+            return ResponseEntity.ok(java.util.Map.of(
+                    "user", java.util.Map.copyOf(attrs),
+                    "bootstrap", bootstrap
+            ));
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of(
-                    "message","refresh_failed", "error", e.getClass().getSimpleName(), "detail", e.getMessage()
+            return ResponseEntity.internalServerError().body(java.util.Map.of(
+                    "message","refresh_failed",
+                    "error", e.getClass().getSimpleName(),
+                    "detail", e.getMessage()
             ));
         }
     }
