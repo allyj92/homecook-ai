@@ -58,7 +58,7 @@ server:
     session:
       cookie:
         name: JSESSIONID
-        domain: .recipfree.com             # ★ 세션 쿠키를 recipfree.com에 고정
+        domain: recipfree.com             # ★ 세션 쿠키를 recipfree.com에 고정
         path: /
         http-only: true
         secure: true
