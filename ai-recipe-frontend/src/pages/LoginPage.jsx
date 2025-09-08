@@ -201,13 +201,12 @@ export default function LoginPage() {
     return;
   }
 
-  // ✅ 스프링 기본 시작 경로(프런트 오리진 기준)
+  // ✅ Spring Security 표준 시작 경로
   const path = `/oauth2/authorization/${provider}`;
   const absolute = `${window.location.origin}${path}`;
 
-  // 인앱(안드)에서는 Chrome Intent로 기본 브라우저 열기
   if (inApp && isAndroid) {
-    window.location.href = buildChromeIntentUrl(absolute);
+    window.location.href = buildChromeIntentUrl(absolute); // 안드 인앱: 기본 브라우저로
     return;
   }
   if (inApp && isIOS) {
@@ -215,8 +214,7 @@ export default function LoginPage() {
     return;
   }
 
-  // 같은 오리진으로 이동 (Netlify가 백엔드로 프록시)
-  window.location.assign(path);
+  window.location.assign(path); // Netlify가 백엔드로 프록시
 }
 
   const title = mode === 'register' ? '회원가입' : '로그인';
