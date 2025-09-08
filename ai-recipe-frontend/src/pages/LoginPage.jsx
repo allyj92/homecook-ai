@@ -189,33 +189,11 @@ export default function LoginPage() {
   }
 
   function socialLogin(provider) {
-  const backTo =
-    (location.state && location.state.from) ||
-    (typeof localStorage !== 'undefined' && localStorage.getItem('postLoginRedirect')) ||
-    '/';
-  try { localStorage.setItem('postLoginRedirect', backTo); } catch {}
-
-  const supported = ['naver', 'google', 'kakao', 'facebook'];
-  if (!supported.includes(provider)) {
-    alert('현재는 해당 소셜은 준비 중입니다.');
-    return;
-  }
-
-  // ✅ Spring Security 표준 시작 경로
-  const path = `/oauth2/authorization/${provider}`;
+  const path = `/oauth2/authorization/${provider}`;   // ✅ 상대경로
   const absolute = `${window.location.origin}${path}`;
-
-
-  if (inApp && isAndroid) {
-    window.location.href = buildChromeIntentUrl(absolute); // 안드 인앱: 기본 브라우저로
-    return;
-  }
-  if (inApp && isIOS) {
-    alert('인앱 브라우저에서는 로그인이 제한될 수 있어요.\n공유 아이콘 → “Safari로 열기” 후 다시 시도해주세요.');
-    return;
-  }
-
-  window.location.assign(path); // Netlify가 백엔드로 프록시
+  if (inApp && isAndroid) { window.location.href = buildChromeIntentUrl(absolute); return; }
+  if (inApp && isIOS) { alert('인앱은 Safari/기본 브라우저로 열어주세요.'); return; }
+  window.location.assign(path);
 }
 
   const title = mode === 'register' ? '회원가입' : '로그인';
