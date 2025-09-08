@@ -26,24 +26,28 @@ public class FavoriteService {
         return favoriteRepository.findByUser_IdOrderByCreatedAtDesc(userId);
     }
 
-    // 컨트롤러에서 쓰는 2-인자 버전
+
+    // 메타 저장 확장
     @Transactional
     public Favorite add(Long userId, Long recipeId) {
         return add(userId, recipeId, null, null, null, null);
     }
 
-    // 메타 저장 확장
+    @Transactional
+    public Favorite add(Long userId, Long recipeId, String title, String summary) {
+        return add(userId, recipeId, title, summary, null, null);
+    }
+
+    @Transactional
+    public Favorite add(Long userId, Long recipeId, String title, String summary, String image) {
+        return add(userId, recipeId, title, summary, image, null);
+    }
+
+    // ✅ 최종 구현(6개) — 모든 오버로드가 여기에 모이게
     @Transactional
     public Favorite add(Long userId, Long recipeId, String title, String summary, String image, String meta) {
         return favoriteRepository.findByUser_IdAndRecipeId(userId, recipeId)
-                .map(f -> { // ✅ 업데이트
-                    if (title   != null) f.setTitle(title);
-                    if (summary != null) f.setSummary(summary);
-                    if (image   != null) f.setImage(image);
-                    if (meta    != null) f.setMeta(meta);
-                    return favoriteRepository.save(f);
-                })
-                .orElseGet(() -> { // ✅ 생성
+                .orElseGet(() -> {
                     var ua = new UserAccount(); ua.setId(userId);
                     var f = new Favorite();
                     f.setUser(ua);

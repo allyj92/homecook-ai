@@ -1,7 +1,7 @@
 // src/main/java/com/homecook/ai_recipe/controller/MyPageController.java
 package com.homecook.ai_recipe.controller;
 
-import com.homecook.ai_recipe.dto.FavoriteCreateRequest;
+
 import com.homecook.ai_recipe.dto.FavoriteDto;
 import com.homecook.ai_recipe.service.FavoriteService;
 import com.homecook.ai_recipe.auth.SessionUser;
@@ -77,28 +77,6 @@ public class MyPageController {
         throw new org.springframework.web.server.ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthenticated");
     }
 
-    // JSON 바디로 받는 버전: { recipeId, title, summary, image, meta }
-    @PostMapping("/favorites")
-    public FavoriteDto addFavoriteByBody(@RequestBody Map<String,Object> body, HttpSession session) {
-        Long userId = requireLogin(session);
-        if (body == null || body.get("recipeId") == null)
-            throw new org.springframework.web.server.ResponseStatusException(
-                    HttpStatus.BAD_REQUEST, "recipeId is required"
-            );
-
-        Long recipeId = Long.valueOf(String.valueOf(body.get("recipeId")));
-        String title   = body.get("title")   != null ? String.valueOf(body.get("title"))   : null;
-        String summary = body.get("summary") != null ? String.valueOf(body.get("summary")) : null;
-        String image   = body.get("image")   != null ? String.valueOf(body.get("image"))   : null;
-        String meta    = body.get("meta")    != null ? String.valueOf(body.get("meta"))    : null;
-
-        var f = favoriteService.add(userId, recipeId, title, summary, image, meta);
-        return new FavoriteDto(
-                f.getId(), f.getRecipeId(), f.getTitle(), f.getSummary(),
-                f.getImage(), f.getMeta(),
-                f.getCreatedAt() != null ? f.getCreatedAt().toString() : null
-        );
-    }
 
     /** 즐겨찾기 목록 */
     @GetMapping("/favorites")
@@ -121,24 +99,23 @@ public class MyPageController {
         return ResponseEntity.ok(dto);
     }
 
-    /** 찜 추가 */
+
+    /** 찜 추가: Body-only 버전 (프론트가 /api/me/favorites 로 POST할 때 처리) */
+    // ✅ 프론트(JS)가 호출하는 경로만 유지: POST /api/me/favorites/{recipeId}
     @PostMapping("/favorites/{recipeId}")
-    public FavoriteDto addFavorite(@PathVariable Long recipeId,
-                                   @RequestBody(required = false) FavoriteCreateRequest req,
-                                   HttpSession session) {
-        Long userId = requireLogin(session);
+    public FavoriteDto addFavoriteById(@PathVariable Long recipeId,
+                                       @RequestBody(required = false) Map<String,Object> body,
+                                       HttpSession session) {
+        Long uid = requireLogin(session);
+        String title   = body != null ? (String) body.get("title")   : null;
+        String summary = body != null ? (String) body.get("summary") : null;
+        String image   = body != null ? (String) body.get("image")   : null;
+        String meta    = body != null ? (String) body.get("meta")    : null;
 
-        String title   = norm(req == null ? null : req.getTitle());
-        String summary = norm(req == null ? null : req.getSummary());
-        String image   = norm(req == null ? null : req.getImage());
-        String meta    = norm(req == null ? null : req.getMeta());
-
-        var f = favoriteService.add(userId, recipeId, title, summary, image, meta);
-        return new FavoriteDto(
-                f.getId(), f.getRecipeId(),
-                f.getTitle(), f.getSummary(), f.getImage(), f.getMeta(),
-                f.getCreatedAt() == null ? null : ISO.format(f.getCreatedAt())
-        );
+        var f = favoriteService.add(uid, recipeId, title, summary, image, meta);
+        return new FavoriteDto(f.getId(), f.getRecipeId(), f.getTitle(), f.getSummary(),
+                f.getImage(), f.getMeta(),
+                f.getCreatedAt() != null ? f.getCreatedAt().toString() : null);
     }
 
     private static String norm(String s) {
