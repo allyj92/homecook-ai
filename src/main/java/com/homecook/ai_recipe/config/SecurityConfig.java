@@ -92,19 +92,23 @@ public class SecurityConfig {
     }
 
     /** ✅ 로그인 성공 시: 세션 보장 + refresh_token 즉시 발급(도메인 지정 금지, SameSite=None) */
+    // SecurityConfig.java
     @Bean
     public AuthenticationSuccessHandler successHandler() {
         return (request, response, authentication) -> {
-            request.getSession(true); // RFSESSIONID 생성(yml에 맞춤)
+            request.getSession(true); // RFSESSIONID 보장
 
-            String issued = java.util.UUID.randomUUID().toString(); // 데모값(운영: 서명 토큰)
-            ResponseCookie refresh = ResponseCookie.from("refresh_token", issued)
-                    .httpOnly(true).secure(true)
-                    .path("/")
-                    .sameSite("Lax")                // yml도 LAX 이므로 일관
+            String issued = java.util.UUID.randomUUID().toString();
+            var cookie = ResponseCookie.from("refresh_token", issued)
+                    .httpOnly(true).secure(true).path("/")
+                    .sameSite("Lax")                     // domain 지정 금지
                     .maxAge(java.time.Duration.ofDays(30))
                     .build();
-            response.addHeader(org.springframework.http.HttpHeaders.SET_COOKIE, refresh.toString());
+
+            response.addHeader(org.springframework.http.HttpHeaders.SET_COOKIE, cookie.toString());
+
+            // 🔎 디버그 로그
+            System.out.println("[AUTH] successHandler: Set-Cookie refresh_token issued=" + issued.substring(0,8));
 
             response.sendRedirect(frontBase + "/auth/callback?ok=1");
         };
