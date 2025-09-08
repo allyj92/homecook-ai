@@ -1,12 +1,13 @@
 // src/main/java/com/homecook/ai_recipe/config/SecurityConfig.java
 package com.homecook.ai_recipe.config;
 
-import com.homecook.ai_recipe.sequrity.RefreshCookieAuthFilter;
+// 🔧 오타 수정: sequrity ❌ → security ✅
+import com.homecook.ai_recipe.security.RefreshCookieAuthFilter;
+
 import com.homecook.ai_recipe.service.CustomOAuth2UserService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.*;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseCookie;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -22,6 +23,7 @@ import org.springframework.web.cors.*;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.UUID; // 🔧 추가
 
 @Configuration
 @EnableMethodSecurity
@@ -37,13 +39,9 @@ public class SecurityConfig {
         this.customOAuth2UserService = customOAuth2UserService;
     }
 
-    /** 세션 기반 보안컨텍스트 저장소를 명시적으로 등록 */
     @Bean
     public SecurityContextRepository securityContextRepository() {
-        // JSESSIONID 세션에 SecurityContext를 저장/복원해 주는 기본 구현
-        var repo = new HttpSessionSecurityContextRepository();
-        // 필요 시: repo.setSpringSecurityContextKey("SPRING_SECURITY_CONTEXT");
-        return repo;
+        return new HttpSessionSecurityContextRepository();
     }
 
     @Bean
@@ -55,16 +53,25 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/**", "/oauth2/**", "/login/oauth2/**").permitAll()
                         .anyRequest().authenticated()
                 )
-                .oauth2Login(oauth -> {})   // 필요 시
+                // ✅ 세션/컨텍스트 저장소 명시
+                .securityContext(sc -> sc.securityContextRepository(securityContextRepository()))
+                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
+                .oauth2Login(oauth -> oauth
+                        .userInfoEndpoint(u -> u.userService(customOAuth2UserService))
+                        .successHandler(successHandler())     // ✅ 반드시 연결
+                        .failureHandler(failureHandler())
+                )
                 .logout(lo -> lo.logoutUrl("/api/auth/logout").permitAll());
 
-        // ★ 매 요청마다 refresh_token 쿠키로 인증 세팅
-        http.addFilterBefore(new RefreshCookieAuthFilter(), UsernamePasswordAuthenticationFilter.class);
+        // ✅ repo 주입해서 컨텍스트 save 되도록
+        http.addFilterBefore(
+                new RefreshCookieAuthFilter(securityContextRepository()),
+                UsernamePasswordAuthenticationFilter.class
+        );
 
         return http.build();
     }
 
-    /** CORS: credentials 사용 시 오리진은 패턴/명시값으로만 */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration cfg = new CorsConfiguration();
@@ -84,26 +91,25 @@ public class SecurityConfig {
         return source;
     }
 
-    /** OAuth2 로그인 성공: 세션 보장 + (원하면 refresh 쿠키 발급) + 프론트로 리다이렉트 */
+    /** ✅ 로그인 성공 시: 세션 보장 + refresh_token 즉시 발급(도메인 지정 금지, SameSite=None) */
     @Bean
     public AuthenticationSuccessHandler successHandler() {
         return (request, response, authentication) -> {
-            // 세션 없으면 생성해서 JSESSIONID 발급
-            request.getSession(true);
+            request.getSession(true); // JSESSIONID 보장
 
-            // (선택) refresh_token 운영 시 발급
-            // ResponseCookie refresh = ResponseCookie.from("refresh_token", "NEW_REFRESH_TOKEN")
-            //     .httpOnly(true).secure(true)
-            //     .domain(".recipfree.com") // 도메인 공유가 필요하면 사용, 아니면 제거
-            //     .path("/").sameSite("Lax")
-            //     .maxAge(Duration.ofDays(30)).build();
-            // response.addHeader(HttpHeaders.SET_COOKIE, refresh.toString());
+            String issued = UUID.randomUUID().toString(); // 데모 토큰(실제론 서명 토큰 사용)
+            ResponseCookie refresh = ResponseCookie.from("refresh_token", issued)
+                    .httpOnly(true).secure(true)
+                    .path("/")
+                    .sameSite("None")                  // 프록시/크로스 고려
+                    .maxAge(Duration.ofDays(30))
+                    .build();
+            response.addHeader(HttpHeaders.SET_COOKIE, refresh.toString());
 
             response.sendRedirect(frontBase + "/auth/callback?ok=1");
         };
     }
 
-    /** OAuth2 로그인 실패: 에러를 프론트 콜백으로 */
     @Bean
     public AuthenticationFailureHandler failureHandler() {
         return (request, response, ex) -> {
@@ -115,12 +121,9 @@ public class SecurityConfig {
         };
     }
 
-    /** 리버스 프록시(X-Forwarded-*) 환경 보정 */
     @Bean
     @Profile("prod")
     public org.springframework.web.filter.ForwardedHeaderFilter forwardedHeaderFilter() {
         return new org.springframework.web.filter.ForwardedHeaderFilter();
     }
-
-
 }

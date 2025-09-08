@@ -19,7 +19,7 @@ server:
     session:
       cookie:
         name: JSESSIONID
-        domain: recipfree.com             # 쿠키를 반드시 recipfree.com에
+#        domain: recipfree.com             # 쿠키를 반드시 recipfree.com에
         path: /
         http-only: true
         secure: true
