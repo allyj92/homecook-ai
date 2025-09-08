@@ -1,18 +1,21 @@
 // src/main/java/com/homecook/ai_recipe/config/SecurityConfig.java
 package com.homecook.ai_recipe.config;
 
+import com.homecook.ai_recipe.sequrity.RefreshCookieAuthFilter;
 import com.homecook.ai_recipe.service.CustomOAuth2UserService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.*;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseCookie;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AuthenticationFailureHandler;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.web.cors.*;
@@ -46,38 +49,17 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-                // CORS
-                .cors(c -> c.configurationSource(corsConfigurationSource()))
-                // CSRF (REST라 전역 비활성화)
                 .csrf(csrf -> csrf.disable())
-                // 세션: 필요시 생성 + 세션 아이디 변경(기본값이 changeSessionId지만 명시)
-                .sessionManagement(s -> s
-                        .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
-                        .sessionFixation(fx -> fx.changeSessionId())
+                .cors(Customizer.withDefaults())
+                .authorizeHttpRequests(reg -> reg
+                        .requestMatchers("/api/auth/**", "/oauth2/**", "/login/oauth2/**").permitAll()
+                        .anyRequest().authenticated()
                 )
-                // ★ 보안 컨텍스트 저장소 강제 지정 (세션에 저장되도록)
-                .securityContext(sc -> sc.securityContextRepository(securityContextRepository()))
-                // URL 권한
-                .authorizeHttpRequests(auth -> auth
-                        // OAuth 시작/콜백 공개
-                        .requestMatchers("/oauth2/**", "/login/oauth2/**").permitAll()
-                        // 인증 API 공개( /api/auth/me, /api/auth/refresh, /api/auth/logout 등 )
-                        .requestMatchers("/api/auth/**").permitAll()
-                        // 커뮤니티: GET은 공개, 글쓰기 POST는 인증 필요
-                        .requestMatchers(HttpMethod.GET, "/api/community/posts/**").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/community/posts").authenticated()
-                        // 그 외는 공개
-                        .anyRequest().permitAll()
-                )
-                // OAuth2 로그인
-                .oauth2Login(o -> o
-                        .userInfoEndpoint(u -> u.userService(customOAuth2UserService))
-                        .successHandler(successHandler())
-                        .failureHandler(failureHandler())
-                )
-                // 기본 폼/Basic 비활성
-                .formLogin(f -> f.disable())
-                .httpBasic(b -> b.disable());
+                .oauth2Login(oauth -> {})   // 필요 시
+                .logout(lo -> lo.logoutUrl("/api/auth/logout").permitAll());
+
+        // ★ 매 요청마다 refresh_token 쿠키로 인증 세팅
+        http.addFilterBefore(new RefreshCookieAuthFilter(), UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
@@ -139,4 +121,6 @@ public class SecurityConfig {
     public org.springframework.web.filter.ForwardedHeaderFilter forwardedHeaderFilter() {
         return new org.springframework.web.filter.ForwardedHeaderFilter();
     }
+
+
 }

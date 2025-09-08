@@ -53,86 +53,52 @@ public class AuthController {
             HttpServletResponse response
     ) {
         try {
-            boolean bootstrap = (refreshToken == null || refreshToken.isBlank());
-
-            // 선택: 도메인 쿠키 쓸지 여부 (둘 중 하나만 사용 권장)
-            final boolean USE_DOMAIN_COOKIE = true; // 필요 시 false 로 바꿔 host-only 통일
-            String cookieDomain = USE_DOMAIN_COOKIE ? ".recipfree.com" : null;
-
-            // 0) 혹시 남아있을 수 있는 JSESSIONID 정리(호스트/도메인 모두)
-            response.addHeader(HttpHeaders.SET_COOKIE,
-                    ResponseCookie.from("JSESSIONID","")
-                            .httpOnly(true).secure(true)
-                            .path("/")
-                            .sameSite("Lax")
-                            .maxAge(0)
-                            .build().toString());
-            response.addHeader(HttpHeaders.SET_COOKIE,
-                    ResponseCookie.from("JSESSIONID","")
-                            .httpOnly(true).secure(true)
-                            .path("/")
-                            .sameSite("Lax")
-                            .maxAge(0)
-                            .domain(".recipfree.com")
-                            .build().toString());
-
-            // 1) 사용자 속성 구성 (email, picture 포함)
-            Map<String, Object> attrs = new LinkedHashMap<>();
-            if (bootstrap) {
-                String devId = "dev:" + UUID.randomUUID().toString().substring(0, 8);
-                attrs.put("id", devId);
-                attrs.put("name", "DevUser");
-                attrs.put("provider", "bootstrap");
-                attrs.put("email", "devuser@" + "recipfree.com");
-                attrs.put("picture", "https://picsum.photos/seed/" + devId.replace(":","_") + "/200/200");
-            } else {
-                String shortRf = "rf:" + refreshToken.substring(0, Math.min(8, refreshToken.length()));
-                attrs.put("id", shortRf);
-                attrs.put("name", "SessionUser");
-                attrs.put("provider", "refresh");
-                // refresh 기반일 때도 기본값 채워서 프론트 표시 정상화
-                attrs.put("email", shortRf.replace(":", "_") + "@recipfree.com");
-                attrs.put("picture", "https://picsum.photos/seed/" + shortRf.replace(":","_") + "/200/200");
+            // 0) refresh_token 없으면 401
+            if (refreshToken == null || refreshToken.isBlank()) {
+                // (선택) 세션/쿠키 정리
+                response.addHeader(HttpHeaders.SET_COOKIE,
+                        ResponseCookie.from("JSESSIONID","")
+                                .httpOnly(true).secure(true)
+                                .path("/")
+                                .sameSite("Lax")
+                                .maxAge(0).build().toString());
+                return ResponseEntity.status(401).body(Map.of("authenticated", false, "reason", "no_refresh_token"));
             }
 
-            var authorities = List.of(new SimpleGrantedAuthority("ROLE_USER"));
-            var principal   = new DefaultOAuth2User(new HashSet<>(authorities), attrs, "id");
-            var auth        = new UsernamePasswordAuthenticationToken(principal, null, authorities);
+            // 1) 토큰 → 유저 속성 (데모: 서명검증/DB 조회 대신 prefix만 사용)
+            String shortId = refreshToken.substring(0, Math.min(8, refreshToken.length()));
+            Map<String, Object> attrs = new LinkedHashMap<>();
+            attrs.put("id", "rf:" + shortId);
+            attrs.put("name", "SessionUser");
+            attrs.put("provider", "refresh");
+            attrs.put("email", "rf_" + shortId + "@recipfree.com");
+            attrs.put("picture", "https://picsum.photos/seed/rf_" + shortId + "/200/200");
 
-            // 2) 세션 생성 (JSESSIONID는 컨테이너가 발급)
+            var roles = List.of(new SimpleGrantedAuthority("ROLE_USER"));
+            var principal = new DefaultOAuth2User(new HashSet<>(roles), attrs, "id");
+            var auth = new UsernamePasswordAuthenticationToken(principal, null, roles);
+
+            // 2) 세션 보장 + 시큐리티 컨텍스트 저장
             request.getSession(true);
-
-            // 3) SecurityContext 저장
             var ctx = SecurityContextHolder.createEmptyContext();
             ctx.setAuthentication(auth);
             SecurityContextHolder.setContext(ctx);
+
+            // Repository가 HttpSession에 컨텍스트 저장하게 해줌
             securityContextRepository.saveContext(ctx, request, response);
 
-            // 4) refresh_token 갱신(옵션)
-            String newRefresh = bootstrap ? ("DEV_REFRESH_" + UUID.randomUUID()) : "NEW_REFRESH_TOKEN";
+            // 3) refresh_token 로테이트(옵션)
+            String newRefresh = "NEW_REFRESH_TOKEN"; // 실제로는 서명된 토큰으로 발급
+            response.addHeader(HttpHeaders.SET_COOKIE,
+                    ResponseCookie.from("refresh_token", newRefresh)
+                            .httpOnly(true).secure(true)
+                            .domain(".recipfree.com") // 프런트가 recipfree.com이면 유지
+                            .path("/")
+                            .sameSite("Lax")
+                            .maxAge(Duration.ofDays(30))
+                            .build().toString());
 
-// cookieDomain 값이 비어있을 수도 있으니 안전 체크
-            boolean hasDomain = (cookieDomain != null && !cookieDomain.isBlank());
-
-// 빌더는 이 타입으로!
-            ResponseCookie.ResponseCookieBuilder rfBuilder = ResponseCookie.from("refresh_token", newRefresh)
-                    .httpOnly(true)
-                    .secure(true)
-                    .path("/")
-                    .sameSite("Lax")              // Spring 6.x/Boot 3.x에서도 String 받습니다.
-                    .maxAge(Duration.ofDays(30));
-
-            if (hasDomain) {
-                rfBuilder.domain(cookieDomain);  // 반드시 build() 전에 호출
-            }
-
-// 마지막에만 build()
-            response.addHeader(HttpHeaders.SET_COOKIE, rfBuilder.build().toString());
-
-            return ResponseEntity.ok(Map.of(
-                    "user", Map.copyOf(attrs),
-                    "bootstrap", bootstrap
-            ));
+            return ResponseEntity.ok(Map.of("user", Map.copyOf(attrs)));
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body(Map.of(
                     "message","refresh_failed",
