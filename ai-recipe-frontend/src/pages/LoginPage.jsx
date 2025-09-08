@@ -205,6 +205,7 @@ export default function LoginPage() {
   const path = `/oauth2/authorization/${provider}`;
   const absolute = `${window.location.origin}${path}`;
 
+
   if (inApp && isAndroid) {
     window.location.href = buildChromeIntentUrl(absolute); // 안드 인앱: 기본 브라우저로
     return;

@@ -116,4 +116,17 @@ public class AuthController {
                 .path("/").sameSite("Lax").maxAge(0).build();
         return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, clear.toString()).body(Map.of("ok", true));
     }
+
+    @PostMapping("/bootstrap-cookie")
+    public ResponseEntity<?> bootstrapCookie(HttpServletResponse response) {
+        String issued = UUID.randomUUID().toString();
+        ResponseCookie refresh = ResponseCookie.from("refresh_token", issued)
+                .httpOnly(true).secure(true)
+                .path("/")
+                .sameSite("Lax")
+                .maxAge(Duration.ofDays(30))
+                .build();
+        response.addHeader(HttpHeaders.SET_COOKIE, refresh.toString());
+        return ResponseEntity.ok(Map.of("ok", true));
+    }
 }
