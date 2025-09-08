@@ -2,6 +2,14 @@
   command = "npm run build"
   publish = "dist"
 
+# /oauth2/authorization → 백엔드 (명시)
+[[redirects]]
+  from = "/oauth2/authorization/*"
+  to   = "https://program-nebraska-selections-casa.trycloudflare.com/oauth2/authorization/:splat"
+  status = 200
+  force  = true
+  headers = { X-Forwarded-Host = "recipfree.com", X-Forwarded-Proto = "https" }  
+
 # /api → 백엔드
 [[redirects]]
   from = "/api/*"
