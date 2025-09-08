@@ -9,11 +9,10 @@ import org.springframework.web.servlet.view.RedirectView;
 @RequestMapping("/api/auth/oauth")
 public class OAuthStartController {
 
-    @GetMapping("/{registrationId}/start")
-    public RedirectView start(@PathVariable String registrationId) {
-        // /api/auth/oauth/naver/start  →  /oauth2/authorization/naver 로 302
-        RedirectView rv = new RedirectView("/oauth2/authorization/" + registrationId);
-        rv.setStatusCode(HttpStatus.FOUND);
-        return rv;
+    @GetMapping("/{provider}/start")
+    public String start(@PathVariable String provider) {
+        // 예: /api/auth/oauth/naver/start → /oauth2/authorization/naver
+        return "redirect:/oauth2/authorization/" + provider;
     }
+
 }

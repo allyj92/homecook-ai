@@ -50,7 +50,13 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .cors(Customizer.withDefaults())
                 .authorizeHttpRequests(reg -> reg
-                        .requestMatchers("/api/auth/**", "/oauth2/**", "/login/oauth2/**").permitAll()
+                        .requestMatchers(
+                                "/api/auth/**",
+                                "/oauth2/**",
+                                "/login/oauth2/**",
+                                "/oauth2/authorization/**",   // ← 명시 추가(안전)
+                                "/api/debug/**"                // ← 디버그용 허용(선택)
+                        ).permitAll()
                         .anyRequest().authenticated()
                 )
                 // ✅ 세션/컨텍스트 저장소 명시
