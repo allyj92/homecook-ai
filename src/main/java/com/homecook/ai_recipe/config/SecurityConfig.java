@@ -95,16 +95,16 @@ public class SecurityConfig {
     @Bean
     public AuthenticationSuccessHandler successHandler() {
         return (request, response, authentication) -> {
-            request.getSession(true); // JSESSIONID 보장
+            request.getSession(true); // RFSESSIONID 생성(yml에 맞춤)
 
-            String issued = UUID.randomUUID().toString(); // 데모 토큰(실제론 서명 토큰 사용)
+            String issued = java.util.UUID.randomUUID().toString(); // 데모값(운영: 서명 토큰)
             ResponseCookie refresh = ResponseCookie.from("refresh_token", issued)
                     .httpOnly(true).secure(true)
                     .path("/")
-                    .sameSite("None")                  // 프록시/크로스 고려
-                    .maxAge(Duration.ofDays(30))
+                    .sameSite("Lax")                // yml도 LAX 이므로 일관
+                    .maxAge(java.time.Duration.ofDays(30))
                     .build();
-            response.addHeader(HttpHeaders.SET_COOKIE, refresh.toString());
+            response.addHeader(org.springframework.http.HttpHeaders.SET_COOKIE, refresh.toString());
 
             response.sendRedirect(frontBase + "/auth/callback?ok=1");
         };

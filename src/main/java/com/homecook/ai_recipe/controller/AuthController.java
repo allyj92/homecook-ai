@@ -94,7 +94,7 @@ public class AuthController {
                             .httpOnly(true).secure(true)
 //                            .domain(".recipfree.com") // 프런트가 recipfree.com이면 유지
                             .path("/")
-                            .sameSite("None")
+                            .sameSite("Lax")
                             .maxAge(Duration.ofDays(30))
                             .build().toString());
 
@@ -113,7 +113,7 @@ public class AuthController {
         ResponseCookie clear = ResponseCookie.from("refresh_token", "")
                 .httpOnly(true).secure(true)
                 //.domain(".recipfree.com")
-                .path("/").sameSite("None").maxAge(0).build();
+                .path("/").sameSite("Lax").maxAge(0).build();
         return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, clear.toString()).body(Map.of("ok", true));
     }
 }

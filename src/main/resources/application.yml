@@ -34,20 +34,20 @@ app:
 naver:
   client-id: ${NAVER_CLIENT_ID:}
   client-secret: ${NAVER_CLIENT_SECRET:}
-  redirect-uri: ${NAVER_REDIRECT_URI:https://recipfree.com/api/auth/oauth/naver/callback}
+  redirect-uri: https://recipfree.com/login/oauth2/code/naver   # ✅ 변경
 
 google:
   client-id: ${GOOGLE_CLIENT_ID:}
   client-secret: ${GOOGLE_CLIENT_SECRET:}
-  redirect-uri: ${GOOGLE_REDIRECT_URI:https://recipfree.com/api/auth/oauth/google/callback}
+  redirect-uri: https://recipfree.com/login/oauth2/code/google  # ✅ 변경
 
-kakao:                                  # ✅ 최상위로 이동(google 밖으로)
-  client-id: ${KAKAO_CLIENT_ID:}        # 카카오 REST API 키
-  client-secret: ${KAKAO_CLIENT_SECRET:}# (선택) 콘솔에서 Secret 사용 ON일 때만
-  redirect-uri: ${KAKAO_REDIRECT_URI:https://recipfree.com/api/auth/oauth/kakao/callback}
-#
+kakao:
+  client-id: ${KAKAO_CLIENT_ID:}
+  client-secret: ${KAKAO_CLIENT_SECRET:}
+  redirect-uri: https://recipfree.com/login/oauth2/code/kakao   # ✅ 변경
+
 facebook:
   client-id: ${FACEBOOK_CLIENT_ID:}
   client-secret: ${FACEBOOK_CLIENT_SECRET:}
-  redirect-uri: ${FACEBOOK_REDIRECT_URI:https://recipfree.com/api/auth/oauth/facebook/callback}
+  redirect-uri: https://recipfree.com/login/oauth2/code/facebook # ✅ 변경
 
