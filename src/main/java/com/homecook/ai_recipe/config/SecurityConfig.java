@@ -54,8 +54,7 @@ public class SecurityConfig {
                                 "/api/auth/**",
                                 "/oauth2/**",
                                 "/login/oauth2/**",
-                                "/oauth2/authorization/**",   // ← 명시 추가(안전)
-                                "/api/debug/**"                // ← 디버그용 허용(선택)
+                                "/api/auth/debug/**"   // ★ 추가: 디버그 엔드포인트 허용
                         ).permitAll()
                         .anyRequest().authenticated()
                 )

@@ -3,6 +3,7 @@ package com.homecook.ai_recipe.controller;
 
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
@@ -15,6 +16,16 @@ import java.util.*;
 @RestController
 @RequestMapping("/api/debug")
 public class DebugAuthController {
+
+    @GetMapping("/api/debug/issue-rt")
+    public ResponseEntity<String> issueRt(HttpServletResponse res) {
+        var rt = ResponseCookie.from("refresh_token", java.util.UUID.randomUUID().toString())
+                .httpOnly(true).secure(true).path("/").sameSite("Lax")
+                .maxAge(java.time.Duration.ofDays(7)).build();
+        res.addHeader(HttpHeaders.SET_COOKIE, rt.toString());
+        return ResponseEntity.ok("ok");
+    }
+
 
     /** A) 쿠키 강제 세팅: 세션 + refresh_token */
     @GetMapping("/set-cookie")
