@@ -69,10 +69,10 @@ public class SecurityConfig {
                 .logout(lo -> lo.logoutUrl("/api/auth/logout").permitAll());
 
         // ✅ repo 주입해서 컨텍스트 save 되도록
-        http.addFilterBefore(
-                new RefreshCookieAuthFilter(securityContextRepository()),
-                UsernamePasswordAuthenticationFilter.class
-        );
+//        http.addFilterBefore(
+//                new RefreshCookieAuthFilter(securityContextRepository()),
+//                UsernamePasswordAuthenticationFilter.class
+//        );
 
         return http.build();
     }
@@ -106,7 +106,8 @@ public class SecurityConfig {
             String issued = java.util.UUID.randomUUID().toString();
             var cookie = ResponseCookie.from("refresh_token", issued)
                     .httpOnly(true).secure(true).path("/")
-                    .sameSite("Lax")                     // domain 지정 금지
+                    .sameSite("Lax")
+                    .domain(".recipfree.com")
                     .maxAge(java.time.Duration.ofDays(30))
                     .build();
 
