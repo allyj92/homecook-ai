@@ -115,7 +115,7 @@ public class SecurityConfig {
             // 🔎 디버그 로그
             System.out.println("[AUTH] successHandler: Set-Cookie refresh_token issued=" + issued.substring(0,8));
 
-            response.sendRedirect(frontBase + "/auth/callback?ok=1");
+            response.sendRedirect(frontBase + "/#/auth/callback?ok=1");
         };
     }
 
@@ -126,7 +126,7 @@ public class SecurityConfig {
                     ex.getMessage() == null ? "login_failed" : ex.getMessage(),
                     java.nio.charset.StandardCharsets.UTF_8
             );
-            response.sendRedirect(frontBase + "/auth/callback?error=" + msg);
+            response.sendRedirect(frontBase + "/#/auth/callback?error=" + msg);
         };
     }
 
