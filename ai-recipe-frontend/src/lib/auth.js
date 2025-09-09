@@ -36,6 +36,16 @@ async function safeJson(res) {
   try { return await res.json(); } catch { return null; }
 }
 
+/** 간단 인앱/웹뷰 감지 */
+function detectInAppNow() {
+  const ua = navigator.userAgent || '';
+  const isAndroid = /Android/i.test(ua);
+  const isIOS = /iPhone|iPad|iPod/i.test(ua);
+  const webview = /\bwv\b/i.test(ua) || /; wv\)/i.test(ua);
+  const inApp = webview || /KAKAOTALK|FBAN|FBAV|Messenger|Instagram|Line|NAVER|DaumApps/i.test(ua);
+  return { isAndroid, isIOS, inApp };
+}
+
 /** =============================
  *  백엔드 세션 기반 API
  *  (Spring 세션 쿠키 사용: credentials: 'include')
@@ -43,7 +53,7 @@ async function safeJson(res) {
 
 // 현재 세션 사용자 (401이면 null)
 export async function fetchMe() {
-  const res = await fetch('/api/auth/me', { credentials: 'include' });
+  const res = await fetch('/api/auth/me', { credentials: 'include', cache: 'no-store' });
   if (res.status === 401) return null;
   if (!res.ok) return null;
   const data = await safeJson(res);
@@ -57,9 +67,9 @@ export async function refreshSession() {
   const res = await fetch('/api/auth/refresh', {
     method: 'POST',
     credentials: 'include',
+    cache: 'no-store',
   });
   if (!res.ok) return null;
-  // 바디가 {accessToken} 등이어도 여기선 의미 없음. 유저는 /me에서 확인.
   return await fetchMe();
 }
 
@@ -69,6 +79,7 @@ export async function logout() {
     await fetch('/api/auth/logout', {
       method: 'POST',
       credentials: 'include',
+      cache: 'no-store',
     });
   } finally {
     clearAuthCache();
@@ -84,6 +95,7 @@ export async function registerLocal(email, password, name) {
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password, name }),
+    cache: 'no-store',
   });
   if (!res.ok) {
     const err = await safeJson(res);
@@ -100,6 +112,7 @@ export async function loginLocal(email, password) {
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
+    cache: 'no-store',
   });
   if (!res.ok) {
     const err = await safeJson(res);
@@ -143,8 +156,27 @@ export async function ensureLogin(
 
   const { preferProvider, router = 'browser' } = options || {};
   if (preferProvider && ['kakao','naver','google','facebook'].includes(preferProvider)) {
-    // 소셜 자동 시작 (백엔드가 /api/auth/oauth/{provider}/start → /oauth2/authorization/{provider} 리다이렉트)
-    window.location.href = `/api/auth/oauth/${preferProvider}/start`;
+    // ✅ 커스텀 컨트롤러 경유 없이 표준 엔드포인트로 직행
+    const path = `/oauth2/authorization/${preferProvider}`;
+    const absolute = `${window.location.origin}${path}`;
+
+    // 인앱/웹뷰 보정
+    const { isAndroid, isIOS, inApp } = detectInAppNow();
+    if (inApp && isAndroid) {
+      // 크롬 인텐트로 기본 브라우저 띄우기
+      const u = new URL(absolute);
+      const intent = `intent://${u.host}${u.pathname}${u.search}${u.hash}` +
+        `#Intent;scheme=${u.protocol.replace(':','')};package=com.android.chrome;` +
+        `S.browser_fallback_url=${encodeURIComponent(absolute)};end`;
+      window.location.href = intent;
+      return null;
+    }
+    if (inApp && isIOS) {
+      alert('인앱 브라우저에서는 소셜 로그인이 제한될 수 있어요.\n공유 아이콘 → “Safari로 열기” 후 다시 시도해주세요.');
+      return null;
+    }
+
+    window.location.assign(path);
   } else {
     // 로그인/회원가입 화면으로 이동 (라우터 타입에 맞춰 경로 선택)
     const loginPath = router === 'hash' ? '/#/login-signup' : '/login-signup';
