@@ -1,86 +1,90 @@
 package com.homecook.ai_recipe.service;
 
-import org.springframework.security.oauth2.client.userinfo.*;
-import org.springframework.security.oauth2.core.*;
-import org.springframework.security.oauth2.core.user.*;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserService;
+import org.springframework.security.oauth2.client.userinfo.OAuth2UserRequest;
+import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
+import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
 
 @Service
-public class CustomOAuth2UserService implements OAuth2UserService<OAuth2UserRequest, OAuth2User> {
-    private final DefaultOAuth2UserService delegate = new DefaultOAuth2UserService();
+public class CustomOAuth2UserService extends DefaultOAuth2UserService {
 
     @Override
-    public OAuth2User loadUser(OAuth2UserRequest userRequest) throws OAuth2AuthenticationException {
-        String registrationId = userRequest.getClientRegistration().getRegistrationId(); // naver, kakao, google, facebook
-        OAuth2User user = delegate.loadUser(userRequest);
-        Map<String, Object> attrs = user.getAttributes();
+    public OAuth2User loadUser(OAuth2UserRequest req) {
+        OAuth2User raw = super.loadUser(req);
+        String provider = req.getClientRegistration().getRegistrationId(); // google/naver/kakao/...
 
-        Map<String, Object> mapped = switch (registrationId) {
-            case "naver" -> mapNaver(attrs);
-            case "kakao" -> mapKakao(attrs);
-            case "google" -> mapGoogle(attrs);
-            case "facebook" -> mapFacebook(attrs);
-            default -> throw new OAuth2AuthenticationException(new OAuth2Error("unsupported_provider"),
-                    "Unsupported provider: " + registrationId);
-        };
+        // ★ 와일드카드 금지: 전부 Map<String,Object> 로 강제
+        Map<String, Object> src = castMap(raw.getAttributes());
 
-        // 권한은 기본 유지
-        return new DefaultOAuth2User(new HashSet<>(user.getAuthorities()), mapped, "id");
-    }
+        Map<String, Object> std = new LinkedHashMap<>();
+        std.put("provider", provider);
 
-    private Map<String, Object> mapNaver(Map<String, Object> attrs) {
-        Object resp = attrs.get("response");
-        if (!(resp instanceof Map)) {
-            throw new OAuth2AuthenticationException(new OAuth2Error("invalid_user_info"), "Naver response missing");
-        }
-        Map<?,?> r = (Map<?,?>) resp;
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("id",    asStr(r.get("id")));
-        m.put("email", asStr(r.get("email")));
-        m.put("name",  asStr(r.get("name")));
-        m.put("picture", asStr(r.get("profile_image")));
-        m.put("provider", "naver");
-        return m;
-    }
+        switch (provider) {
+            case "google" -> {
+                String id = str(src.get("sub"));
+                String email = str(src.get("email"));
+                String name = strOr(src.get("name"),
+                        (str(src.get("given_name")) + " " + str(src.get("family_name"))).trim());
+                String picture = str(src.get("picture"));
 
-    private Map<String, Object> mapKakao(Map<String, Object> attrs) {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("id", asStr(attrs.get("id")));
-        Object account = attrs.get("kakao_account");
-        if (account instanceof Map<?,?> acc) {
-            m.put("email",  asStr(acc.get("email")));
-            Object profile = acc.get("profile");
-            if (profile instanceof Map<?,?> p) {
-                m.put("name",    asStr(p.get("nickname")));
-                m.put("picture", asStr(p.get("profile_image_url")));
+                std.put("id", id);
+                std.put("email", email);
+                std.put("name", name);
+                std.put("picture", picture);
+            }
+            case "naver" -> {
+                // response 하위
+                Map<String,Object> resp = castMap(src.get("response"));
+                std.put("id",      str(resp.get("id")));
+                std.put("email",   str(resp.get("email")));
+                std.put("name",    str(resp.get("name")));
+                std.put("picture", str(resp.get("profile_image")));
+            }
+            case "kakao" -> {
+                Map<String,Object> acc  = castMap(src.get("kakao_account"));
+                Map<String,Object> prof = castMap(acc.get("profile"));
+                std.put("id",      str(src.get("id")));
+                std.put("email",   str(acc.get("email")));
+                std.put("name",    strOr(prof.get("nickname"), "카카오 사용자"));
+                std.put("picture", str(prof.get("profile_image_url")));
+            }
+            case "facebook" -> {
+                std.put("id",      str(src.get("id")));
+                std.put("email",   str(src.get("email")));
+                std.put("name",    str(src.get("name")));
+                std.put("picture", ""); // 필요시 별도 호출
+            }
+            default -> {
+                std.put("id",      strOr(src.get("id"), str(src.get("sub"))));
+                std.put("email",   str(src.get("email")));
+                std.put("name",    strOr(src.get("name"), ""));
+                std.put("picture", strOr(src.get("picture"), ""));
             }
         }
-        m.put("provider", "kakao");
-        return m;
+
+        var roles = List.of(new SimpleGrantedAuthority("ROLE_USER"));
+        return new DefaultOAuth2User(new HashSet<>(roles), std, "id");
     }
 
-    private Map<String, Object> mapGoogle(Map<String, Object> attrs) {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("id",      asStr(attrs.get("sub"))); // OpenID
-        m.put("email",   asStr(attrs.get("email")));
-        m.put("name",    asStr(attrs.get("name")));
-        m.put("picture", asStr(attrs.get("picture")));
-        m.put("provider", "google");
-        return m;
+    /* ---------- helpers ---------- */
+
+    @SuppressWarnings("unchecked")
+    private static Map<String,Object> castMap(Object o) {
+        if (o instanceof Map<?,?> m) {
+            // 키를 문자열로 강제 캐스팅 (신뢰 가능한 외부 프로바이더 응답 전제)
+            return (Map<String,Object>) m;
+        }
+        return Collections.emptyMap();
     }
 
-    private Map<String, Object> mapFacebook(Map<String, Object> attrs) {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("id",    asStr(attrs.get("id")));
-        m.put("name",  asStr(attrs.get("name")));
-        m.put("email", asStr(attrs.get("email")));
-        m.put("provider", "facebook");
-        return m;
-    }
+    private static String str(Object o) { return o == null ? "" : String.valueOf(o); }
 
-    private static String asStr(Object o) {
-        return o == null ? null : String.valueOf(o);
+    private static String strOr(Object o, String fallback) {
+        String s = str(o);
+        return s.isEmpty() ? fallback : s;
     }
 }

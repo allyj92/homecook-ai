@@ -4,14 +4,14 @@ package com.homecook.ai_recipe.controller;
 import com.homecook.ai_recipe.dto.FavoriteDto;
 import com.homecook.ai_recipe.service.FavoriteService;
 import com.homecook.ai_recipe.auth.SessionUser;
-import com.homecook.ai_recipe.auth.UserAccount;
 import com.homecook.ai_recipe.repo.UserAccountRepository;
 import com.homecook.ai_recipe.service.OAuthAccountService;
+import com.homecook.ai_recipe.auth.UserAccount;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger; import org.slf4j.LoggerFactory;
 import org.springframework.http.*;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -25,6 +25,8 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class MyPageController {
 
+    private static final Logger log = LoggerFactory.getLogger(MyPageController.class);
+
     private final FavoriteService favoriteService;
     private final UserAccountRepository userRepo;
     private final OAuthAccountService oauthService;
@@ -33,16 +35,24 @@ public class MyPageController {
 
     /* ========== 내부 유틸 ========== */
 
-    /** SecurityContext에서 OAuth2User 꺼내기 */
-    private OAuth2User currentOAuth2User() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth != null && auth.getPrincipal() instanceof OAuth2User u) return u;
-        return null;
-    }
+    /** 로그인 강제: (1) OAuth2User(email) 우선 → (2) 옛 세션 로그인 순서로 확인 */
+    private UserAccount requireUser(HttpSession session, OAuth2User ou) {
+        // 1) 새 방식: OAuth2User 먼저
+        if (ou != null) {
+            String email = (String) ou.getAttributes().get("email");
+            String name  = (String) ou.getAttributes().getOrDefault("name", "User");
+            if (email == null || email.isBlank()) {
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthenticated");
+            }
+            return userRepo.findByEmailIgnoreCase(email).orElseGet(() -> {
+                UserAccount ua = new UserAccount();
+                ua.setEmail(email);
+                ua.setName(name);
+                return userRepo.save(ua);
+            });
+        }
 
-    /** 로그인 강제: (1) 옛 세션 로그인 → (2) OAuth2User(email) 순서로 확인 */
-    private UserAccount requireUser(HttpSession session) {
-        // 1) 예전 방식: 세션 LOGIN_USER
+        // 2) 옛 방식: 세션 LOGIN_USER
         SessionUser su = (SessionUser) session.getAttribute("LOGIN_USER");
         if (su != null) {
             // 로컬(또는 링크된 로컬): providerId = UserAccount PK
@@ -64,38 +74,23 @@ public class MyPageController {
             }
         }
 
-        // 2) 새 방식: SecurityContext의 OAuth2User (refresh/bootstrap/naver 등)
-        OAuth2User ou = currentOAuth2User();
-        if (ou == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthenticated");
-
-        String email = (String) ou.getAttributes().get("email"); // refresh에서 심어준 rf_xxx@recipfree.com 또는 네이버 이메일
-        String name  = (String) ou.getAttributes().getOrDefault("name", "User");
-        if (email == null || email.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthenticated");
-        }
-
-        // 이메일 기준 조회/생성
-        return userRepo.findByEmailIgnoreCase(email).orElseGet(() -> {
-            UserAccount ua = new UserAccount();
-            ua.setEmail(email);
-            ua.setName(name);
-            return userRepo.save(ua);
-        });
+        throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthenticated");
     }
 
-    /** id만 필요한 경로에서 사용 (UserAccount PK 반환) */
-    private Long requireUserId(HttpSession session) {
-        return requireUser(session).getId();
+    private Long requireUserId(HttpSession session, OAuth2User ou) {
+        return requireUser(session, ou).getId();
     }
 
     /* ========== API ========== */
 
-    /** 즐겨찾기 목록 (프론트는 배열로 사용) */
+    /** 즐겨찾기 목록 */
     @GetMapping("/favorites")
     public ResponseEntity<?> favorites(HttpSession session,
+                                       @AuthenticationPrincipal OAuth2User ou,
                                        @RequestParam(name = "page", required = false) Integer page,
                                        @RequestParam(name = "size", required = false) Integer size) {
-        var me = requireUser(session); // page/size는 무시해도 기존 프론트와 호환됨
+
+        var me = requireUser(session, ou);
         var rows = favoriteService.list(me.getId());
 
         List<FavoriteDto> dto = rows.stream()
@@ -113,18 +108,50 @@ public class MyPageController {
         return ResponseEntity.ok(dto);
     }
 
-    /** 찜 추가: 프론트 규격(POST /api/me/favorites/{recipeId})만 유지 */
+    /** 케이스 #1: 기존 프런트 규격 (경로에 recipeId) */
     @PostMapping("/favorites/{recipeId}")
-    public FavoriteDto addFavoriteById(@PathVariable Long recipeId,
-                                       @RequestBody(required = false) Map<String, Object> body,
-                                       HttpSession session) {
+    public FavoriteDto addFavoriteByPath(@PathVariable Long recipeId,
+                                         @RequestBody(required = false) Map<String, Object> body,
+                                         HttpSession session,
+                                         @AuthenticationPrincipal OAuth2User ou) {
 
-        Long uid = requireUserId(session);
+        Long uid = requireUserId(session, ou);
 
-        String title   = body != null ? trimOrNull((String) body.get("title"))   : null;
-        String summary = body != null ? trimOrNull((String) body.get("summary")) : null;
-        String image   = body != null ? trimOrNull((String) body.get("image"))   : null;
-        String meta    = body != null ? trimOrNull((String) body.get("meta"))    : null;
+        String title   = body != null ? strOrNull(body.get("title"))   : null;
+        String summary = body != null ? strOrNull(body.get("summary")) : null;
+        String image   = body != null ? strOrNull(body.get("image"))   : null;
+        String meta    = body != null ? strOrNull(body.get("meta"))    : null;
+
+        var f = favoriteService.add(uid, recipeId, title, summary, image, meta);
+
+        return new FavoriteDto(
+                f.getId(), f.getRecipeId(),
+                f.getTitle(), f.getSummary(),
+                f.getImage(), f.getMeta(),
+                f.getCreatedAt() != null ? ISO.format(f.getCreatedAt()) : null
+        );
+    }
+
+    /** 케이스 #2: 새 프런트 규격 (바디에 recipeId) */
+    @PostMapping(path = "/favorites", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public FavoriteDto addFavoriteByBody(@RequestBody Map<String, Object> body,
+                                         HttpSession session,
+                                         @AuthenticationPrincipal OAuth2User ou) {
+
+        if (body == null || body.get("recipeId") == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "recipeId is required");
+        }
+        Long recipeId = longOrNull(body.get("recipeId"));
+        if (recipeId == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "recipeId must be number");
+        }
+
+        Long uid = requireUserId(session, ou);
+
+        String title   = strOrNull(body.get("title"));
+        String summary = strOrNull(body.get("summary"));
+        String image   = strOrNull(body.get("image"));
+        String meta    = strOrNull(body.get("meta"));
 
         var f = favoriteService.add(uid, recipeId, title, summary, image, meta);
 
@@ -138,8 +165,10 @@ public class MyPageController {
 
     /** 찜 삭제 */
     @DeleteMapping("/favorites/{recipeId}")
-    public ResponseEntity<?> removeFavorite(@PathVariable Long recipeId, HttpSession session) {
-        var me = requireUser(session);
+    public ResponseEntity<?> removeFavorite(@PathVariable Long recipeId,
+                                            HttpSession session,
+                                            @AuthenticationPrincipal OAuth2User ou) {
+        var me = requireUser(session, ou);
         favoriteService.remove(me.getId(), recipeId);
         return ResponseEntity.ok(Map.of("removed", true));
     }
@@ -150,5 +179,13 @@ public class MyPageController {
         if (s == null) return null;
         String t = s.trim();
         return t.isEmpty() ? null : t;
+    }
+    private static String strOrNull(Object o) {
+        return o == null ? null : trimOrNull(String.valueOf(o));
+    }
+    private static Long longOrNull(Object o) {
+        if (o == null) return null;
+        if (o instanceof Number n) return n.longValue();
+        try { return Long.parseLong(String.valueOf(o)); } catch (Exception e) { return null; }
     }
 }

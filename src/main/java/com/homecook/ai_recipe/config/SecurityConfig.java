@@ -1,82 +1,55 @@
-// src/main/java/com/homecook/ai_recipe/config/SecurityConfig.java
 package com.homecook.ai_recipe.config;
 
-// 🔧 오타 수정: sequrity ❌ → security ✅
-import com.homecook.ai_recipe.security.RefreshCookieAuthFilter;
-
 import com.homecook.ai_recipe.service.CustomOAuth2UserService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.*;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AuthenticationFailureHandler;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
-import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.context.DelegatingSecurityContextRepository;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
-import org.springframework.web.cors.*;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.time.Duration;
 import java.util.List;
-import java.util.UUID; // 🔧 추가
+import java.util.UUID;
 
 @Configuration
+@EnableWebSecurity
 @EnableMethodSecurity
-@Profile("!test")
+@RequiredArgsConstructor
 public class SecurityConfig {
 
     private final CustomOAuth2UserService customOAuth2UserService;
 
     @Value("${app.front-base}")
-    private String frontBase; // ex) https://recipfree.com
+    private String frontBase; // e.g. https://recipfree.com
 
-    public SecurityConfig(CustomOAuth2UserService customOAuth2UserService) {
-        this.customOAuth2UserService = customOAuth2UserService;
-    }
-
+    /** AuthController에서 주입받을 SecurityContextRepository 빈 */
     @Bean
     public SecurityContextRepository securityContextRepository() {
-        return new HttpSessionSecurityContextRepository();
+        HttpSessionSecurityContextRepository sessionRepo = new HttpSessionSecurityContextRepository();
+        sessionRepo.setDisableUrlRewriting(true); // ;JSESSIONID 방지
+        return new DelegatingSecurityContextRepository(
+                new RequestAttributeSecurityContextRepository(),
+                sessionRepo
+        );
     }
 
-    @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-        http
-                .csrf(csrf -> csrf.disable())
-                .cors(Customizer.withDefaults())
-                .authorizeHttpRequests(reg -> reg
-                        .requestMatchers(
-                                "/api/auth/**",
-                                "/oauth2/**",
-                                "/login/oauth2/**",
-                                "/api/auth/debug/**"   // ★ 추가: 디버그 엔드포인트 허용
-                        ).permitAll()
-                        .anyRequest().authenticated()
-                )
-                // ✅ 세션/컨텍스트 저장소 명시
-                .securityContext(sc -> sc.securityContextRepository(securityContextRepository()))
-                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
-                .oauth2Login(oauth -> oauth
-                        .userInfoEndpoint(u -> u.userService(customOAuth2UserService))
-                        .successHandler(successHandler())     // ✅ 반드시 연결
-                        .failureHandler(failureHandler())
-                )
-                .logout(lo -> lo.logoutUrl("/api/auth/logout").permitAll());
-
-        // ✅ repo 주입해서 컨텍스트 save 되도록
-//        http.addFilterBefore(
-//                new RefreshCookieAuthFilter(securityContextRepository()),
-//                UsernamePasswordAuthenticationFilter.class
-//        );
-
-        return http.build();
-    }
-
+    /** CORS 설정 */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration cfg = new CorsConfiguration();
@@ -86,7 +59,7 @@ public class SecurityConfig {
                 "http://localhost:*",
                 "http://127.0.0.1:*"
         ));
-        cfg.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
+        cfg.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         cfg.setAllowedHeaders(List.of("*"));
         cfg.setAllowCredentials(true);
         cfg.setMaxAge(3600L);
@@ -96,27 +69,29 @@ public class SecurityConfig {
         return source;
     }
 
-    /** ✅ 로그인 성공 시: 세션 보장 + refresh_token 즉시 발급(도메인 지정 금지, SameSite=None) */
-    // SecurityConfig.java
+    /** 로그인 성공 시: 세션 보장 + refresh_token 즉시 발급 */
     @Bean
     public AuthenticationSuccessHandler successHandler() {
         return (request, response, authentication) -> {
             request.getSession(true); // RFSESSIONID 보장
 
-            String issued = java.util.UUID.randomUUID().toString();
-            var cookie = ResponseCookie.from("refresh_token", issued)
-                    .httpOnly(true).secure(true).path("/")
+            String issued = UUID.randomUUID().toString();
+            ResponseCookie cookie = ResponseCookie.from("refresh_token", issued)
+                    .httpOnly(true)
+                    .secure(true)
+                    .path("/")
                     .sameSite("Lax")
+                    // 리버스 프록시로 응답이 recipfree.com 도메인에서 내려온다면 아래 도메인 설정 유지,
+                    // 그렇지 않다면 .domain()은 제거하세요.
                     .domain(".recipfree.com")
-                    .maxAge(java.time.Duration.ofDays(30))
+                    .maxAge(Duration.ofDays(30))
                     .build();
 
-            response.addHeader(org.springframework.http.HttpHeaders.SET_COOKIE, cookie.toString());
+            response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
+            System.out.println("[AUTH] successHandler: Set-Cookie refresh_token issued=" + issued.substring(0, 8));
 
-            // 🔎 디버그 로그
-            System.out.println("[AUTH] successHandler: Set-Cookie refresh_token issued=" + issued.substring(0,8));
-
-            response.sendRedirect(frontBase + "/#/auth/callback?ok=1");
+            response.setStatus(302);
+            response.setHeader("Location", frontBase + "/auth/callback?ok=1");
         };
     }
 
@@ -127,13 +102,43 @@ public class SecurityConfig {
                     ex.getMessage() == null ? "login_failed" : ex.getMessage(),
                     java.nio.charset.StandardCharsets.UTF_8
             );
-            response.sendRedirect(frontBase + "/#/auth/callback?error=" + msg);
+            response.setStatus(302);
+            response.setHeader("Location", frontBase + "/auth/callback?error=" + msg);
         };
     }
 
+    /** 프록시 헤더 신뢰 (prod에서 권장) */
     @Bean
     @Profile("prod")
     public org.springframework.web.filter.ForwardedHeaderFilter forwardedHeaderFilter() {
         return new org.springframework.web.filter.ForwardedHeaderFilter();
+    }
+
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http,
+                                           SecurityContextRepository repo,
+                                           AuthenticationSuccessHandler successHandler,
+                                           AuthenticationFailureHandler failureHandler) throws Exception {
+
+        http
+                .cors(Customizer.withDefaults())
+                .csrf(csrf -> csrf.disable())
+                .securityContext(sc -> sc.securityContextRepository(repo))
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(
+                                "/api/auth/**",
+                                "/oauth2/authorization/**",
+                                "/login/oauth2/code/**"
+                        ).permitAll()
+                        .anyRequest().permitAll()
+                )
+                .oauth2Login(oauth -> oauth
+                        .userInfoEndpoint(u -> u.userService(customOAuth2UserService))
+                        .successHandler(successHandler)
+                        .failureHandler(failureHandler)
+                )
+                .logout(Customizer.withDefaults());
+
+        return http.build();
     }
 }

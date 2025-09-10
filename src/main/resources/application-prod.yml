@@ -29,7 +29,7 @@ spring:
             client-name: Google
             authorization-grant-type: authorization_code
             # ✅ 절대 URL로 고정
-            redirect-uri: https://recipfree.com/login/oauth2/code/google
+            redirect-uri: "https://recipfree.com/login/oauth2/code/{registrationId}"
             scope: openid, profile, email
 
           facebook:
