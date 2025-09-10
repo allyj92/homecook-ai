@@ -5,7 +5,7 @@
 # /oauth2/authorization → 백엔드 (명시)
 [[redirects]]
   from = "/oauth2/authorization/*"
-  to   = "https://standings-few-challenges-maine.trycloudflare.com/oauth2/authorization/:splat"
+  to   = "https://theta-protocols-artist-adelaide.trycloudflare.com/oauth2/authorization/:splat"
   status = 200
   force  = true
   headers = { X-Forwarded-Host = "recipfree.com", X-Forwarded-Proto = "https" }  
