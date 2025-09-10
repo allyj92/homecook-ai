@@ -1,2 +1,5 @@
-/api/*  https://rough-travelers-perth-pink.trycloudflare.com/api/:splat  200
-/*      /index.html                                                  200
+/oauth2/authorization/*  https://rough-travelers-perth-pink.trycloudflare.com/oauth2/authorization/:splat  200
+/login/oauth2/*          https://rough-travelers-perth-pink.trycloudflare.com/login/oauth2/:splat          200
+/oauth2/*                https://rough-travelers-perth-pink.trycloudflare.com/oauth2/:splat                 200
+/api/*                   https://rough-travelers-perth-pink.trycloudflare.com/api/:splat                    200
+/*                       /index.html

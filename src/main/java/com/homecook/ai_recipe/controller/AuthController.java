@@ -100,52 +100,34 @@ public class AuthController {
     }
 
     @PostMapping("/refresh")
-    public ResponseEntity<?> refresh(HttpServletRequest request, HttpServletResponse response) {
-        try {
-            String refreshToken = readCookie(request, REFRESH_COOKIE).orElse(null);
-            if (refreshToken == null || refreshToken.isBlank()) {
-                log.debug("[AUTH] refresh: no refresh_token -> 401");
-                // 세션 & 리프레시 쿠키 정리
-                setCookie(response, buildSessionKiller());
-                setCookie(response, buildRefreshCookie("", true));
-                return ResponseEntity.status(401)
-                        .body(Map.of("authenticated", false, "reason", "no_refresh_token"));
-            }
-
-            // 데모: refresh 토큰 → 유저 속성 복원 (실서비스에선 서명검증/DB조회)
-            String shortId = refreshToken.substring(0, Math.min(8, refreshToken.length()));
-            Map<String, Object> attrs = new LinkedHashMap<>();
-            attrs.put("id", "rf:" + shortId);
-            attrs.put("name", "SessionUser");
-            attrs.put("provider", "refresh");
-            attrs.put("email", "rf_" + shortId + "@recipfree.com");
-            attrs.put("picture", "https://picsum.photos/seed/rf_" + shortId + "/200/200");
-
-            var roles = List.of(new SimpleGrantedAuthority("ROLE_USER"));
-            var principal = new DefaultOAuth2User(new HashSet<>(roles), attrs, "id");
-            var auth = new UsernamePasswordAuthenticationToken(principal, null, roles);
-
-            // 세션 보장 + 컨텍스트 저장
-            request.getSession(true);
-            SecurityContext ctx = SecurityContextHolder.createEmptyContext();
-            ctx.setAuthentication(auth);
-            SecurityContextHolder.setContext(ctx);
-            securityContextRepository.saveContext(ctx, request, response);
-
-            // refresh 토큰 로테이트(샘플: 새 UUID)
-            String newRefresh = UUID.randomUUID().toString();
-            setCookie(response, buildRefreshCookie(newRefresh, false));
-            log.debug("[AUTH] refresh: ok -> new refresh issued {}", newRefresh.substring(0, 8));
-
-            return ResponseEntity.ok(Map.of("user", Map.copyOf(attrs)));
-        } catch (Exception e) {
-            log.error("[AUTH] refresh failed", e);
-            return ResponseEntity.internalServerError().body(Map.of(
-                    "message", "refresh_failed",
-                    "error", e.getClass().getSimpleName(),
-                    "detail", e.getMessage()
-            ));
+    public ResponseEntity<?> refresh(
+            @AuthenticationPrincipal OAuth2User user,
+            @CookieValue(name = "refresh_token", required = false) String refreshToken,
+            HttpServletResponse response
+    ) {
+        // 세션에 로그인된 유저가 없으면 401
+        if (user == null) {
+            // (선택) 쿠키 정리
+            response.addHeader(HttpHeaders.SET_COOKIE, buildRefreshCookie("", true).toString());
+            response.addHeader(HttpHeaders.SET_COOKIE, buildSessionKiller().toString());
+            return ResponseEntity.status(401).body(Map.of("authenticated", false, "reason", "no_session"));
         }
+
+        // (선택) refresh_token 로테이트만 수행 — 세션 principal은 건드리지 않음!
+        if (refreshToken != null && !refreshToken.isBlank()) {
+            response.addHeader(HttpHeaders.SET_COOKIE, buildRefreshCookie(refreshToken, false).toString());
+        }
+
+        Map<String, Object> a = user.getAttributes();
+        return ResponseEntity.ok(Map.of(
+                "user", Map.of(
+                        "id", a.get("id"),
+                        "email", a.get("email"),
+                        "name", a.get("name"),
+                        "picture", a.get("picture"),
+                        "provider", a.get("provider")
+                )
+        ));
     }
 
     @PostMapping("/logout")
