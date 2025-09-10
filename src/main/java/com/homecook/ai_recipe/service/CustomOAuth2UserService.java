@@ -1,25 +1,43 @@
+// src/main/java/com/homecook/ai_recipe/service/CustomOAuth2UserService.java
 package com.homecook.ai_recipe.service;
 
+import org.springframework.http.RequestEntity;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserService;
+import org.springframework.security.oauth2.client.http.OAuth2ErrorResponseErrorHandler;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserRequest;
+import org.springframework.security.oauth2.client.userinfo.OAuth2UserService;
+import org.springframework.security.oauth2.client.userinfo.OAuth2UserRequestEntityConverter;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
+import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestOperations;
+import org.springframework.web.client.RestTemplate;
 
 import java.util.*;
 
 @Service
-public class CustomOAuth2UserService extends DefaultOAuth2UserService {
+public class CustomOAuth2UserService implements OAuth2UserService<OAuth2UserRequest, OAuth2User> {
+
+    private final OAuth2UserRequestEntityConverter requestConverter = new OAuth2UserRequestEntityConverter();
+    private final RestOperations rest;
+
+    public CustomOAuth2UserService() {
+        RestTemplate rt = new RestTemplate();
+        rt.setErrorHandler(new OAuth2ErrorResponseErrorHandler());
+        this.rest = rt;
+    }
 
     @Override
-    public OAuth2User loadUser(OAuth2UserRequest req) {
-        OAuth2User raw = super.loadUser(req);
-        String provider = req.getClientRegistration().getRegistrationId(); // google/naver/kakao/...
+    public OAuth2User loadUser(OAuth2UserRequest req) throws OAuth2AuthenticationException {
+        // 1) UserInfo 호출(슈퍼 호출로 인한 'Missing attribute' 선검증 우회)
+        Map<String, Object> src = fetchUserAttributes(req);
+        String provider = req.getClientRegistration().getRegistrationId(); // google/naver/kakao/facebook...
 
-        // ★ 와일드카드 금지: 전부 Map<String,Object> 로 강제
-        Map<String, Object> src = castMap(raw.getAttributes());
-
+        // 2) 표준 스키마로 평탄화
         Map<String, Object> std = new LinkedHashMap<>();
         std.put("provider", provider);
 
@@ -37,16 +55,15 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                 std.put("picture", picture);
             }
             case "naver" -> {
-                // response 하위
-                Map<String,Object> resp = castMap(src.get("response"));
+                Map<String, Object> resp = castMap(src.get("response"));
                 std.put("id",      str(resp.get("id")));
                 std.put("email",   str(resp.get("email")));
                 std.put("name",    str(resp.get("name")));
                 std.put("picture", str(resp.get("profile_image")));
             }
             case "kakao" -> {
-                Map<String,Object> acc  = castMap(src.get("kakao_account"));
-                Map<String,Object> prof = castMap(acc.get("profile"));
+                Map<String, Object> acc  = castMap(src.get("kakao_account"));
+                Map<String, Object> prof = castMap(acc.get("profile"));
                 std.put("id",      str(src.get("id")));
                 std.put("email",   str(acc.get("email")));
                 std.put("name",    strOr(prof.get("nickname"), "카카오 사용자"));
@@ -56,9 +73,10 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                 std.put("id",      str(src.get("id")));
                 std.put("email",   str(src.get("email")));
                 std.put("name",    str(src.get("name")));
-                std.put("picture", ""); // 필요시 별도 호출
+                std.put("picture", ""); // 필요 시 별도 Graph API로 획득
             }
             default -> {
+                // 기타 프로바이더: id 또는 sub, 그 외 공통 키들
                 std.put("id",      strOr(src.get("id"), str(src.get("sub"))));
                 std.put("email",   str(src.get("email")));
                 std.put("name",    strOr(src.get("name"), ""));
@@ -66,17 +84,32 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             }
         }
 
-        var roles = List.of(new SimpleGrantedAuthority("ROLE_USER"));
+        // 3) 필수 키 검증
+        if (std.get("id") == null || String.valueOf(std.get("id")).isBlank()) {
+            throw new OAuth2AuthenticationException(
+                    new OAuth2Error("invalid_user_info"),
+                    "Missing provider user id"
+            );
+        }
+
+        // 4) ROLE 부여 후 DefaultOAuth2User 생성(키는 항상 "id")
+        Collection<GrantedAuthority> roles = List.of(new SimpleGrantedAuthority("ROLE_USER"));
         return new DefaultOAuth2User(new HashSet<>(roles), std, "id");
     }
 
-    /* ---------- helpers ---------- */
+    /* ------------------ 내부 헬퍼 ------------------ */
+
+    private Map<String, Object> fetchUserAttributes(OAuth2UserRequest req) {
+        RequestEntity<?> request = requestConverter.convert(req);
+        ResponseEntity<Map> resp = ((RestTemplate) rest).exchange(request, Map.class);
+        Map<String, Object> body = resp.getBody();
+        return body != null ? body : Collections.emptyMap();
+    }
 
     @SuppressWarnings("unchecked")
-    private static Map<String,Object> castMap(Object o) {
-        if (o instanceof Map<?,?> m) {
-            // 키를 문자열로 강제 캐스팅 (신뢰 가능한 외부 프로바이더 응답 전제)
-            return (Map<String,Object>) m;
+    private static Map<String, Object> castMap(Object o) {
+        if (o instanceof Map<?, ?> m) {
+            return (Map<String, Object>) m;
         }
         return Collections.emptyMap();
     }
