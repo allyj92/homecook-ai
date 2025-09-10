@@ -1,4 +1,4 @@
-/api/*                  https://theta-protocols-artist-adelaide.trycloudflare.com/api/:splat                  200
-/login/oauth2/code/*    https://theta-protocols-artist-adelaide.trycloudflare.com/login/oauth2/code/:splat     200
-/oauth2/authorization/* https://theta-protocols-artist-adelaide.trycloudflare.com/oauth2/authorization/:splat  200
-/*                      /index.html      
+/login/oauth2/code/*     https://theta-protocols-artist-adelaide.trycloudflare.com/login/oauth2/code/:splat      200
+/oauth2/authorization/*  https://theta-protocols-artist-adelaide.trycloudflare.com/oauth2/authorization/:splat   200
+/api/*                   https://theta-protocols-artist-adelaide.trycloudflare.com/api/:splat                    200
+/*                       /index.html                                                                              
