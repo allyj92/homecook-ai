@@ -1,6 +1,35 @@
 // src/lib/http.js
 
-const API_BASE = (import.meta.env?.VITE_API_BASE || '').replace(/\/+$/, '');
+// ===== API_BASE 결정 =====
+// - DEV: VITE_API_BASE 사용 (예: http://localhost:8080)
+// - PROD: VITE_API_BASE의 오리진이 현재 오리진과 다르면 무시하고 상대경로 사용
+const RAW_API_BASE = (import.meta.env?.VITE_API_BASE || '').replace(/\/+$/, '');
+
+function safeResolveBase(raw) {
+  if (!raw) return '';
+  try {
+    const resolved = new URL(raw, typeof window !== 'undefined' ? window.location.href : 'http://localhost');
+    return resolved.toString().replace(/\/+$/, '');
+  } catch {
+    return '';
+  }
+}
+
+const API_BASE = (() => {
+  const base = safeResolveBase(RAW_API_BASE);
+  if (!base) return '';
+  try {
+    // 배포에서는 same-origin만 허용(쿠키 보장)
+    if (import.meta.env.PROD) {
+      const sameOrigin = new URL(base).origin === window.location.origin;
+      return sameOrigin ? base : '';
+    }
+    // 개발은 그대로 사용
+    return base;
+  } catch {
+    return '';
+  }
+})();
 
 /* =========================
  * helpers
@@ -10,12 +39,12 @@ function isAbs(u) {
 }
 
 function usingHashRouter() {
-  // 해시가 있고 형태가 "#/..." 면 HashRouter로 간주
+  // 해시가 "#/..." 형태면 HashRouter로 간주
   return typeof window !== 'undefined' && /^#\//.test(window.location.hash || '');
 }
 
 function currentSpaPath() {
-  // HashRouter면 "#/..." 제거한 경로, 아니면 pathname+search
+  if (typeof window === 'undefined') return '/';
   const { hash, pathname, search } = window.location;
   return /^#\//.test(hash) ? hash.slice(1) : (pathname + search);
 }
@@ -30,7 +59,7 @@ function loginScreenPath() {
 }
 
 /* =========================
- * URL 빌더: /api만 API_BASE로 붙임
+ * URL 빌더: /api 경로만 API_BASE 붙임
  * ========================= */
 export function buildUrl(input) {
   if (!input) return input;
@@ -58,7 +87,7 @@ export async function apiFetch(input, options = {}) {
   const headers = new Headers(userHeaders || {});
   let body = userBody;
 
-  // 기본 Accept 설정(없을 때만)
+  // 기본 Accept (없을 때만)
   if (![...headers.keys()].some(k => k.toLowerCase() === 'accept')) {
     headers.set('Accept', 'application/json, text/plain, */*');
   }
@@ -78,7 +107,7 @@ export async function apiFetch(input, options = {}) {
   }
 
   const res = await fetch(url, {
-    credentials: 'include',
+    credentials: 'include', // 세션/로그인 쿠키 포함
     cache: 'no-store',
     method: m,
     headers,
@@ -86,7 +115,7 @@ export async function apiFetch(input, options = {}) {
     ...rest,
   });
 
-  // 401 처리
+  // 401 공통 처리 (옵션으로 끌 수 있음)
   if (res.status === 401 && !noAuthRedirect) {
     const here = currentSpaPath();
     if (!isAuthScreen(here)) {
@@ -118,3 +147,10 @@ export const http = {
     apiFetch(u, { ...(opts || {}), method: 'PATCH', body }),
   del: (u, opts)  => apiFetch(u, { ...(opts || {}), method: 'DELETE' }),
 };
+
+/* =========================
+ * 디버그(선택): 현재 적용된 API_BASE 확인용
+ * ========================= */
+export function getApiBaseForDebug() {
+  return { RAW_API_BASE, API_BASE, origin: typeof window !== 'undefined' ? window.location.origin : '' };
+}
