@@ -1,6 +1,9 @@
 // src/main/java/com/homecook/ai_recipe/service/CustomOAuth2UserService.java
 package com.homecook.ai_recipe.service;
 
+
+import com.homecook.ai_recipe.domain.User;
+import com.homecook.ai_recipe.repo.UserRepository;
 import org.springframework.http.RequestEntity;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.GrantedAuthority;
@@ -24,18 +27,20 @@ public class CustomOAuth2UserService implements OAuth2UserService<OAuth2UserRequ
 
     private final OAuth2UserRequestEntityConverter requestConverter = new OAuth2UserRequestEntityConverter();
     private final RestOperations rest;
+    private final UserRepository userRepository;
 
-    public CustomOAuth2UserService() {
+    public CustomOAuth2UserService(UserRepository userRepository) {
         RestTemplate rt = new RestTemplate();
         rt.setErrorHandler(new OAuth2ErrorResponseErrorHandler());
         this.rest = rt;
+        this.userRepository = userRepository;
     }
 
     @Override
     public OAuth2User loadUser(OAuth2UserRequest req) throws OAuth2AuthenticationException {
-        // 1) UserInfo 호출(슈퍼 호출로 인한 'Missing attribute' 선검증 우회)
+        // 1) 각 공급자 UserInfo 호출
         Map<String, Object> src = fetchUserAttributes(req);
-        String provider = req.getClientRegistration().getRegistrationId(); // google/naver/kakao/facebook...
+        String provider = req.getClientRegistration().getRegistrationId(); // google | naver | kakao | facebook ...
 
         // 2) 표준 스키마로 평탄화
         Map<String, Object> std = new LinkedHashMap<>();
@@ -73,10 +78,9 @@ public class CustomOAuth2UserService implements OAuth2UserService<OAuth2UserRequ
                 std.put("id",      str(src.get("id")));
                 std.put("email",   str(src.get("email")));
                 std.put("name",    str(src.get("name")));
-                std.put("picture", ""); // 필요 시 별도 Graph API로 획득
+                std.put("picture", ""); // 필요 시 Graph API로 별도 조회
             }
             default -> {
-                // 기타 프로바이더: id 또는 sub, 그 외 공통 키들
                 std.put("id",      strOr(src.get("id"), str(src.get("sub"))));
                 std.put("email",   str(src.get("email")));
                 std.put("name",    strOr(src.get("name"), ""));
@@ -92,7 +96,25 @@ public class CustomOAuth2UserService implements OAuth2UserService<OAuth2UserRequ
             );
         }
 
-        // 4) ROLE 부여 후 DefaultOAuth2User 생성(키는 항상 "id")
+        // 4) DB 업서트 (provider + providerUserId 기준)
+        String providerUserId = String.valueOf(std.get("id"));
+        User user = userRepository
+                .findByProviderAndProviderUserId(provider, providerUserId)
+                .orElseGet(User::new);
+
+        user.setProvider(provider);
+        user.setProviderUserId(providerUserId);
+        if (std.get("email") != null && !String.valueOf(std.get("email")).isBlank())
+            user.setEmail(String.valueOf(std.get("email")));
+        if (std.get("name") != null) user.setName(String.valueOf(std.get("name")));
+        if (std.get("picture") != null) user.setPicture(String.valueOf(std.get("picture")));
+
+        user = userRepository.save(user);
+
+        // 5) 컨트롤러서 바로 userId 사용할 수 있도록 넣어둠
+        std.put("uid", user.getId()); // 내 DB PK
+
+        // 6) 권한 부여 및 반환 (이 principal은 OAuth2AuthenticationToken에 실림)
         Collection<GrantedAuthority> roles = List.of(new SimpleGrantedAuthority("ROLE_USER"));
         return new DefaultOAuth2User(new HashSet<>(roles), std, "id");
     }

@@ -19,6 +19,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/me")
@@ -35,41 +36,66 @@ public class MyPageController {
 
     /* ========== 내부 유틸 ========== */
 
-    /** 로그인 강제: (1) OAuth2User(email) 우선 → (2) 옛 세션 로그인 순서로 확인 */
     private UserAccount requireUser(HttpSession session, OAuth2User ou) {
-        // 1) 새 방식: OAuth2User 먼저
+        // 0) attributes에 uid가 이미 실려 있다면 최우선 사용
         if (ou != null) {
-            String email = (String) ou.getAttributes().get("email");
-            String name  = (String) ou.getAttributes().getOrDefault("name", "User");
-            if (email == null || email.isBlank()) {
-                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthenticated");
-            }
-            return userRepo.findByEmailIgnoreCase(email).orElseGet(() -> {
-                UserAccount ua = new UserAccount();
-                ua.setEmail(email);
-                ua.setName(name);
-                return userRepo.save(ua);
-            });
-        }
-
-        // 2) 옛 방식: 세션 LOGIN_USER
-        SessionUser su = (SessionUser) session.getAttribute("LOGIN_USER");
-        if (su != null) {
-            // 로컬(또는 링크된 로컬): providerId = UserAccount PK
-            if ("local".equalsIgnoreCase(su.provider()) || "local-or-linked".equalsIgnoreCase(su.provider())) {
-                try {
-                    Long uid = Long.valueOf(su.providerId());
+            Object uidAttr = ou.getAttributes().get("uid");
+            if (uidAttr != null) {
+                Long uid = toLong(uidAttr);
+                if (uid != null) {
                     return userRepo.findById(uid)
                             .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthenticated"));
-                } catch (NumberFormatException ignore) { /* fallthrough */ }
+                }
             }
-            // 소셜 링크된 계정 찾기
+        }
+
+        // 1) OAuth2User 기반 식별
+        if (ou != null) {
+            String provider = strOrNull(ou.getAttributes().get("provider")); // google/naver/kakao...
+            String pid      = strOrNull(ou.getAttributes().get("id"));       // provider side user id
+
+            // 1-a) provider + id 로 먼저 연결 계정 조회
+            if (provider != null && pid != null) {
+                Optional<UserAccount> linked = oauthService.findByProvider(provider, pid);
+                if (linked.isPresent()) return linked.get();
+            }
+
+            // 1-b) 이메일로 조회(소셜에서 이메일 제공되는 경우)
+            String email = strOrNull(ou.getAttributes().get("email"));
+            String name  = strOrNull(ou.getAttributes().get("name"));
+            if (email != null) {
+                return userRepo.findByEmailIgnoreCase(email).orElseGet(() -> {
+                    UserAccount ua = new UserAccount();
+                    ua.setEmail(email);
+                    ua.setName(name != null ? name : "User");
+                    return userRepo.save(ua);
+                });
+            }
+
+            // ★ findOrCreate 제거: 링크도 없고 이메일도 없으면 401로 거절
+            if (provider != null && pid != null) {
+                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthenticated_no_email");
+            }
+
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthenticated");
+        }
+
+        // 2) 구(舊) 세션 방식
+        SessionUser su = (SessionUser) session.getAttribute("LOGIN_USER");
+        if (su != null) {
+            if ("local".equalsIgnoreCase(su.provider()) || "local-or-linked".equalsIgnoreCase(su.provider())) {
+                Long uid = toLong(su.providerId());
+                if (uid != null) {
+                    return userRepo.findById(uid)
+                            .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthenticated"));
+                }
+            }
             var linked = oauthService.findByProvider(su.provider(), su.providerId());
             if (linked.isPresent()) return linked.get();
 
-            // 이메일로 조회
-            if (su.email() != null && !su.email().isBlank()) {
-                return userRepo.findByEmailIgnoreCase(su.email())
+            String email = su.email();
+            if (email != null && !email.isBlank()) {
+                return userRepo.findByEmailIgnoreCase(email)
                         .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthenticated"));
             }
         }
@@ -85,22 +111,19 @@ public class MyPageController {
 
     /** 즐겨찾기 목록 */
     @GetMapping("/favorites")
-    public ResponseEntity<?> favorites(HttpSession session,
-                                       @AuthenticationPrincipal OAuth2User ou,
-                                       @RequestParam(name = "page", required = false) Integer page,
-                                       @RequestParam(name = "size", required = false) Integer size) {
+    public ResponseEntity<List<FavoriteDto>> favorites(
+            HttpSession session,
+            @AuthenticationPrincipal OAuth2User ou) {
 
         var me = requireUser(session, ou);
-        var rows = favoriteService.list(me.getId());
+        log.debug("[FAV] controller /favorites uid={}", me.getId());  // ★ 진입 로그
 
-        List<FavoriteDto> dto = rows.stream()
+        var rows = favoriteService.list(me.getId());                  // ★ 여기서 Service 로그가 이어져야 정상
+
+        var dto = rows.stream()
                 .map(f -> new FavoriteDto(
-                        f.getId(),
-                        f.getRecipeId(),
-                        f.getTitle(),
-                        f.getSummary(),
-                        f.getImage(),
-                        f.getMeta(),
+                        f.getId(), f.getRecipeId(), f.getTitle(), f.getSummary(),
+                        f.getImage(), f.getMeta(),
                         f.getCreatedAt() == null ? null : ISO.format(f.getCreatedAt())
                 ))
                 .toList();
@@ -141,7 +164,7 @@ public class MyPageController {
         if (body == null || body.get("recipeId") == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "recipeId is required");
         }
-        Long recipeId = longOrNull(body.get("recipeId"));
+        Long recipeId = toLong(body.get("recipeId"));
         if (recipeId == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "recipeId must be number");
         }
@@ -165,16 +188,15 @@ public class MyPageController {
 
     /** 찜 삭제 */
     @DeleteMapping("/favorites/{recipeId}")
-    public ResponseEntity<?> removeFavorite(@PathVariable Long recipeId,
-                                            HttpSession session,
-                                            @AuthenticationPrincipal OAuth2User ou) {
+    public ResponseEntity<Map<String, Object>> removeFavorite(@PathVariable Long recipeId,
+                                                              HttpSession session,
+                                                              @AuthenticationPrincipal OAuth2User ou) {
         var me = requireUser(session, ou);
         favoriteService.remove(me.getId(), recipeId);
         return ResponseEntity.ok(Map.of("removed", true));
     }
 
     /* ========== helpers ========== */
-
     private static String trimOrNull(String s) {
         if (s == null) return null;
         String t = s.trim();
@@ -183,9 +205,11 @@ public class MyPageController {
     private static String strOrNull(Object o) {
         return o == null ? null : trimOrNull(String.valueOf(o));
     }
-    private static Long longOrNull(Object o) {
+    private static Long toLong(Object o) {
         if (o == null) return null;
         if (o instanceof Number n) return n.longValue();
         try { return Long.parseLong(String.valueOf(o)); } catch (Exception e) { return null; }
     }
+
+
 }

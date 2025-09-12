@@ -48,6 +48,8 @@ public class AuthController {
         return Optional.empty();
     }
 
+
+
     /** refresh_token 쿠키 생성/삭제 (SameSite=Lax, Secure, HttpOnly) */
     private static ResponseCookie buildRefreshCookie(String value, boolean expireNow) {
         var b = ResponseCookie.from(REFRESH_COOKIE, value == null ? "" : value)
@@ -83,21 +85,22 @@ public class AuthController {
 
     /* ---------- API ---------- */
 
-    @GetMapping("/me")
-    public ResponseEntity<?> me(@AuthenticationPrincipal OAuth2User user) {
-        if (user == null) {
-            return ResponseEntity.status(401).body(Map.of("authenticated", false));
-        }
+    @GetMapping("/me") // <-- 클래스가 @RequestMapping("/api/auth") 이므로 최종 /api/auth/me
+    public Map<String, Object> me(@AuthenticationPrincipal OAuth2User user) {
+        if (user == null) return Map.of("authenticated", false);
         Map<String, Object> a = user.getAttributes();
-        return ResponseEntity.ok(Map.of(
+        return Map.of(
                 "authenticated", true,
+                "uid", a.get("uid"),              // DB PK (로그인 시 attr에 심어둬야 함)
+                "provider", a.get("provider"),
                 "id", a.get("id"),
                 "email", a.get("email"),
                 "name", a.get("name"),
-                "picture", a.get("picture"),
-                "provider", a.get("provider")
-        ));
+                "picture", a.get("picture")
+        );
     }
+
+
 
     @PostMapping("/refresh")
     public ResponseEntity<?> refresh(
@@ -154,4 +157,6 @@ public class AuthController {
         log.debug("[AUTH] bootstrap-cookie: issued={}", issued.substring(0, 8));
         return ResponseEntity.ok(Map.of("ok", true, "refreshShort", issued.substring(0, 8)));
     }
+
+
 }

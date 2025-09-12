@@ -3,9 +3,7 @@ package com.homecook.ai_recipe.config;
 import com.homecook.ai_recipe.service.CustomOAuth2UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Profile;
+import org.springframework.context.annotation.*;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 import org.springframework.security.config.Customizer;
@@ -15,14 +13,10 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AuthenticationFailureHandler;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
-import org.springframework.security.web.context.DelegatingSecurityContextRepository;
-import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
-import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
-import org.springframework.security.web.context.SecurityContextRepository;
-import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.web.cors.CorsConfigurationSource;
-import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.security.web.context.*;
+import org.springframework.web.cors.*;
 
+import java.net.URI;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
@@ -36,7 +30,7 @@ public class SecurityConfig {
     private final CustomOAuth2UserService customOAuth2UserService;
 
     @Value("${app.front-base}")
-    private String frontBase; // e.g. https://recipfree.com
+    private String frontBase; // ex) https://recipfree.com or http://localhost:5173
 
     /** AuthController에서 주입받을 SecurityContextRepository 빈 */
     @Bean
@@ -59,39 +53,50 @@ public class SecurityConfig {
                 "http://localhost:*",
                 "http://127.0.0.1:*"
         ));
-        cfg.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        cfg.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
         cfg.setAllowedHeaders(List.of("*"));
         cfg.setAllowCredentials(true);
         cfg.setMaxAge(3600L);
-
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", cfg);
         return source;
     }
 
-    /** 로그인 성공 시: 세션 보장 + refresh_token 즉시 발급 */
+    /** 프록시 헤더 신뢰 (prod에서 권장) */
+    @Bean
+    @Profile("prod")
+    public org.springframework.web.filter.ForwardedHeaderFilter forwardedHeaderFilter() {
+        return new org.springframework.web.filter.ForwardedHeaderFilter();
+    }
+
+    /** 로그인 성공: 세션 보장 + refresh_token 발급 + 프론트로 리다이렉트 */
     @Bean
     public AuthenticationSuccessHandler successHandler() {
         return (request, response, authentication) -> {
-            request.getSession(true); // RFSESSIONID 보장
+            // 세션 보장 (JSESSIONID 발급)
+            request.getSession(true);
+
+            // 도메인 결정: 배포 도메인일 때만 domain=.recipfree.com 지정
+            String cookieDomain = null;
+            try {
+                String host = new URI(frontBase).getHost();
+                if (host != null && host.endsWith("recipfree.com")) {
+                    cookieDomain = ".recipfree.com";
+                }
+            } catch (Exception ignored) { /* 로컬 등 파싱 실패 시 host-only */ }
 
             String issued = UUID.randomUUID().toString();
-            ResponseCookie cookie = ResponseCookie.from("refresh_token", issued)
+            ResponseCookie cookie = ResponseCookie.from("refresh_token", issued)  // ⬅️ 여기서부터 builder 반환
                     .httpOnly(true)
                     .secure(true)
                     .path("/")
                     .sameSite("Lax")
-                    // 리버스 프록시로 응답이 recipfree.com 도메인에서 내려온다면 아래 도메인 설정 유지,
-                    // 그렇지 않다면 .domain()은 제거하세요.
-                    .domain(".recipfree.com")
                     .maxAge(Duration.ofDays(30))
                     .build();
 
-            response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
-            System.out.println("[AUTH] successHandler: Set-Cookie refresh_token issued=" + issued.substring(0, 8));
 
-            response.setStatus(302);
-            response.setHeader("Location", frontBase + "/auth/callback?ok=1");
+            // 프론트 콜백으로 리다이렉트
+            response.sendRedirect(frontBase + "/auth/callback?ok=1");
         };
     }
 
@@ -102,29 +107,44 @@ public class SecurityConfig {
                     ex.getMessage() == null ? "login_failed" : ex.getMessage(),
                     java.nio.charset.StandardCharsets.UTF_8
             );
-            response.setStatus(302);
-            response.setHeader("Location", frontBase + "/auth/callback?error=" + msg);
+            response.sendRedirect(frontBase + "/auth/callback?error=" + msg);
         };
     }
 
-    /** 프록시 헤더 신뢰 (prod에서 권장) */
     @Bean
-    @Profile("prod")
-    public org.springframework.web.filter.ForwardedHeaderFilter forwardedHeaderFilter() {
-        return new org.springframework.web.filter.ForwardedHeaderFilter();
-    }
-
-    @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http,
-                                           SecurityContextRepository repo,
-                                           AuthenticationSuccessHandler successHandler,
-                                           AuthenticationFailureHandler failureHandler) throws Exception {
+    public SecurityFilterChain filterChain(
+            HttpSecurity http,
+            SecurityContextRepository repo,
+            AuthenticationSuccessHandler successHandler,
+            AuthenticationFailureHandler failureHandler
+    ) throws Exception {
 
         http
                 .cors(Customizer.withDefaults())
                 .csrf(csrf -> csrf.disable())
                 .securityContext(sc -> sc.securityContextRepository(repo))
+
+                // ✅ 익명 접근 시 /login 리다이렉트 금지, 401 JSON으로 응답
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint((req, res, e) -> {
+                            res.setStatus(401);
+                            res.setContentType("application/json;charset=UTF-8");
+                            res.getWriter().write("{\"authenticated\":false}");
+                        })
+                        .accessDeniedHandler((req, res, e) -> {
+                            res.setStatus(403);
+                            res.setContentType("application/json;charset=UTF-8");
+                            res.getWriter().write("{\"error\":\"forbidden\"}");
+                        })
+                )
+
+                // ✅ SavedRequest 비활성화 (302 리다이렉트 유발 방지)
+                .requestCache(rc -> rc.disable())
+
                 .authorizeHttpRequests(auth -> auth
+                        // 인증 필요 구간
+                        .requestMatchers("/api/me/**").authenticated()
+                        // 인증 없이 허용
                         .requestMatchers(
                                 "/api/auth/**",
                                 "/oauth2/authorization/**",
@@ -132,12 +152,18 @@ public class SecurityConfig {
                         ).permitAll()
                         .anyRequest().permitAll()
                 )
+
                 .oauth2Login(oauth -> oauth
                         .userInfoEndpoint(u -> u.userService(customOAuth2UserService))
                         .successHandler(successHandler)
                         .failureHandler(failureHandler)
                 )
-                .logout(Customizer.withDefaults());
+
+                // ✅ /api/auth/logout 등에서 204/200만 돌려주도록 (리다이렉트 없음)
+                .logout(lo -> lo
+                        .logoutUrl("/api/auth/logout")
+                        .logoutSuccessHandler((req, res, auth) -> res.setStatus(200))
+                );
 
         return http.build();
     }
