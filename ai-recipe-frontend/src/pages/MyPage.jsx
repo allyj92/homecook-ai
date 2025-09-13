@@ -77,8 +77,14 @@ export default function MyPage() {
         }
 
         const meData = await res.json();
-        if (aborted) return;
-        setMe(meData);
+       if (aborted) return;
+       // 로그인 안 된 상태면 즉시 로그인 화면으로
+       if (!meData?.authenticated) {
+          try { localStorage.removeItem('authUser'); } catch {}
+          localStorage.setItem('postLoginRedirect', '/mypage');+          navigate('/login-signup', { replace: true, state: { from: '/mypage' } });
+         return;
+       }
+       setMe(meData);
 
         // 2) me OK → favorites
         setWishLoading(true);
