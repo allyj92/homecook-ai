@@ -3,7 +3,7 @@
 spring:
   jpa:
     hibernate:
-      ddl-auto: create   # ⭐ 기존 테이블 지우고 매핑대로 다시 생성
+      ddl-auto: update   # ⭐ 기존 테이블 지우고 매핑대로 다시 생성
     properties:
       hibernate:
         format_sql: true
