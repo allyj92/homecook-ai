@@ -7,10 +7,12 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.web.cors.*;
+import org.springframework.web.filter.ForwardedHeaderFilter;
 
 import java.util.List;
 
@@ -37,32 +39,27 @@ public class SecurityConfig {
     @Bean
     SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-                // API만 CSRF 예외
                 .csrf(csrf -> csrf.ignoringRequestMatchers("/api/**"))
                 .cors(Customizer.withDefaults())
-
                 .authorizeHttpRequests(auth -> auth
-                        // 정적/프론트 라우트
-                        .requestMatchers("/", "/index.html", "/favicon.ico", "/assets/**", "/static/**").permitAll()
-                        // OAuth2 엔드포인트는 꼭 열어두기
-                        .requestMatchers("/oauth2/**", "/login/oauth2/**").permitAll()
-                        // 인증/업로드 등 공개 API
+                        .requestMatchers("/", "/index.html", "/favicon.ico", "/robots.txt",
+                                "/assets/**", "/static/**").permitAll()
+                        .requestMatchers("/oauth2/**", "/login/**").permitAll()   // ★ OAuth2 엔드포인트 허용
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/uploads").permitAll()
-                        // 그 외 전부 허용(원하는 정책에 맞게 변경)
                         .anyRequest().permitAll()
                 )
-
-                // ✅ 이것이 있어야 /oauth2/authorization/{registrationId} 가 동작합니다.
-                .oauth2Login(oauth -> oauth
-                        // 커스텀 로그인 페이지 쓰면 명시, 아니면 기본페이지 사용
-                        //.loginPage("/login-signup")
-                        // 로그인 성공 후 기본 리다이렉트 (원하면 /auth/callback 등)
-                        .defaultSuccessUrl("/", true)
+                .oauth2Login(oauth -> oauth                              // ★ 반드시 있어야 함
+                                // .loginPage("/")                                     // SPA면 생략 가능
+                                .defaultSuccessUrl("/", true)
+                                .failureUrl("/login?error")
+                        // 커스텀 유저서비스 쓰면 아래 주석 해제
+                        // .userInfoEndpoint(u -> u.userService(customOAuth2UserService))
                 )
-
-                .logout(l -> l
+                .logout(logout -> logout
                         .logoutUrl("/api/auth/logout")
+                        .logoutSuccessUrl("/")
+                        .deleteCookies("JSESSIONID")
                         .clearAuthentication(true)
                         .invalidateHttpSession(true)
                 );
@@ -70,32 +67,9 @@ public class SecurityConfig {
         return http.build();
     }
 
-    /**
-     * CORS 설정
-     * - 개발 프록시(예: http://localhost:5173) 또는 LAN에서 접근하는 경우 허용
-     * - 실제 배포에서는 origin을 정확히 제한하세요.
-     */
+    // 프록시/HTTPS 헤더 처리(운영 권장)
     @Bean
-    public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration config = new CorsConfiguration();
-
-        // 개발 편의: 와일드카드 ORIGIN은 credentials=true와 함께 사용할 수 없음.
-        // 프록시를 쓰면 같은 오리진처럼 동작하므로 아래 Origins는 사실 크게 의미 없지만,
-        // 만약 직접 다른 오리진에서 접근한다면 여기서 허용 도메인을 명시하세요.
-        config.setAllowedOrigins(List.of(
-                "http://localhost:5173",
-                "http://127.0.0.1:5173"
-                // 필요 시 추가: "http://192.168.0.xxx:5173"
-        ));
-        config.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
-        config.setAllowedHeaders(List.of("*"));
-        config.setAllowCredentials(true);
-        // 캐시(초)
-        config.setMaxAge(3600L);
-
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        // 모든 경로에 동일 CORS 적용
-        source.registerCorsConfiguration("/**", config);
-        return source;
+    public ForwardedHeaderFilter forwardedHeaderFilter() {
+        return new ForwardedHeaderFilter();
     }
 }
