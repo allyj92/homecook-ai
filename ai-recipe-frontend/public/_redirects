@@ -1,4 +1,4 @@
-/login/oauth2/code/*     https://pushed-rice-dj-pst.trycloudflare.com/login/oauth2/code/:splat      200
-/oauth2/authorization/*  https://pushed-rice-dj-pst.trycloudflare.com/oauth2/authorization/:splat   200
-/api/*                   https://pushed-rice-dj-pst.trycloudflare.com/api/:splat                    200
+/login/oauth2/code/*     https://jerry-therapy-scenes-perfect.trycloudflare.com/login/oauth2/code/:splat      200
+/oauth2/authorization/*  https://jerry-therapy-scenes-perfect.trycloudflare.com/oauth2/authorization/:splat   200
+/api/*                   https://jerry-therapy-scenes-perfect.trycloudflare.com/api/:splat                    200
 /*                       /index.html                                                                              
