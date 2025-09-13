@@ -1,17 +1,19 @@
 // src/main/java/com/homecook/ai_recipe/controller/MyPageController.java
 package com.homecook.ai_recipe.controller;
 
+import com.homecook.ai_recipe.auth.SessionUser;
+import com.homecook.ai_recipe.auth.UserAccount;
 import com.homecook.ai_recipe.dto.FavoriteDto;
 import com.homecook.ai_recipe.service.FavoriteService;
-import com.homecook.ai_recipe.auth.SessionUser;
 import com.homecook.ai_recipe.repo.UserAccountRepository;
 import com.homecook.ai_recipe.service.OAuthAccountService;
-import com.homecook.ai_recipe.auth.UserAccount;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
-import org.slf4j.Logger; import org.slf4j.LoggerFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.*;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -62,55 +64,61 @@ public class MyPageController {
         return String.valueOf(t);
     }
 
-    private UserAccount requireUser(HttpSession session, OAuth2User ou) {
-        // OAuth2 로그인 기반
+    /** 토큰까지 받아 provider fallback을 보장하는 사용자 해석 */
+    private UserAccount requireUser(
+            HttpSession session,
+            OAuth2User ou,
+            OAuth2AuthenticationToken authToken
+    ) {
+        // 0) attributes에 uid 있으면 최우선
         if (ou != null) {
-            String provider = strOrNull(ou.getAttributes().get("provider"));
-            String pid      = strOrNull(ou.getAttributes().get("id"));
-            String email    = strOrNull(ou.getAttributes().get("email"));
-            String name     = strOrNull(ou.getAttributes().get("name"));
-            Long uidAttr    = toLong(ou.getAttributes().get("uid"));
+            Long uidAttr = toLong(ou.getAttributes().get("uid"));
+            if (uidAttr != null) {
+                return userRepo.findById(uidAttr)
+                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthenticated"));
+            }
+        }
 
-            // 1) provider+id 로 우선 매칭
+        // 1) provider: 토큰에서 가장 안정적으로 확보
+        String provider = null;
+        if (authToken != null) {
+            provider = authToken.getAuthorizedClientRegistrationId(); // "google", "naver", ...
+        } else if (ou != null) {
+            provider = strOrNull(ou.getAttributes().get("provider"));
+        }
+
+        if (ou != null) {
+            var a = ou.getAttributes();
+            // pid: OIDC(구글)는 sub, OAuth2(네이버/카카오)는 id
+            String pid = strOrNull(a.get("id"));
+            if (pid == null) pid = strOrNull(a.get("sub"));
+
+            // 1-a) provider+pid로 링크 조회
             if (provider != null && pid != null) {
-                var linked = oauthService.findByProvider(provider, pid);
-                if (linked.isPresent()) {
-                    log.debug("[AUTH] matched by provider+id: {}/{}", provider, pid);
-                    return linked.get();
-                }
+                Optional<UserAccount> linked = oauthService.findByProvider(provider, pid);
+                if (linked.isPresent()) return linked.get();
             }
 
-            // 2) email 로 find-or-create
+            // 1-b) 이메일 경로 (없으면 생성) + 링크 생성
+            String email = strOrNull(a.get("email"));
+            String name  = strOrNull(a.get("name"));
             if (email != null) {
-                var ua = userRepo.findByEmailIgnoreCase(email).orElseGet(() -> {
-                    UserAccount u = new UserAccount();
-                    u.setEmail(email);
-                    u.setName(name != null ? name : "User");
-                    return userRepo.save(u);
+                UserAccount ua = userRepo.findByEmailIgnoreCase(email).orElseGet(() -> {
+                    UserAccount x = new UserAccount();
+                    x.setEmail(email);
+                    x.setName(name != null ? name : "User");
+                    return userRepo.save(x);
                 });
-                log.debug("[AUTH] matched by email: {}", email);
+                if (provider != null && pid != null) {
+                    oauthService.createLinkIfAbsent(provider, pid, ua.getId());
+                }
                 return ua;
             }
 
-            // 3) uid attribute 로 최후 시도 (없거나, findById 실패해도 바로 401 던지지 말고 로그)
-            if (uidAttr != null) {
-                var byId = userRepo.findById(uidAttr);
-                if (byId.isPresent()) {
-                    log.debug("[AUTH] matched by uid attribute: {}", uidAttr);
-                    return byId.get();
-                } else {
-                    log.warn("[AUTH] uid attribute {} present but user not found; falling back to 401", uidAttr);
-                }
-            }
-
-            // 4) 여기까지 못 찾으면 401
-            if (provider != null && pid != null) {
-                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthenticated_no_email");
-            }
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthenticated");
         }
 
-        // 구 세션 방식
+        // 2) 구 세션 방식
         SessionUser su = (SessionUser) session.getAttribute("LOGIN_USER");
         if (su != null) {
             if ("local".equalsIgnoreCase(su.provider()) || "local-or-linked".equalsIgnoreCase(su.provider())) {
@@ -133,8 +141,8 @@ public class MyPageController {
         throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthenticated");
     }
 
-    private Long requireUserId(HttpSession session, OAuth2User ou) {
-        return requireUser(session, ou).getId();
+    private Long requireUserId(HttpSession session, OAuth2User ou, OAuth2AuthenticationToken token) {
+        return requireUser(session, ou, token).getId();
     }
 
     /* ======== API ======== */
@@ -143,14 +151,15 @@ public class MyPageController {
     @GetMapping("/favorites")
     public ResponseEntity<List<FavoriteDto>> favorites(
             HttpSession session,
-            @AuthenticationPrincipal OAuth2User ou) {
-
+            @AuthenticationPrincipal OAuth2User ou,
+            OAuth2AuthenticationToken authToken
+    ) {
         log.debug("[FAV] /favorites enter; principal? {}", (ou != null));
         try {
-            var me = requireUser(session, ou);
+            var me = requireUser(session, ou, authToken);
             log.debug("[FAV] /favorites me.id={}", me.getId());
 
-            var rows = favoriteService.list(me.getId()); // Service에서 [FAVORITE] list ... 로그가 찍혀야 정상
+            var rows = favoriteService.list(me.getId());
             log.debug("[FAV] /favorites service returned {} rows", rows != null ? rows.size() : -1);
 
             var dto = rows.stream()
@@ -176,8 +185,9 @@ public class MyPageController {
     public FavoriteDto addFavoriteByPath(@PathVariable Long recipeId,
                                          @RequestBody(required = false) Map<String, Object> body,
                                          HttpSession session,
-                                         @AuthenticationPrincipal OAuth2User ou) {
-        Long uid = requireUserId(session, ou);
+                                         @AuthenticationPrincipal OAuth2User ou,
+                                         OAuth2AuthenticationToken authToken) {
+        Long uid = requireUserId(session, ou, authToken);
         String title   = body != null ? strOrNull(body.get("title"))   : null;
         String summary = body != null ? strOrNull(body.get("summary")) : null;
         String image   = body != null ? strOrNull(body.get("image"))   : null;
@@ -192,7 +202,8 @@ public class MyPageController {
     @PostMapping(path = "/favorites", consumes = MediaType.APPLICATION_JSON_VALUE)
     public FavoriteDto addFavoriteByBody(@RequestBody Map<String, Object> body,
                                          HttpSession session,
-                                         @AuthenticationPrincipal OAuth2User ou) {
+                                         @AuthenticationPrincipal OAuth2User ou,
+                                         OAuth2AuthenticationToken authToken) {
         if (body == null || body.get("recipeId") == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "recipeId is required");
         }
@@ -200,7 +211,7 @@ public class MyPageController {
         if (recipeId == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "recipeId must be number");
         }
-        Long uid = requireUserId(session, ou);
+        Long uid = requireUserId(session, ou, authToken);
 
         String title   = strOrNull(body.get("title"));
         String summary = strOrNull(body.get("summary"));
@@ -216,8 +227,9 @@ public class MyPageController {
     @DeleteMapping("/favorites/{recipeId}")
     public ResponseEntity<Map<String, Object>> removeFavorite(@PathVariable Long recipeId,
                                                               HttpSession session,
-                                                              @AuthenticationPrincipal OAuth2User ou) {
-        var me = requireUser(session, ou);
+                                                              @AuthenticationPrincipal OAuth2User ou,
+                                                              OAuth2AuthenticationToken authToken) {
+        var me = requireUser(session, ou, authToken);
         favoriteService.remove(me.getId(), recipeId);
         return ResponseEntity.ok(Map.of("removed", true));
     }

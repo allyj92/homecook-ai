@@ -1,8 +1,12 @@
 // src/main/java/com/homecook/ai_recipe/service/OAuthAccountService.java
 package com.homecook.ai_recipe.service;
 
-import com.homecook.ai_recipe.auth.*;
-import com.homecook.ai_recipe.repo.*;
+import com.homecook.ai_recipe.auth.AccountLinkToken;
+import com.homecook.ai_recipe.auth.UserAccount;
+import com.homecook.ai_recipe.auth.UserAuthProvider;
+import com.homecook.ai_recipe.repo.AccountLinkTokenRepository;
+import com.homecook.ai_recipe.repo.UserAccountRepository;
+import com.homecook.ai_recipe.repo.UserAuthProviderRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.bcrypt.BCrypt;
 import org.springframework.stereotype.Service;
@@ -25,18 +29,22 @@ public class OAuthAccountService {
     private final SecureRandom rnd = new SecureRandom();
 
     /** provider+providerId로 바로 로그인 가능한 기존 연결 찾기 */
+    @Transactional(readOnly = true)
     public Optional<UserAccount> findByProvider(String provider, String providerId) {
         return uapRepo.findByProviderAndProviderId(provider, providerId)
                 .map(UserAuthProvider::getUser);
     }
 
-    /** JIT 가입: 사용자 + provider 연결 생성 */
+    /** (필요 시) JIT 가입: 사용자 + provider 연결 생성 */
     @Transactional
     public UserAccount createUserAndLink(String email, String name, String avatar,
                                          String provider, String providerId,
                                          boolean emailVerifiedFromIdP) {
         // 1. 이메일 중복 체크
-        Optional<UserAccount> existing = userRepo.findByEmail(email);
+        Optional<UserAccount> existing = (email == null || email.isBlank())
+                ? Optional.empty()
+                : userRepo.findByEmail(email);
+
         if (existing.isPresent()) {
             UserAccount u = existing.get();
             // provider 연결이 이미 없으면 추가
@@ -60,7 +68,7 @@ public class OAuthAccountService {
 
         UserAccount u = new UserAccount();
         u.setEmail(email);
-        u.setName((name != null && !name.isBlank()) ? name : email);
+        u.setName((name != null && !name.isBlank()) ? name : (email != null ? email : "User"));
         u.setAvatar(avatar);
         u.setEmailVerified(emailVerifiedFromIdP);
         u.setPasswordHash(dummyHash); // null 방지용 임시 패스워드
@@ -77,7 +85,6 @@ public class OAuthAccountService {
 
         return u;
     }
-
 
     /** 기존 로컬계정과 소셜을 묶기 위한 1회용 토큰 발급 */
     @Transactional
@@ -113,7 +120,7 @@ public class OAuthAccountService {
             linkRepo.delete(t);
             return Optional.empty();
         }
-        // 이미 연결돼 있지 않다면 생성
+        // 이미 동일 provider로 연결돼 있지 않다면 생성
         if (!uapRepo.existsByUserIdAndProvider(user.getId(), t.getProvider())) {
             UserAuthProvider link = UserAuthProvider.builder()
                     .user(user)
@@ -124,5 +131,27 @@ public class OAuthAccountService {
         }
         linkRepo.delete(t);
         return Optional.of(user);
+    }
+
+    /** ★ 컨트롤러에서 호출: 없으면 링크 생성 (중복 안전) */
+    @Transactional
+    public void createLinkIfAbsent(String provider, String providerId, Long userId) {
+        if (provider == null || providerId == null || userId == null) return;
+
+        // 동일 provider로 이미 연결돼 있으면 스킵
+        if (uapRepo.existsByUserIdAndProvider(userId, provider)) return;
+
+        // provider+providerId 쌍으로도 이미 존재하면 스킵
+        if (uapRepo.findByProviderAndProviderId(provider, providerId).isPresent()) return;
+
+        var user = userRepo.findById(userId).orElse(null);
+        if (user == null) return;
+
+        UserAuthProvider link = UserAuthProvider.builder()
+                .user(user)
+                .provider(provider)
+                .providerId(providerId)
+                .build();
+        uapRepo.save(link);
     }
 }

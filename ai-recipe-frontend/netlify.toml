@@ -5,7 +5,7 @@
 # /oauth2/authorization → 백엔드 (명시)
 [[redirects]]
   from = "/oauth2/authorization/*"
-  to   = "https://boards-meetup-purse-finder.trycloudflare.com/oauth2/authorization/:splat"
+  to   = "https://simply-affairs-hydraulic-msg.trycloudflare.com/oauth2/authorization/:splat"
   status = 200
   force  = true
   headers = { X-Forwarded-Host = "recipfree.com", X-Forwarded-Proto = "https" }  
@@ -13,7 +13,7 @@
 # /api → 백엔드
 [[redirects]]
   from = "/api/*"
-  to   = "https://proxy-oven-personally-scholarships.trycloudflare.com/api/:splat"
+  to   = "https://simply-affairs-hydraulic-msg.trycloudflare.com/api/:splat"
   status = 200
   force  = true
   headers = { X-Forwarded-Host = "recipfree.com", X-Forwarded-Proto = "https" }
@@ -21,7 +21,7 @@
 # /oauth2 → 백엔드 (Spring 내부 경로)
 [[redirects]]
   from = "/oauth2/*"
-  to   = "https://proxy-oven-personally-scholarships.trycloudflare.com/oauth2/:splat"
+  to   = "https://simply-affairs-hydraulic-msg.trycloudflare.com/oauth2/:splat"
   status = 200
   force  = true
   headers = { X-Forwarded-Host = "recipfree.com", X-Forwarded-Proto = "https" }
@@ -29,7 +29,7 @@
 # ★ 콜백 경로도 반드시 프록시
 [[redirects]]
   from = "/login/oauth2/*"
-  to   = "https://proxy-oven-personally-scholarships.trycloudflare.com/login/oauth2/:splat"
+  to   = "https://simply-affairs-hydraulic-msg.trycloudflare.com/login/oauth2/:splat"
   status = 200
   force  = true
   headers = { X-Forwarded-Host = "recipfree.com", X-Forwarded-Proto = "https" }

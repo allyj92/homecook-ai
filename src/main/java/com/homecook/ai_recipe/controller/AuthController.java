@@ -14,6 +14,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.security.web.context.SecurityContextRepository;
@@ -85,20 +86,34 @@ public class AuthController {
 
     /* ---------- API ---------- */
 
-    @GetMapping("/me") // <-- 클래스가 @RequestMapping("/api/auth") 이므로 최종 /api/auth/me
-    public Map<String, Object> me(@AuthenticationPrincipal OAuth2User user) {
-        if (user == null) return Map.of("authenticated", false);
-        Map<String, Object> a = user.getAttributes();
-        return Map.of(
-                "authenticated", true,
-                "uid", a.get("uid"),              // DB PK (로그인 시 attr에 심어둬야 함)
-                "provider", a.get("provider"),
-                "id", a.get("id"),
-                "email", a.get("email"),
-                "name", a.get("name"),
-                "picture", a.get("picture")
-        );
-    }
+// 변경 후
+
+        @GetMapping("/me")
+        public Map<String, Object> me(
+                @AuthenticationPrincipal OAuth2User user,
+                OAuth2AuthenticationToken authToken   // ★ 추가
+) {
+            if (user == null) return Map.of("authenticated", false);
+
+            var a = user.getAttributes();
+
+            // provider fallback: attributes에 없으면 토큰에서 뽑기
+            String provider = (a.get("provider") != null) ? String.valueOf(a.get("provider"))
+                    : (authToken != null ? authToken.getAuthorizedClientRegistrationId() : null);
+
+            // id fallback: OIDC(구글)는 sub, OAuth2(네이버/카카오)는 id
+            Object idObj = (a.get("id") != null) ? a.get("id") : a.get("sub");
+
+            return Map.of(
+                    "authenticated", true,
+                    "uid", a.get("uid"),           // 커스텀 서비스가 셋업한 경우만 존재
+                    "provider", provider,
+                    "id", idObj,
+                    "email", a.get("email"),
+                    "name", a.get("name"),
+                    "picture", a.get("picture")
+            );
+        }
 
 
 

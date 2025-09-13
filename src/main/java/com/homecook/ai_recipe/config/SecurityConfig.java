@@ -1,24 +1,39 @@
+// src/main/java/com/homecook/ai_recipe/config/SecurityConfig.java
 package com.homecook.ai_recipe.config;
 
-import com.homecook.ai_recipe.service.CustomOAuth2UserService;
+import com.homecook.ai_recipe.auth.CustomOAuth2UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.*;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
-import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.authority.mapping.GrantedAuthoritiesMapper;
+import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserRequest;
+import org.springframework.security.oauth2.client.userinfo.OAuth2UserService;
+import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AuthenticationFailureHandler;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
-import org.springframework.security.web.context.*;
-import org.springframework.web.cors.*;
+import org.springframework.security.web.context.DelegatingSecurityContextRepository;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
+import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.net.URI;
 import java.time.Duration;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Configuration
@@ -28,11 +43,22 @@ import java.util.UUID;
 public class SecurityConfig {
 
     private final CustomOAuth2UserService customOAuth2UserService;
+    private final OAuth2UserService<OidcUserRequest, OidcUser> customOidcUserService;
 
     @Value("${app.front-base}")
-    private String frontBase; // ex) https://recipfree.com or http://localhost:5173
+    private String frontBase; // e.g. https://recipfree.com or http://localhost:5173
 
-    /** AuthController에서 주입받을 SecurityContextRepository 빈 */
+    /** ROLE_USER를 항상 보강 */
+    @Bean
+    public GrantedAuthoritiesMapper userAuthoritiesMapper() {
+        return authorities -> {
+            Set<GrantedAuthority> set = new HashSet<>(authorities);
+            set.add(new SimpleGrantedAuthority("ROLE_USER"));
+            return set;
+        };
+    }
+
+    /** AuthController 등에서 사용할 SecurityContext 저장소 */
     @Bean
     public SecurityContextRepository securityContextRepository() {
         HttpSessionSecurityContextRepository sessionRepo = new HttpSessionSecurityContextRepository();
@@ -43,7 +69,7 @@ public class SecurityConfig {
         );
     }
 
-    /** CORS 설정 */
+    /** CORS */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration cfg = new CorsConfiguration();
@@ -69,37 +95,43 @@ public class SecurityConfig {
         return new org.springframework.web.filter.ForwardedHeaderFilter();
     }
 
-    /** 로그인 성공: 세션 보장 + refresh_token 발급 + 프론트로 리다이렉트 */
+    /** OAuth2 로그인 성공 핸들러: 세션 보장 + refresh_token 쿠키 발급 + 프론트로 리다이렉트 */
     @Bean
     public AuthenticationSuccessHandler successHandler() {
         return (request, response, authentication) -> {
             // 세션 보장 (JSESSIONID 발급)
             request.getSession(true);
 
-            // 도메인 결정: 배포 도메인일 때만 domain=.recipfree.com 지정
+            // 배포 도메인일 때만 쿠키 도메인 지정
             String cookieDomain = null;
             try {
                 String host = new URI(frontBase).getHost();
                 if (host != null && host.endsWith("recipfree.com")) {
                     cookieDomain = ".recipfree.com";
                 }
-            } catch (Exception ignored) { /* 로컬 등 파싱 실패 시 host-only */ }
+            } catch (Exception ignored) { }
 
+            // refresh_token(예시) 쿠키 생성 — 실제 토큰 로직은 필요에 맞게 교체
             String issued = UUID.randomUUID().toString();
-            ResponseCookie cookie = ResponseCookie.from("refresh_token", issued)  // ⬅️ 여기서부터 builder 반환
+            ResponseCookie cookie = ResponseCookie
+                    .from("refresh_token", issued)   // ✅ builder()가 아니라 from()
                     .httpOnly(true)
                     .secure(true)
                     .path("/")
-                    .sameSite("Lax")
+                    .sameSite("None")                // Lax / Strict / None
                     .maxAge(Duration.ofDays(30))
+                    .domain(cookieDomain)            // 필요할 때만
                     .build();
 
+            // ⬅️ 실제로 Set-Cookie 헤더에 실어 내려보내기
+            response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
 
             // 프론트 콜백으로 리다이렉트
             response.sendRedirect(frontBase + "/auth/callback?ok=1");
         };
     }
 
+    /** OAuth2 로그인 실패 핸들러 */
     @Bean
     public AuthenticationFailureHandler failureHandler() {
         return (request, response, ex) -> {
@@ -111,9 +143,10 @@ public class SecurityConfig {
         };
     }
 
+    /** Spring Security 6 스타일의 유일한 보안 설정 (구버전 configure 메서드 제거) */
     @Bean
     public SecurityFilterChain filterChain(
-            HttpSecurity http,
+            org.springframework.security.config.annotation.web.builders.HttpSecurity http,
             SecurityContextRepository repo,
             AuthenticationSuccessHandler successHandler,
             AuthenticationFailureHandler failureHandler
@@ -124,7 +157,7 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .securityContext(sc -> sc.securityContextRepository(repo))
 
-                // ✅ 익명 접근 시 /login 리다이렉트 금지, 401 JSON으로 응답
+                // 익명 접근 시 401 JSON 응답
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint((req, res, e) -> {
                             res.setStatus(401);
@@ -138,31 +171,27 @@ public class SecurityConfig {
                         })
                 )
 
-                // ✅ SavedRequest 비활성화 (302 리다이렉트 유발 방지)
+                // SavedRequest 비활성화 (302 방지)
                 .requestCache(rc -> rc.disable())
 
                 .authorizeHttpRequests(auth -> auth
-                        // 인증 필요 구간
+                        // 정적/루트 허용
+                        .requestMatchers("/", "/index.html", "/assets/**", "/favicon.ico").permitAll()
+                        // 인증 API
+                        .requestMatchers("/api/auth/**", "/oauth2/authorization/**", "/login/oauth2/code/**").permitAll()
+                        // 마이페이지/즐겨찾기 등 보호
                         .requestMatchers("/api/me/**").authenticated()
-                        // 인증 없이 허용
-                        .requestMatchers(
-                                "/api/auth/**",
-                                "/oauth2/authorization/**",
-                                "/login/oauth2/code/**"
-                        ).permitAll()
                         .anyRequest().permitAll()
                 )
 
                 .oauth2Login(oauth -> oauth
-                        .userInfoEndpoint(u -> u.userService(customOAuth2UserService))
+                        .userInfoEndpoint(u -> u
+                                .userService(customOAuth2UserService)   // OAuth2 (네이버/카카오)
+                                .oidcUserService(customOidcUserService) // OIDC (구글)
+                                .userAuthoritiesMapper(userAuthoritiesMapper())
+                        )
                         .successHandler(successHandler)
                         .failureHandler(failureHandler)
-                )
-
-                // ✅ /api/auth/logout 등에서 204/200만 돌려주도록 (리다이렉트 없음)
-                .logout(lo -> lo
-                        .logoutUrl("/api/auth/logout")
-                        .logoutSuccessHandler((req, res, auth) -> res.setStatus(200))
                 );
 
         return http.build();
