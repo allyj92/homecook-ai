@@ -1,4 +1,4 @@
 /oauth2/*            https://login.recipfree.com/oauth2/:splat            200
 /login/oauth2/*      https://login.recipfree.com/login/oauth2/:splat      200
 /api/*               https://login.recipfree.com/api/:splat               200
-/*                   /index.html        
+/*                   /index.html        ~
