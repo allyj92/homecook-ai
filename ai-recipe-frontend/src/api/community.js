@@ -1,38 +1,32 @@
 // src/api/community.js
-import axios from "axios";
+import { http, buildUrl } from '../lib/http';
 
-const BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/+$/, "");
-
-/** 글 생성 */
+/** 글 생성 (youtubeUrl, repImageUrl 포함해도 그대로 전달됨) */
 export async function createCommunityPost(payload) {
-  if (BASE) {
-    const url = `${BASE}/api/community/posts`;
-    const { data } = await axios.post(url, payload, {
-      withCredentials: true,
-      timeout: 30000,
-    });
-    return data; // { id }
+  // payload: { title, category, content, tags, youtubeUrl?, repImageUrl? }
+  const res = await http.post('/api/community/posts', payload);
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`글 등록 실패: ${res.status} ${text}`);
   }
-  const fUrl = "/.netlify/functions/communityCreate";
-  const { data } = await axios.post(fUrl, payload, {
-   withCredentials: true,   // ★ 함수 호출도 같은 오리진이라 쿠키 붙일 수 있음
-   timeout: 30000,
- });
-  return data;
+  // { id }
+  return res.json();
 }
 
 /** 글 단건 조회 */
 export async function getCommunityPost(id) {
-  if (BASE) {
-    const { data } = await axios.get(`${BASE}/api/community/posts/${id}`, {
-      withCredentials: true,
-      timeout: 30000,
-    });
-    return data;
+  const res = await http.get(`/api/community/posts/${encodeURIComponent(id)}`);
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`글 조회 실패: ${res.status} ${text}`);
   }
-  const { data } = await axios.get(
-    `/.netlify/functions/communityGet?id=${encodeURIComponent(id)}`,
-    { timeout: 30000 }
-  );
-  return data;
+  return res.json();
+}
+
+/* (선택) API 엔드포인트 확인용 디버그 */
+export function communityApiDebug() {
+  return {
+    createUrl: buildUrl('/api/community/posts'),
+    getUrl: (id) => buildUrl(`/api/community/posts/${id}`),
+  };
 }

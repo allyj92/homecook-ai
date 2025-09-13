@@ -1,6 +1,5 @@
 package com.homecook.ai_recipe.controller;
 
-import com.homecook.ai_recipe.domain.CreatePostReq;
 import com.homecook.ai_recipe.domain.PostRes;
 import com.homecook.ai_recipe.service.CommunityService;
 import jakarta.validation.Valid;

@@ -104,15 +104,15 @@ public class AuthController {
             // id fallback: OIDC(구글)는 sub, OAuth2(네이버/카카오)는 id
             Object idObj = (a.get("id") != null) ? a.get("id") : a.get("sub");
 
-            return Map.of(
-                    "authenticated", true,
-                    "uid", a.get("uid"),           // 커스텀 서비스가 셋업한 경우만 존재
-                    "provider", provider,
-                    "id", idObj,
-                    "email", a.get("email"),
-                    "name", a.get("name"),
-                    "picture", a.get("picture")
-            );
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("authenticated", true);
+            out.put("uid",      a.get("uid"));
+            out.put("provider", a.get("provider"));
+            out.put("id",       a.get("id"));
+            out.put("email",    a.get("email"));
+            out.put("name",     a.get("name"));     // null이어도 OK
+            out.put("picture",  a.get("picture"));  // null이어도 OK
+            return out;
         }
 
 
