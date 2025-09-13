@@ -1,199 +1,91 @@
 // src/main/java/com/homecook/ai_recipe/config/SecurityConfig.java
 package com.homecook.ai_recipe.config;
 
-import com.homecook.ai_recipe.auth.CustomOAuth2UserService;
-import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Profile;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.ResponseCookie;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
-import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.core.GrantedAuthority;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.authority.mapping.GrantedAuthoritiesMapper;
-import org.springframework.security.oauth2.client.oidc.userinfo.OidcUserRequest;
-import org.springframework.security.oauth2.client.userinfo.OAuth2UserService;
-import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.AuthenticationFailureHandler;
-import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
-import org.springframework.security.web.context.DelegatingSecurityContextRepository;
-import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
-import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
-import org.springframework.security.web.context.SecurityContextRepository;
-import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.web.cors.CorsConfigurationSource;
-import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.web.cors.*;
 
-import java.net.URI;
-import java.time.Duration;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
-import java.util.UUID;
 
 @Configuration
 @EnableWebSecurity
-@EnableMethodSecurity
-@RequiredArgsConstructor
 public class SecurityConfig {
 
-    private final CustomOAuth2UserService customOAuth2UserService;
-    private final OAuth2UserService<OidcUserRequest, OidcUser> customOidcUserService;
-
-    @Value("${app.front-base}")
-    private String frontBase; // e.g. https://recipfree.com or http://localhost:5173
-
-    /** ROLE_USER를 항상 보강 */
+    /**
+     * 보안 필터 체인
+     *
+     * - /api/** 에 대해 CSRF 미적용 (MVP의 REST API 용도)
+     * - CORS 기본 허용 (아래 corsConfigurationSource Bean과 함께 동작)
+     * - 인증/업로드/정적 리소스/프리플라이트 등 퍼블릭 접근 허용
+     * - 나머지는 필요에 맞게 조정 (현재는 permitAll)
+     */
     @Bean
-    public GrantedAuthoritiesMapper userAuthoritiesMapper() {
-        return authorities -> {
-            Set<GrantedAuthority> set = new HashSet<>(authorities);
-            set.add(new SimpleGrantedAuthority("ROLE_USER"));
-            return set;
-        };
-    }
-
-    /** AuthController 등에서 사용할 SecurityContext 저장소 */
-    @Bean
-    public SecurityContextRepository securityContextRepository() {
-        HttpSessionSecurityContextRepository sessionRepo = new HttpSessionSecurityContextRepository();
-        sessionRepo.setDisableUrlRewriting(true); // ;JSESSIONID 방지
-        return new DelegatingSecurityContextRepository(
-                new RequestAttributeSecurityContextRepository(),
-                sessionRepo
-        );
-    }
-
-    /** CORS */
-    @Bean
-    public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration cfg = new CorsConfiguration();
-        cfg.setAllowedOriginPatterns(List.of(
-                "https://recipfree.com",
-                "https://www.recipfree.com",
-                "http://localhost:*",
-                "http://127.0.0.1:*"
-        ));
-        cfg.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
-        cfg.setAllowedHeaders(List.of("*"));
-        cfg.setAllowCredentials(true);
-        cfg.setMaxAge(3600L);
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", cfg);
-        return source;
-    }
-
-    /** 프록시 헤더 신뢰 (prod에서 권장) */
-    @Bean
-    @Profile("prod")
-    public org.springframework.web.filter.ForwardedHeaderFilter forwardedHeaderFilter() {
-        return new org.springframework.web.filter.ForwardedHeaderFilter();
-    }
-
-    /** OAuth2 로그인 성공 핸들러: 세션 보장 + refresh_token 쿠키 발급 + 프론트로 리다이렉트 */
-    @Bean
-    public AuthenticationSuccessHandler successHandler() {
-        return (request, response, authentication) -> {
-            // 세션 보장 (JSESSIONID 발급)
-            request.getSession(true);
-
-            // 배포 도메인일 때만 쿠키 도메인 지정
-            String cookieDomain = null;
-            try {
-                String host = new URI(frontBase).getHost();
-                if (host != null && host.endsWith("recipfree.com")) {
-                    cookieDomain = ".recipfree.com";
-                }
-            } catch (Exception ignored) { }
-
-            // refresh_token(예시) 쿠키 생성 — 실제 토큰 로직은 필요에 맞게 교체
-            String issued = UUID.randomUUID().toString();
-            ResponseCookie cookie = ResponseCookie
-                    .from("refresh_token", issued)   // ✅ builder()가 아니라 from()
-                    .httpOnly(true)
-                    .secure(true)
-                    .path("/")
-                    .sameSite("None")                // Lax / Strict / None
-                    .maxAge(Duration.ofDays(30))
-                    .domain(cookieDomain)            // 필요할 때만
-                    .build();
-
-            // ⬅️ 실제로 Set-Cookie 헤더에 실어 내려보내기
-            response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
-
-            // 프론트 콜백으로 리다이렉트
-            response.sendRedirect(frontBase + "/auth/callback?ok=1");
-        };
-    }
-
-    /** OAuth2 로그인 실패 핸들러 */
-    @Bean
-    public AuthenticationFailureHandler failureHandler() {
-        return (request, response, ex) -> {
-            String msg = java.net.URLEncoder.encode(
-                    ex.getMessage() == null ? "login_failed" : ex.getMessage(),
-                    java.nio.charset.StandardCharsets.UTF_8
-            );
-            response.sendRedirect(frontBase + "/auth/callback?error=" + msg);
-        };
-    }
-
-    /** Spring Security 6 스타일의 유일한 보안 설정 (구버전 configure 메서드 제거) */
-    @Bean
-    public SecurityFilterChain filterChain(
-            org.springframework.security.config.annotation.web.builders.HttpSecurity http,
-            SecurityContextRepository repo,
-            AuthenticationSuccessHandler successHandler,
-            AuthenticationFailureHandler failureHandler
-    ) throws Exception {
-
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
+                // CSRF: API는 비상태성 호출이 많아 우선 제외. (폼 로그인 페이지가 있다면 /web/** 쪽만 CSRF 적용 고려)
+                .csrf(csrf -> csrf.ignoringRequestMatchers("/api/**"))
+
+                // CORS: 아래 corsConfigurationSource() 설정 사용
                 .cors(Customizer.withDefaults())
-                .csrf(csrf -> csrf.disable())
-                .securityContext(sc -> sc.securityContextRepository(repo))
 
-                // 익명 접근 시 401 JSON 응답
-                .exceptionHandling(ex -> ex
-                        .authenticationEntryPoint((req, res, e) -> {
-                            res.setStatus(401);
-                            res.setContentType("application/json;charset=UTF-8");
-                            res.getWriter().write("{\"authenticated\":false}");
-                        })
-                        .accessDeniedHandler((req, res, e) -> {
-                            res.setStatus(403);
-                            res.setContentType("application/json;charset=UTF-8");
-                            res.getWriter().write("{\"error\":\"forbidden\"}");
-                        })
-                )
-
-                // SavedRequest 비활성화 (302 방지)
-                .requestCache(rc -> rc.disable())
-
+                // 세부 권한
                 .authorizeHttpRequests(auth -> auth
-                        // 정적/루트 허용
-                        .requestMatchers("/", "/index.html", "/assets/**", "/favicon.ico").permitAll()
-                        // 인증 API
-                        .requestMatchers("/api/auth/**", "/oauth2/authorization/**", "/login/oauth2/code/**").permitAll()
-                        // 마이페이지/즐겨찾기 등 보호
-                        .requestMatchers("/api/me/**").authenticated()
-                        .anyRequest().permitAll()
-                )
+                        // 프리플라이트
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
-                .oauth2Login(oauth -> oauth
-                        .userInfoEndpoint(u -> u
-                                .userService(customOAuth2UserService)   // OAuth2 (네이버/카카오)
-                                .oidcUserService(customOidcUserService) // OIDC (구글)
-                                .userAuthoritiesMapper(userAuthoritiesMapper())
-                        )
-                        .successHandler(successHandler)
-                        .failureHandler(failureHandler)
+                        // 인증/세션 관련 엔드포인트 (상황에 맞게 조정)
+                        .requestMatchers("/api/auth/**").permitAll()
+
+                        // 업로드(임시 오픈) — 테스트가 끝나면 authenticated()로 바꿔서 로그인 사용자만 허용 추천
+                        .requestMatchers(HttpMethod.POST, "/api/uploads").permitAll()
+
+                        // 정적 리소스(업로드 파일 서빙)
+                        .requestMatchers(HttpMethod.GET, "/static/**").permitAll()
+
+                        // 그 외 공개 리소스가 있다면 이어서 나열
+                        //.requestMatchers("/", "/favicon.ico", "/assets/**").permitAll()
+
+                        // 나머지 (필요 시 authenticated()로 전환)
+                        .anyRequest().permitAll()
                 );
 
+        // 세션/로그인 방식(formLogin/httpBasic 등)이 필요하면 아래에서 추가 설정하세요.
+        // 예) http.httpBasic(Customizer.withDefaults());
+
         return http.build();
+    }
+
+    /**
+     * CORS 설정
+     * - 개발 프록시(예: http://localhost:5173) 또는 LAN에서 접근하는 경우 허용
+     * - 실제 배포에서는 origin을 정확히 제한하세요.
+     */
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration config = new CorsConfiguration();
+
+        // 개발 편의: 와일드카드 ORIGIN은 credentials=true와 함께 사용할 수 없음.
+        // 프록시를 쓰면 같은 오리진처럼 동작하므로 아래 Origins는 사실 크게 의미 없지만,
+        // 만약 직접 다른 오리진에서 접근한다면 여기서 허용 도메인을 명시하세요.
+        config.setAllowedOrigins(List.of(
+                "http://localhost:5173",
+                "http://127.0.0.1:5173"
+                // 필요 시 추가: "http://192.168.0.xxx:5173"
+        ));
+        config.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
+        config.setAllowedHeaders(List.of("*"));
+        config.setAllowCredentials(true);
+        // 캐시(초)
+        config.setMaxAge(3600L);
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        // 모든 경로에 동일 CORS 적용
+        source.registerCorsConfiguration("/**", config);
+        return source;
     }
 }
