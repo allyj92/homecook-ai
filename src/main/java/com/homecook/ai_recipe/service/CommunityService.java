@@ -5,6 +5,8 @@ import com.homecook.ai_recipe.domain.CreatePostReq;
 import com.homecook.ai_recipe.domain.PostRes;
 import com.homecook.ai_recipe.repo.CommunityPostRepository;
 
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -83,5 +85,17 @@ public class CommunityService {
                 p.getYoutubeId(),
                 p.getRepImageUrl()
         );
+    }
+
+
+    public List<PostRes> findRecentByAuthor(Long authorId, int size) {
+        var pr = PageRequest.of(0, Math.max(1, size), Sort.by(Sort.Direction.DESC, "createdAt"));
+        return repo.findByAuthorId(authorId, pr)
+                .map(p -> new PostRes(
+                        p.getId(), p.getTitle(), p.getCategory(), p.getContent(),
+                        p.getTags(), p.getAuthorId(), p.getCreatedAt(), p.getUpdatedAt(),
+                        p.getYoutubeId(), p.getRepImageUrl()
+                ))
+                .getContent();
     }
 }

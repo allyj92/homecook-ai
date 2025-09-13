@@ -1,6 +1,10 @@
 package com.homecook.ai_recipe.repo;
 
 import com.homecook.ai_recipe.domain.CommunityPost;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-public interface CommunityPostRepository extends JpaRepository<CommunityPost, Long> {}
+public interface CommunityPostRepository extends JpaRepository<CommunityPost, Long> {
+    Page<CommunityPost> findByAuthorId(Long authorId, Pageable pageable);
+}

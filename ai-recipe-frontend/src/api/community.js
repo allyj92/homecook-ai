@@ -29,4 +29,15 @@ export function communityApiDebug() {
     createUrl: buildUrl('/api/community/posts'),
     getUrl: (id) => buildUrl(`/api/community/posts/${id}`),
   };
+
 }
+
+export async function getMyPosts(size = 3) {
+  const res = await http.get(`/api/community/posts/mine?size=${encodeURIComponent(size)}`, { noAuthRedirect: true });
+  if (!res.ok) {
+    const text = await res.text().catch(()=> '');
+    throw new Error(`내 글 조회 실패: ${res.status} ${text}`);
+  }
+  return res.json(); // [{ id, title, category, content, tags, authorId, createdAt, updatedAt, youtubeId, repImageUrl }]
+}
+
