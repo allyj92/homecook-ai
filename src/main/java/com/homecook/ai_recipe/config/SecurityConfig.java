@@ -37,17 +37,20 @@ public class SecurityConfig {
      * - 나머지는 필요에 맞게 조정 (현재는 permitAll)
      */
     @Bean
-    SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain security(HttpSecurity http) throws Exception {
         http
                 .csrf(csrf -> csrf.ignoringRequestMatchers("/api/**"))
-                .cors(Customizer.withDefaults())
                 .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/", "/favicon.ico", "/assets/**", "/static/**", "/css/**", "/js/**", "/images/**").permitAll()
+                        .requestMatchers("/oauth2/**", "/login/oauth2/code/**").permitAll()
                         .requestMatchers("/api/auth/**").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/uploads").permitAll()
-                        // ✅ 파비콘/정적 리소스 허용
-                        .requestMatchers(HttpMethod.GET, "/favicon.ico", "/robots.txt", "/assets/**", "/static/**").permitAll()
-                        .anyRequest().permitAll()
-                );
+                        .anyRequest().authenticated()
+                )
+                .oauth2Login(oauth -> oauth
+                        .defaultSuccessUrl("/", true)
+                )
+                .logout(logout -> logout.logoutUrl("/api/auth/logout"))
+                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED));
         return http.build();
     }
 
