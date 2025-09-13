@@ -1,92 +1,9 @@
-// src/pages/MyPage.jsx
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import BottomNav from '../compoments/BottomNav';             // 프로젝트 구조상 compoments 맞음
+import BottomNav from '../compoments/BottomNav'; // 프로젝트 구조상 compoments 맞음
 import { apiFetch } from '../lib/http';
 import { listFavoritesSimple, removeFavorite } from '../lib/wishlist';
 import { getMyPosts } from '../api/community';
-
-{/* 메인 */}
-        <section className="col-12 col-lg-8">
-          {/* 저장한 레시피 (미리보기 3개 + 전체보기 버튼) */}
-          <div className="card shadow-sm mb-3">
-            {/* ...즐겨찾기 카드 내용... */}
-          </div>
-
-          {/* ↓↓↓ 여기 아래에 "내가 쓴 글" 블록 붙여넣기 ↓↓↓ */}
-          <div className="card shadow-sm mb-3">
-            <div className="card-header d-flex justify-content-between align-items-center">
-              <h5 className="m-0">내가 쓴 글</h5>
-              <div className="d-flex gap-2">
-                <button className="btn btn-sm btn-success" onClick={() => navigate('/write')}>글쓰기</button>
-              </div>
-            </div>
-
-            {myLoading && (
-              <div className="p-3">
-                <div className="placeholder-glow">
-                  <div className="placeholder col-12 mb-2" style={{ height: 18 }} />
-                  <div className="placeholder col-10 mb-2" style={{ height: 18 }} />
-                  <div className="placeholder col-8" style={{ height: 18 }} />
-                </div>
-              </div>
-            )}
-
-            {!myLoading && myErr && (
-              <div className="alert alert-danger m-3" role="alert">{myErr}</div>
-            )}
-
-            {!myLoading && !myErr && myPosts.length === 0 && (
-              <div className="p-4 text-center text-secondary">
-                아직 작성한 글이 없어요.
-                <div className="mt-2">
-                  <button className="btn btn-sm btn.Success" onClick={()=>navigate('/write')}>첫 글 쓰기</button>
-                </div>
-              </div>
-            )}
-
-            {!myLoading && !myErr && myPosts.length > 0 && (
-              <div className="list-group list-group-flush">
-                {myPosts.map(p => {
-                  const to = `/community/${p.id}`;
-                  const cover = p.repImageUrl || (p.youtubeId ? `https://i.ytimg.com/vi/${p.youtubeId}/hqdefault.jpg` : null);
-                  return (
-                    <Link key={p.id} to={to} className="list-group-item list-group-item-action">
-                      <div className="d-flex align-items-center gap-3">
-                        <div className="flex-shrink-0">
-                          <div
-                            className="rounded"
-                            style={{
-                              width: 80, height: 56, background: '#f3f3f3',
-                              backgroundImage: cover ? `url(${cover})` : undefined,
-                              backgroundSize: 'cover', backgroundPosition: 'center'
-                            }}
-                          />
-                        </div>
-                        <div className="flex-grow-1" style={{ minWidth: 0 }}>
-                          <div className="fw-semibold" style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{p.title}</div>
-                          <div className="small text-secondary" style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
-                            {p.category}{p.createdAt ? ` · ${new Date(p.createdAt).toLocaleDateString()}` : ''}
-                          </div>
-                        </div>
-                        <div className="text-secondary small d-none d-md-block">
-                          {p.tags?.slice(0,3).map(t => (
-                            <span key={t} className="badge bg-light text-dark border ms-1">#{t}</span>
-                          ))}
-                        </div>
-                      </div>
-                    </Link>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-          {/* ↑↑↑ 여기까지가 "내가 쓴 글" 섹션 */}
-
-          {/* 광고 */}
-          <AdSlot id="ad-mypage-native" height={120} label="네이티브 인라인" />
-
-          {/* 최근 활동 */}
 
 /* ── 광고 슬롯 ───────────────────── */
 function AdSlot({ id, height = 250, label = 'AD', sticky = false }) {
@@ -122,7 +39,7 @@ export default function MyPage() {
   const [wishlist, setWishlist] = useState([]); // [{ id, recipeId, title, summary, image, meta, createdAt }]
 
   // 내가 쓴 글
-  const [myPosts, setMyPosts] = useState([]);   // [{ id, title, category, createdAt, youtubeId, repImageUrl, ... }]
+  const [myPosts, setMyPosts] = useState([]);   // [{ id, title, category, createdAt, youtubeId, repImageUrl, tags }]
   const [myLoading, setMyLoading] = useState(false);
   const [myErr, setMyErr] = useState('');
 
