@@ -51,6 +51,19 @@ public class CommunityService {
         return null;
     }
 
+    @Transactional(readOnly = true)
+    public List<PostRes> findLatestByAuthor(Long authorId, int size) {
+        PageRequest pr = PageRequest.of(0, Math.max(1, size), Sort.by(Sort.Direction.DESC, "createdAt"));
+        return repo.findByAuthorId(authorId, pr)
+                .stream()
+                .map(p -> new PostRes(
+                        p.getId(), p.getTitle(), p.getCategory(), p.getContent(),
+                        p.getTags(), p.getAuthorId(), p.getCreatedAt(), p.getUpdatedAt(),
+                        p.getYoutubeId(), p.getRepImageUrl()
+                ))
+                .toList();
+    }
+
     @Transactional
     public Long create(Long authorId, CreatePostReq req) {
         CommunityPost p = new CommunityPost();

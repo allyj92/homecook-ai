@@ -25,6 +25,15 @@ public class CommunityController {
     /**
      * 생성: id만 반환
      */
+
+    @GetMapping("/my-posts")
+    public List<PostRes> myPosts(
+            @AuthenticationPrincipal(expression = "attributes['uid']") Long uid,
+            @RequestParam(defaultValue = "3") int size
+    ) {
+        if (uid == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+        return service.findLatestByAuthor(uid, size); // 서비스에서 최근 size개 조회
+    }
     // CommunityController.java
     @PostMapping("/posts")
     public Map<String, Long> create(@Valid @RequestBody CreatePostReq req,

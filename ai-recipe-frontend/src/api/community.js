@@ -1,26 +1,37 @@
 // src/api/community.js
-import { http, buildUrl } from '../lib/http';
+import { apiFetch, buildUrl } from '../lib/http';
 
-/** 글 생성 (youtubeUrl, repImageUrl 포함해도 그대로 전달됨) */
+/** 글 생성 */
 export async function createCommunityPost(payload) {
-  // payload: { title, category, content, tags, youtubeUrl?, repImageUrl? }
-  const res = await http.post('/api/community/posts', payload);
+  const res = await apiFetch('/api/community/posts', {
+    method: 'POST',
+    body: payload, // JSON이면 apiFetch가 Content-Type 지정 + stringify
+  });
   if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`글 등록 실패: ${res.status} ${text}`);
+    const t = await res.text().catch(() => '');
+    throw new Error(`글 생성 실패: ${res.status} ${t}`);
   }
-  // { id }
-  return res.json();
+  return res.json(); // { id }
 }
 
 /** 글 단건 조회 */
 export async function getCommunityPost(id) {
-  const res = await http.get(`/api/community/posts/${encodeURIComponent(id)}`);
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`글 조회 실패: ${res.status} ${text}`);
-  }
+  const res = await apiFetch(`/api/community/posts/${encodeURIComponent(id)}`);
+  if (!res.ok) throw new Error('글 조회 실패');
   return res.json();
+}
+
+/** 내가 쓴 글 (최신 N) */
+export async function getMyPosts(size = 3) {
+  const res = await apiFetch(`/api/community/my-posts?size=${encodeURIComponent(size)}`, {
+    // apiFetch가 credentials: 'include' 로 쿠키 자동 포함
+    cache: 'no-store',
+  });
+  if (!res.ok) {
+    // 401이면 프론트에서 이미 로그인 처리 루틴이 있으니 여기선 빈 배열
+    return [];
+  }
+  return res.json(); // [{ id, title, category, createdAt, youtubeId, repImageUrl, tags }]
 }
 
 /* (선택) API 엔드포인트 확인용 디버그 */
