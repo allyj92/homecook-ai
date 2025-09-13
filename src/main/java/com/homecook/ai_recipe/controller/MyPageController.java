@@ -115,12 +115,14 @@ public class MyPageController {
             HttpSession session,
             @AuthenticationPrincipal OAuth2User ou) {
 
-        var me = requireUser(session, ou);
-        log.debug("[FAV] controller /favorites uid={}", me.getId());  // ★ 진입 로그
+        log.debug("[FAV] /favorites enter; principal? {}", (ou != null));
+        final var me = requireUser(session, ou);   // 여기서 401이면 이제 401로 내려가야 정답
+        log.debug("[FAV] /favorites uid={}", me.getId());
 
-        var rows = favoriteService.list(me.getId());                  // ★ 여기서 Service 로그가 이어져야 정상
+        final var rows = favoriteService.list(me.getId()); // ★ 여기서 NPE/SQL 에러 가능
+        log.debug("[FAV] /favorites rows={}", (rows == null ? -1 : rows.size()));
 
-        var dto = rows.stream()
+        final var dto = rows.stream()
                 .map(f -> new FavoriteDto(
                         f.getId(), f.getRecipeId(), f.getTitle(), f.getSummary(),
                         f.getImage(), f.getMeta(),
@@ -130,6 +132,7 @@ public class MyPageController {
 
         return ResponseEntity.ok(dto);
     }
+
 
     /** 케이스 #1: 기존 프런트 규격 (경로에 recipeId) */
     @PostMapping("/favorites/{recipeId}")
