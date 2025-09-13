@@ -19,13 +19,10 @@ const API_BASE = (() => {
   const base = safeResolveBase(RAW_API_BASE);
   if (!base) return '';
   try {
-    // 배포에서는 same-origin만 허용(쿠키 보장)
-    if (import.meta.env.PROD) {
-      const sameOrigin = new URL(base).origin === window.location.origin;
-      return sameOrigin ? base : '';
-    }
-    // 개발은 그대로 사용
-    return base;
+    const wOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+    const sameOrigin = new URL(base).origin === wOrigin;
+    // ✅ 개발/배포 모두 same-origin 일 때만 BASE 사용
+    return sameOrigin ? base : '';
   } catch {
     return '';
   }
