@@ -4,13 +4,14 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 import "bootstrap/dist/css/bootstrap.min.css";
 import BottomNav from "../compoments/BottomNav";
 import { ensureLogin, fetchMe } from "../lib/auth";
-import { getCommunityPost } from "../api/community.js";
+import { getCommunityPost } from "../api/community"; // ✅ import 하나로 통일
 
 /** API 응답을 화면용으로 정규화 */
 function normalizePost(raw) {
   if (!raw) return null;
   let d = raw;
 
+  // 문자열/래핑 방어
   if (typeof d === "string") {
     try { d = JSON.parse(d); } catch {}
   }
@@ -27,6 +28,9 @@ function normalizePost(raw) {
     authorId: d.authorId ?? d.userId ?? null,
     createdAt: d.createdAt ?? d.created_at ?? null,
     updatedAt: d.updatedAt ?? d.updated_at ?? null,
+    // 상세에서 repImageUrl/youtubeId를 내려주면 MyPage 북마크 카드에서 썸네일로 활용
+    repImageUrl: d.repImageUrl ?? null,
+    youtubeId: d.youtubeId ?? null,
   };
 }
 
@@ -43,13 +47,15 @@ function Meta({ author, createdAt }) {
 }
 
 export default function PostDetailPage() {
-  console.log("PostDetail LOADED v-2025-09-14-d"); // ← 새 번들 로딩 확인용
+  console.log("PostDetail LOADED v-2025-09-14-e"); // ← 새 번들 로딩 확인용
 
   const { id } = useParams();
   const navigate = useNavigate();
   const loc = useLocation();
 
-  /* 로그인 상태 */
+  /* =========================
+   *  로그인 상태
+   * ========================= */
   const [auth, setAuth] = useState({ loading: true, user: null });
   const syncAuth = useCallback(async () => {
     const u = await fetchMe();
@@ -82,7 +88,9 @@ export default function PostDetailPage() {
     };
   }, [syncAuth]);
 
-  /* 게시글 */
+  /* =========================
+   *  게시글 로드
+   * ========================= */
   const [post, setPost] = useState(null);
   const [loadingPost, setLoadingPost] = useState(true);
   const [err, setErr] = useState(null);
@@ -105,7 +113,9 @@ export default function PostDetailPage() {
     return () => { alive = false; };
   }, [id]);
 
-  /* 좋아요/북마크 (UI 토글 + localStorage 보존) */
+  /* =========================
+   *  좋아요/북마크 (UI 토글 + localStorage 보존)
+   * ========================= */
   const [liked, setLiked] = useState(false);
   const [bookmarked, setBookmarked] = useState(false);
 
@@ -137,41 +147,38 @@ export default function PostDetailPage() {
       });
     });
 
-  // ...생략 (파일 상단 동일)
-
-const onToggleBookmark = () =>
-  requireAuth(() => {
-    setBookmarked((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem(`postBookmark:${post.id}`, next ? "1" : "0");
-        const dataKey = `postBookmarkData:${post.id}`;
-        if (next) {
-          // 북마크 켤 때 메타데이터 저장 (MyPage에서 써먹어요)
-          const payload = {
-            id: post.id,
-            title: post.title,
-            category: post.category,
-            createdAt: post.createdAt || post.updatedAt || null,
-            repImageUrl: post.repImageUrl || null,
-            youtubeId: post.youtubeId || null,
-            tags: Array.isArray(post.tags) ? post.tags : [],
-          };
-          localStorage.setItem(dataKey, JSON.stringify(payload));
-        } else {
-          // 끌 때 메타데이터 제거
-          localStorage.removeItem(dataKey);
-        }
-      } catch {}
-      // TODO: 서버 북마크 API 연동 지점
-      return next;
+  const onToggleBookmark = () =>
+    requireAuth(() => {
+      setBookmarked((prev) => {
+        const next = !prev;
+        try {
+          localStorage.setItem(`postBookmark:${post.id}`, next ? "1" : "0");
+          const dataKey = `postBookmarkData:${post.id}`;
+          if (next) {
+            // 북마크 켤 때 메타데이터 저장 (MyPage에서 써먹어요)
+            const payload = {
+              id: post.id,
+              title: post.title,
+              category: post.category,
+              createdAt: post.createdAt || post.updatedAt || null,
+              repImageUrl: post.repImageUrl || null,
+              youtubeId: post.youtubeId || null,
+              tags: Array.isArray(post.tags) ? post.tags : [],
+            };
+            localStorage.setItem(dataKey, JSON.stringify(payload));
+          } else {
+            // 끌 때 메타데이터 제거
+            localStorage.removeItem(dataKey);
+          }
+        } catch {}
+        // TODO: 서버 북마크 API 연동
+        return next;
+      });
     });
-  });
 
-// ...생략 (파일 하단 동일)
-
-
-  /* 렌더링 분기 */
+  /* =========================
+   *  렌더링 분기
+   * ========================= */
   if (loadingPost) {
     return (
       <div className="container-xxl py-3">
@@ -230,7 +237,7 @@ const onToggleBookmark = () =>
           <h1 className="h4 mb-1">{post.title || "제목 없음"}</h1>
           <Meta author={post.authorId} createdAt={post.createdAt || post.updatedAt} />
 
-          {/* ====== 액션 바 (본문 위쪽, 로그인 시만 버튼) ====== */}
+          {/* 액션 바 (로그인 시만 노출) */}
           {!auth.loading && (
             auth.user ? (
               <div className="mt-3 d-flex gap-2">
@@ -253,12 +260,17 @@ const onToggleBookmark = () =>
               </div>
             ) : (
               <div className="mt-3 text-secondary small">
-                좋아요/북마크는 <button className="btn btn-link p-0 align-baseline"
+                좋아요/북마크는{" "}
+                <button
+                  className="btn btn-link p-0 align-baseline"
                   onClick={async () => {
                     const ok = await ensureLogin(`/community/${post.id}`);
                     if (ok) location.reload();
                   }}
-                >로그인</button> 후 사용할 수 있어요.
+                >
+                  로그인
+                </button>{" "}
+                후 사용할 수 있어요.
               </div>
             )
           )}
@@ -301,7 +313,7 @@ const onToggleBookmark = () =>
       </article>
 
       {/* 버전 마커 */}
-      <div className="text-center text-secondary small mt-2">PostDetail v-2025-09-14-d</div>
+      <div className="text-center text-secondary small mt-2">PostDetail v-2025-09-14-e</div>
 
       <footer className="text-center text-secondary mt-4">
         <div className="small">* 커뮤니티 내 일부 링크는 제휴/광고일 수 있으며, 구매 시 수수료를 받을 수 있습니다.</div>
