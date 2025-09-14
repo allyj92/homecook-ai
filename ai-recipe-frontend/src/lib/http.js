@@ -17,20 +17,17 @@ function safeResolveBase(raw) {
   }
 }
 
+// ✅ DEV(로컬)에서는 VITE_API_BASE를 그대로 사용
+// ✅ PROD(배포)에서는 same-origin일 때만 사용
 const API_BASE = (() => {
   const base = safeResolveBase(RAW_API_BASE);
   if (!base) return '';
-  if (typeof window === 'undefined') return base;
-
-  const wOrigin = window.location.origin;
-  const bOrigin = new URL(base).origin;
-  const sameOrigin = bOrigin === wOrigin;
-
-  // ✅ dev(vite)에서는 오리진 달라도 VITE_API_BASE 사용
-  if (import.meta?.env?.DEV) return base;
-
-  // ✅ prod에서는 same-origin일 때만 사용, 아니면 상대경로 사용
-  return sameOrigin ? base : '';
+  try {
+    const wOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+    if (import.meta.env?.DEV) return base;                 // ← 여기 추가
+    const sameOrigin = new URL(base).origin === wOrigin;
+    return sameOrigin ? base : '';
+  } catch { return ''; }
 })();
 
 /* =========================
