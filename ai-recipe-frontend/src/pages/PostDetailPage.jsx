@@ -4,7 +4,7 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 import "bootstrap/dist/css/bootstrap.min.css";
 import BottomNav from "../compoments/BottomNav";
 import { ensureLogin, fetchMe } from "../lib/auth";
-import { getCommunityPost } from "../api/community"; // ✅ import 하나로 통일
+import { getCommunityPost } from "../api/community";
 
 /** API 응답을 화면용으로 정규화 */
 function normalizePost(raw) {
@@ -28,9 +28,8 @@ function normalizePost(raw) {
     authorId: d.authorId ?? d.userId ?? null,
     createdAt: d.createdAt ?? d.created_at ?? null,
     updatedAt: d.updatedAt ?? d.updated_at ?? null,
-    // 상세에서 repImageUrl/youtubeId를 내려주면 MyPage 북마크 카드에서 썸네일로 활용
-    repImageUrl: d.repImageUrl ?? null,
-    youtubeId: d.youtubeId ?? null,
+    repImageUrl: d.repImageUrl ?? d.rep_image_url ?? null,
+    youtubeId: d.youtubeId ?? d.youtube_id ?? null,
   };
 }
 
@@ -47,21 +46,18 @@ function Meta({ author, createdAt }) {
 }
 
 export default function PostDetailPage() {
-  console.log("PostDetail LOADED v-2025-09-14-e"); // ← 새 번들 로딩 확인용
+  console.log("PostDetail LOADED v-2025-09-14-e"); // 새 번들 확인용
 
   const { id } = useParams();
   const navigate = useNavigate();
   const loc = useLocation();
 
-  /* =========================
-   *  로그인 상태
-   * ========================= */
+  /** 로그인 상태 */
   const [auth, setAuth] = useState({ loading: true, user: null });
   const syncAuth = useCallback(async () => {
     const u = await fetchMe();
     setAuth({ loading: false, user: u ?? null });
   }, []);
-
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -78,7 +74,6 @@ export default function PostDetailPage() {
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("storage", onStorage);
     window.addEventListener("auth:changed", onAuthChanged);
-
     return () => {
       mounted = false;
       window.removeEventListener("focus", onFocus);
@@ -88,9 +83,7 @@ export default function PostDetailPage() {
     };
   }, [syncAuth]);
 
-  /* =========================
-   *  게시글 로드
-   * ========================= */
+  /** 게시글 */
   const [post, setPost] = useState(null);
   const [loadingPost, setLoadingPost] = useState(true);
   const [err, setErr] = useState(null);
@@ -113,9 +106,7 @@ export default function PostDetailPage() {
     return () => { alive = false; };
   }, [id]);
 
-  /* =========================
-   *  좋아요/북마크 (UI 토글 + localStorage 보존)
-   * ========================= */
+  /** 좋아요/북마크 (UI 토글 + localStorage 보존) */
   const [liked, setLiked] = useState(false);
   const [bookmarked, setBookmarked] = useState(false);
 
@@ -155,7 +146,6 @@ export default function PostDetailPage() {
           localStorage.setItem(`postBookmark:${post.id}`, next ? "1" : "0");
           const dataKey = `postBookmarkData:${post.id}`;
           if (next) {
-            // 북마크 켤 때 메타데이터 저장 (MyPage에서 써먹어요)
             const payload = {
               id: post.id,
               title: post.title,
@@ -167,7 +157,6 @@ export default function PostDetailPage() {
             };
             localStorage.setItem(dataKey, JSON.stringify(payload));
           } else {
-            // 끌 때 메타데이터 제거
             localStorage.removeItem(dataKey);
           }
         } catch {}
@@ -176,9 +165,7 @@ export default function PostDetailPage() {
       });
     });
 
-  /* =========================
-   *  렌더링 분기
-   * ========================= */
+  /** 렌더링 분기 */
   if (loadingPost) {
     return (
       <div className="container-xxl py-3">

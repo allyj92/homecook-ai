@@ -1,7 +1,7 @@
 // src/pages/MyPage.jsx
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import BottomNav from '../compoments/BottomNav'; // 프로젝트 구조상 compoments 맞음
+import BottomNav from '../compoments/BottomNav';
 import { apiFetch } from '../lib/http';
 import { listFavoritesSimple, removeFavorite } from '../lib/wishlist';
 import { getMyPosts } from '../api/community';
@@ -34,7 +34,7 @@ export default function MyPage() {
   const [adPref, setAdPref] = useState('balanced');
   const [dietGoal, setDietGoal] = useState('diet');
 
-  // 즐겨찾기
+  // 즐겨찾기(레시피)
   const [wishLoading, setWishLoading] = useState(false);
   const [wishErr, setWishErr] = useState('');
   const [wishlist, setWishlist] = useState([]); // [{ id, recipeId, title, summary, image, meta, createdAt }]
@@ -80,7 +80,6 @@ export default function MyPage() {
         const meData = await res.json();
         if (aborted) return;
 
-        // 로그인 안 된 상태면 즉시 로그인 화면으로
         if (!meData?.authenticated) {
           try { localStorage.removeItem('authUser'); } catch {}
           localStorage.setItem('postLoginRedirect', '/mypage');
@@ -123,7 +122,7 @@ export default function MyPage() {
 
   // 찜 해제: recipeId 기준
   async function onRemove(e, recipeId) {
-    if (e) { e.preventDefault(); e.stopPropagation(); } // 링크 이동 방지
+    if (e) { e.preventDefault(); e.stopPropagation(); }
     const rid = Number(recipeId);
     if (!Number.isFinite(rid) || rid <= 0) return;
 
@@ -135,6 +134,66 @@ export default function MyPage() {
       alert('삭제에 실패했어요.');
       setWishlist(prev); // 롤백
     }
+  }
+
+  // ─────────────────────────────────────────
+  // 북마크한 글 로컬(localStorage) 기반 섹션
+  // ─────────────────────────────────────────
+  const [bookmarks, setBookmarks] = useState([]);   // [{ id, title, category, createdAt, repImageUrl, youtubeId, tags }]
+  const [bmLoading, setBmLoading] = useState(false);
+
+  function loadBookmarksFromLS() {
+    const list = [];
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key || !key.startsWith('postBookmark:')) continue;
+        const id = key.split(':')[1];
+        if (localStorage.getItem(key) !== '1') continue;
+
+        const dataKey = `postBookmarkData:${id}`;
+        let meta = null;
+        const raw = localStorage.getItem(dataKey);
+        if (raw) {
+          try { meta = JSON.parse(raw); } catch {}
+        }
+        list.push({ id: Number(id), ...(meta || {}) });
+      }
+      list.sort((a, b) => {
+        const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return tb - ta;
+      });
+    } catch {}
+    return list;
+  }
+
+  useEffect(() => {
+    const pull = () => {
+      setBmLoading(true);
+      try {
+        setBookmarks(loadBookmarksFromLS());
+      } finally {
+        setBmLoading(false);
+      }
+    };
+    pull();
+
+    const onStorage = (e) => {
+      if (!e || !e.key || e.key.startsWith('postBookmark')) pull();
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  function onUnbookmark(e, postId) {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    const id = String(postId);
+    try {
+      localStorage.setItem(`postBookmark:${id}`, '0');
+      localStorage.removeItem(`postBookmarkData:${id}`);
+    } catch {}
+    setBookmarks(arr => arr.filter(b => String(b.id) !== id));
   }
 
   // 로딩 스켈레톤 (me)
@@ -320,7 +379,7 @@ export default function MyPage() {
                           )}
                         </div>
 
-                        {/* 액션 버튼 (가로로 넓게) */}
+                        {/* 액션 버튼 */}
                         <div className="d-flex gap-2 flex-shrink-0">
                           <button
                             className="btn btn-sm btn-outline-danger"
@@ -329,6 +388,76 @@ export default function MyPage() {
                             title="찜 해제"
                           >
                             제거
+                          </button>
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* 🔖 북마크한 글 (상세에서 📌 누른 커뮤니티 글) */}
+          <div className="card shadow-sm mb-3">
+            <div className="card-header d-flex justify-content-between align-items-center">
+              <h5 className="m-0">북마크한 글</h5>
+              <span className="text-secondary small">{bookmarks.length}개</span>
+            </div>
+
+            {bmLoading && (
+              <div className="p-3">
+                <div className="placeholder-glow">
+                  <div className="placeholder col-12 mb-2" style={{ height: 18 }} />
+                  <div className="placeholder col-10 mb-2" style={{ height: 18 }} />
+                  <div className="placeholder col-8" style={{ height: 18 }} />
+                </div>
+              </div>
+            )}
+
+            {!bmLoading && bookmarks.length === 0 && (
+              <div className="p-4 text-center text-secondary">
+                아직 북마크한 글이 없어요.
+                <div className="mt-2">
+                  <Link className="btn btn-sm btn-success" to="/community">커뮤니티로 가기</Link>
+                </div>
+              </div>
+            )}
+
+            {!bmLoading && bookmarks.length > 0 && (
+              <div className="list-group list-group-flush">
+                {bookmarks.slice(0, 5).map((b) => {
+                  const to = `/community/${b.id}`;
+                  const cover = b.repImageUrl || (b.youtubeId ? ytThumb(b.youtubeId) : null);
+                  return (
+                    <Link key={b.id} to={to} className="list-group-item list-group-item-action">
+                      <div className="d-flex align-items-center gap-3">
+                        <div className="flex-shrink-0">
+                          <div
+                            className="rounded"
+                            style={{
+                              width: 80, height: 56, background: '#f3f3f3',
+                              backgroundImage: cover ? `url(${cover})` : undefined,
+                              backgroundSize: 'cover', backgroundPosition: 'center'
+                            }}
+                          />
+                        </div>
+                        <div className="flex-grow-1" style={{ minWidth: 0 }}>
+                          <div className="fw-semibold" style={oneLine}>
+                            {b.title || `게시글 #${b.id}`}
+                          </div>
+                          <div className="small text-secondary" style={oneLine}>
+                            {b.category || '커뮤니티'}{b.createdAt ? ` · ${formatDate(b.createdAt)}` : ''}
+                          </div>
+                        </div>
+                        <div className="d-flex gap-2 flex-shrink-0">
+                          <button
+                            className="btn btn-sm btn-outline-danger"
+                            style={{ minWidth: 72, height: 32, padding: '0 12px' }}
+                            onClick={(e) => onUnbookmark(e, b.id)}
+                            title="북마크 해제"
+                          >
+                            해제
                           </button>
                         </div>
                       </div>
