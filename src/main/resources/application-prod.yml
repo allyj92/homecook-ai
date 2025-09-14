@@ -13,6 +13,13 @@ spring:
             # 콤마로 써도 되지만 리스트가 깔끔해요
             scope: [name, email]
             provider: naver
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            client-name: Google
+            scope: [ openid, profile, email ]           # ← openid 꼭 포함
+            redirect-uri: "{baseUrl}/login/oauth2/code/google"
+            user-name-attribute: sub                  # ← 구글은 sub가 고유ID
         provider:
           naver:
             authorization-uri: https://nid.naver.com/oauth2.0/authorize
