@@ -1,9 +1,11 @@
+// src/main/java/com/homecook/ai_recipe/service/CommunityService.java
 package com.homecook.ai_recipe.service;
 
 import com.homecook.ai_recipe.domain.CommunityPost;
 import com.homecook.ai_recipe.domain.CreatePostReq;
 import com.homecook.ai_recipe.domain.PostRes;
 import com.homecook.ai_recipe.repo.CommunityPostRepository;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -20,38 +22,37 @@ public class CommunityService {
         this.repo = repo;
     }
 
-    /* 공통 변환 */
-    private static PostRes toRes(CommunityPost p) {
-        return new PostRes(
-                p.getId(),
-                p.getTitle(),
-                p.getCategory(),
-                p.getContent(),
-                p.getTags(),
-                p.getAuthorId(),
-                p.getCreatedAt(),
-                p.getUpdatedAt(),
-                p.getYoutubeId(),
-                p.getRepImageUrl()
-        );
-    }
-
-    /* 커뮤니티 목록: 최신순 (카테고리 선택/페이지네이션) */
+    /* ---------------- 목록 ---------------- */
     @Transactional(readOnly = true)
-    public List<PostRes> listLatest(String category, int page, int size) {
-        page = Math.max(0, page);
-        size = Math.min(Math.max(1, size), 50); // 1~50 제한
-        var pr = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        return repo.findLatest(category, pr).stream().map(CommunityService::toRes).toList();
+    public List<PostRes> list(String category, int page, int size) {
+        PageRequest pr = PageRequest.of(Math.max(0, page), Math.max(1, size),
+                Sort.by(Sort.Direction.DESC, "createdAt"));
+
+        Page<CommunityPost> result = (category == null || category.isBlank())
+                ? repo.findAll(pr)
+                : repo.findByCategory(category, pr);
+
+        return result.map(p -> new PostRes(
+                p.getId(), p.getTitle(), p.getCategory(), p.getContent(),
+                p.getTags(), p.getAuthorId(), p.getCreatedAt(), p.getUpdatedAt(),
+                p.getYoutubeId(), p.getRepImageUrl()
+        )).getContent();
     }
 
-    /* 내가 쓴 글 최근 N개 */
+    /* ---------------- 내가 쓴 글 최근 N개 ---------------- */
     @Transactional(readOnly = true)
     public List<PostRes> findLatestByAuthor(Long authorId, int size) {
         var pr = PageRequest.of(0, Math.max(1, size), Sort.by(Sort.Direction.DESC, "createdAt"));
-        return repo.findByAuthorId(authorId, pr).stream().map(CommunityService::toRes).toList();
+        return repo.findByAuthorId(authorId, pr)
+                .map(p -> new PostRes(
+                        p.getId(), p.getTitle(), p.getCategory(), p.getContent(),
+                        p.getTags(), p.getAuthorId(), p.getCreatedAt(), p.getUpdatedAt(),
+                        p.getYoutubeId(), p.getRepImageUrl()
+                ))
+                .getContent();
     }
 
+    /* ---------------- 작성 ---------------- */
     @Transactional
     public Long create(Long authorId, CreatePostReq req) {
         CommunityPost p = new CommunityPost();
@@ -60,23 +61,25 @@ public class CommunityService {
         p.setContent((req.content() == null ? "" : req.content()).trim());
         p.setTags(req.tags() == null ? List.of() : req.tags());
         p.setAuthorId(authorId);
-
-        // 선택 필드
         p.setYoutubeId(toYoutubeId(req.youtubeUrl()));
         p.setRepImageUrl(req.repImageUrl());
-
         repo.save(p);
         return p.getId();
     }
 
+    /* ---------------- 단건 조회 ---------------- */
     @Transactional(readOnly = true)
     public PostRes getOne(Long id) {
         CommunityPost p = repo.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("post not found: " + id));
-        return toRes(p);
+        return new PostRes(
+                p.getId(), p.getTitle(), p.getCategory(), p.getContent(),
+                p.getTags(), p.getAuthorId(), p.getCreatedAt(), p.getUpdatedAt(),
+                p.getYoutubeId(), p.getRepImageUrl()
+        );
     }
 
-    /* 유튜브 URL → videoId */
+    /* 유튜브 ID 파싱 유틸 */
     private static String toYoutubeId(String url) {
         if (url == null) return null;
         String u = url.trim();

@@ -1,9 +1,9 @@
 // src/pages/PostDetailPage.jsx
-import { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useEffect, useState, useCallback } from "react";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import "bootstrap/dist/css/bootstrap.min.css";
 import BottomNav from "../compoments/BottomNav";
-import { ensureLogin } from "../auth/ensureLogin";
+import { ensureLogin, fetchMe } from "../lib/auth";          // ✅ 경로/함수 정리
 import { getCommunityPost } from "../api/community.js";
 
 /** API 응답을 화면용으로 정규화 */
@@ -11,13 +11,11 @@ function normalizePost(raw) {
   if (!raw) return null;
   let d = raw;
 
-  // Netlify 함수가 텍스트/래핑으로 줄 수도 있어 방어
   if (typeof d === "string") {
-    try { d = JSON.parse(d); } catch { /* 그대로 사용 */ }
+    try { d = JSON.parse(d); } catch {}
   }
   if (d && d.bodyPreview && !d.id) {
-    // 디버그 래핑 형태 {status, ok, bodyPreview} → bodyPreview 파싱 시도
-    try { d = JSON.parse(d.bodyPreview); } catch { /* noop */ }
+    try { d = JSON.parse(d.bodyPreview); } catch {}
   }
 
   return {
@@ -47,32 +45,74 @@ function Meta({ author, createdAt }) {
 export default function PostDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const loc = useLocation();
 
+  // ✅ 로그인 상태
+  const [auth, setAuth] = useState({ loading: true, user: null });
+
+  const syncAuth = useCallback(async () => {
+    const u = await fetchMe();                 // /api/auth/me
+    setAuth({ loading: false, user: u ?? null });
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try { await syncAuth(); } finally {}
+    })();
+
+    // 탭 포커스/가시성/스토리지/커스텀 이벤트 시 동기화
+    const onFocus = () => syncAuth();
+    const onVisible = () => { if (document.visibilityState === 'visible') syncAuth(); };
+    const onStorage = (e) => { if (!e || !e.key || e.key.startsWith('auth')) syncAuth(); };
+    const onAuthChanged = () => syncAuth();
+
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('auth:changed', onAuthChanged);
+
+    return () => {
+      alive = false;
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('auth:changed', onAuthChanged);
+    };
+  }, [syncAuth]);
+
+  // ✅ 게시글
   const [post, setPost] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loadingPost, setLoadingPost] = useState(true);
   const [err, setErr] = useState(null);
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        setLoading(true);
+        setLoadingPost(true);
         const raw = await getCommunityPost(id);
-        console.log("[PostDetail] raw =", raw);
         const norm = normalizePost(raw);
-        console.log("[PostDetail] normalized =", norm);
         if (alive) setPost(norm);
       } catch (e) {
         console.error(e);
         if (alive) setErr(e);
       } finally {
-        if (alive) setLoading(false);
+        if (alive) setLoadingPost(false);
       }
     })();
     return () => { alive = false; };
   }, [id]);
 
-  if (loading) {
+  // ✅ 로그인 필요 액션 가드
+  const requireAuth = useCallback(async (action) => {
+    if (auth.user) return action?.();
+    const backTo = `${loc.pathname}${loc.search || ""}`;
+    const u = await ensureLogin(backTo);
+    if (u) action?.();
+  }, [auth.user, loc]);
+
+  if (loadingPost) {
     return (
       <div className="container-xxl py-3">
         <div className="placeholder-glow">
@@ -109,19 +149,44 @@ export default function PostDetailPage() {
     );
   }
 
+  // ✅ 로딩이 끝났고, 미로그인일 때만 CTA 보이기 (깜빡임 방지)
+  const showLoginCTA = !auth.loading && !auth.user;
+
   return (
     <div className="container-xxl py-3">
-      <nav className="mb-3 d-flex gap-2">
+      <nav className="mb-3 d-flex gap-2 align-items-center">
         <button className="btn btn-outline-secondary" onClick={() => navigate(-1)}>← 목록</button>
-        <button
-          className="btn btn-success ms-auto"
-          onClick={async () => {
-            const me = await ensureLogin(`/community/${post.id}`);
-            if (me) alert("수정/댓글 기능은 추후 추가 예정이에요!");
-          }}
-        >
-          로그인 후 상호작용
-        </button>
+
+        {/* ✅ 로그인 상태에 따라 상호작용 영역 분기 */}
+        {showLoginCTA ? (
+          <button
+            className="btn btn-success ms-auto"
+            onClick={() => ensureLogin(`/community/${post.id}`)}
+          >
+            로그인 후 상호작용
+          </button>
+        ) : (
+          <div className="ms-auto d-flex gap-2">
+            <button
+              className="btn btn-outline-secondary"
+              onClick={() => requireAuth(() => alert("좋아요 토글(예시)"))}
+            >
+              👍 좋아요
+            </button>
+            <button
+              className="btn btn-outline-secondary"
+              onClick={() => requireAuth(() => alert("북마크(예시)"))}
+            >
+              📌 북마크
+            </button>
+            <button
+              className="btn btn-outline-primary"
+              onClick={() => requireAuth(() => alert("수정/댓글 기능은 추후 추가 예정이에요!"))}
+            >
+              상호작용
+            </button>
+          </div>
+        )}
       </nav>
 
       <article className="card shadow-sm">
@@ -146,6 +211,22 @@ export default function PostDetailPage() {
           <div className="mt-2" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
             {post.content ? post.content : <span className="text-secondary">내용이 비어 있습니다.</span>}
           </div>
+
+          {/* ✅ 로그인 상태에서만 댓글 입력 */}
+          {!auth.loading && auth.user && (
+            <div className="mt-4" id="comment-editor">
+              <label className="form-label">댓글</label>
+              <textarea className="form-control" rows="4" placeholder="댓글을 입력하세요..." />
+              <div className="text-end mt-2">
+                <button
+                  className="btn btn-success"
+                  onClick={() => requireAuth(() => alert("댓글 등록(예시)"))}
+                >
+                  등록
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </article>
 

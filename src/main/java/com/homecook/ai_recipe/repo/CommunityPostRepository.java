@@ -20,5 +20,7 @@ public interface CommunityPostRepository extends JpaRepository<CommunityPost, Lo
         where (:category is null or :category = '' or p.category = :category)
         order by p.createdAt desc
     """)
-    Page<CommunityPost> findLatest(@Param("category") String category, Pageable pageable);
+    //✅ 카테고리별 페이지 조회 (목록용)
+    Page<CommunityPost> findByCategory(String category, Pageable pageable);
+
 }

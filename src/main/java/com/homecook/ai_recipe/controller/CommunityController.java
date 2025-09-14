@@ -1,3 +1,4 @@
+// src/main/java/com/homecook/ai_recipe/controller/CommunityController.java
 package com.homecook.ai_recipe.controller;
 
 import com.homecook.ai_recipe.domain.CreatePostReq;
@@ -22,14 +23,14 @@ public class CommunityController {
         this.service = service;
     }
 
-    /** ✅ 커뮤니티 목록 (카테고리/페이지/사이즈) */
+    /** ✅ 목록 (카테고리 선택/페이지네이션) */
     @GetMapping("/posts")
     public List<PostRes> list(
             @RequestParam(required = false) String category,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size
+            @RequestParam(defaultValue = "12") int size
     ) {
-        return service.listLatest(category, page, size);
+        return service.list(category, page, size);
     }
 
     /** 단건 조회 */
