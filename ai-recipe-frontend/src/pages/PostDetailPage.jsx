@@ -1,8 +1,9 @@
+// src/pages/PostDetailPage.jsx
 import { useEffect, useState, useCallback } from "react";
-import { useParams, useNavigate, useLocation } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import "bootstrap/dist/css/bootstrap.min.css";
 import BottomNav from "../compoments/BottomNav";
-import { ensureLogin, fetchMe } from "../lib/auth";   // ✅ 경로/함수 정리
+import { ensureLogin, fetchMe } from "../lib/auth";   // /api/auth/me 사용
 import { getCommunityPost } from "../api/community.js";
 
 /** API 응답을 화면용으로 정규화 */
@@ -43,31 +44,29 @@ function Meta({ author, createdAt }) {
 }
 
 export default function PostDetailPage() {
+  console.log("PostDetail LOADED v-2025-09-14-c"); // ← 새 번들 로딩 확인용 로그
+
   const { id } = useParams();
   const navigate = useNavigate();
-  const loc = useLocation();
 
   /* =========================
    *  로그인 상태 동기화
    * ========================= */
   const [auth, setAuth] = useState({ loading: true, user: null });
 
-  // 포커스/보임/스토리지/커스텀 이벤트 때 사용할 공용 동기화 함수
   const syncAuth = useCallback(async () => {
-    const u = await fetchMe(); // /api/auth/me
-    setAuth(prev => ({ ...prev, loading: false, user: u ?? null }));
+    const u = await fetchMe(); // /api/auth/me 호출
+    setAuth({ loading: false, user: u ?? null });
   }, []);
 
   useEffect(() => {
     let mounted = true;
-
-    // 최초 1회: 언마운트 이후 setState 방지
     (async () => {
       const u = await fetchMe();
       if (mounted) setAuth({ loading: false, user: u ?? null });
     })();
 
-    // 이벤트 바인딩: 포커스/가시성/스토리지/커스텀 auth 이벤트 시 재확인
+    // 포커스/가시성/스토리지/커스텀 이벤트 시 재확인
     const onFocus = () => syncAuth();
     const onVisible = () => { if (document.visibilityState === "visible") syncAuth(); };
     const onStorage = (e) => { if (!e || !e.key || e.key.startsWith("auth")) syncAuth(); };
@@ -113,16 +112,6 @@ export default function PostDetailPage() {
   }, [id]);
 
   /* =========================
-   *  로그인 필요 액션 가드
-   * ========================= */
-  const requireAuth = useCallback(async (action) => {
-    if (auth.user) return action?.();
-    const backTo = `${loc.pathname}${loc.search || ""}`;
-    const u = await ensureLogin(backTo);
-    if (u) action?.();
-  }, [auth.user, loc]);
-
-  /* =========================
    *  렌더링 분기
    * ========================= */
   if (loadingPost) {
@@ -162,41 +151,11 @@ export default function PostDetailPage() {
     );
   }
 
-  // 로딩 종료 + 미로그인일 때만 CTA 노출 (깜빡임 방지)
-  const showLoginCTA = !auth.loading && !auth.user;
-
   return (
     <div className="container-xxl py-3">
+      {/* 상단: ← 목록만, "로그인 후 상호작용" 버튼 제거 */}
       <nav className="mb-3 d-flex gap-2 align-items-center">
         <button className="btn btn-outline-secondary" onClick={() => navigate(-1)}>← 목록</button>
-
-        {/* 로그인 상태에 따른 상단 CTA/액션 */}
-        {showLoginCTA ? (
-          <button
-            className="btn btn-success ms-auto"
-            onClick={async () => {
-              const ok = await ensureLogin(`/community/${post.id}`);
-              if (ok) navigate(0); // 로그인 직후 현재 페이지 리프레시(선택)
-            }}
-          >
-            로그인 후 상호작용
-          </button>
-        ) : (
-          <div className="ms-auto d-flex gap-2">
-            <button
-              className="btn btn-outline-secondary"
-              onClick={() => requireAuth(() => alert("좋아요 토글(예시)"))}
-            >
-              👍 좋아요
-            </button>
-            <button
-              className="btn btn-outline-secondary"
-              onClick={() => requireAuth(() => alert("북마크(예시)"))}
-            >
-              📌 북마크
-            </button>
-          </div>
-        )}
       </nav>
 
       <article className="card shadow-sm">
@@ -217,12 +176,12 @@ export default function PostDetailPage() {
 
           <hr />
 
-          {/* 내용은 우선 프리텍스트로 표시 (마크다운은 추후) */}
+          {/* 내용 표시 (마크다운은 추후) */}
           <div className="mt-2" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
             {post.content ? post.content : <span className="text-secondary">내용이 비어 있습니다.</span>}
           </div>
 
-          {/* 로그인 상태에서만 댓글 입력, 미로그인 안내 */}
+          {/* 댓글 영역: 로그인 시 입력 가능, 미로그인 시 안내만 */}
           {!auth.loading && (
             auth.user ? (
               <div className="mt-4" id="comment-editor">
@@ -244,7 +203,7 @@ export default function PostDetailPage() {
                   className="btn btn-success"
                   onClick={async () => {
                     const ok = await ensureLogin(`/community/${post.id}`);
-                    if (ok) navigate(0);
+                    if (ok) location.reload(); // 로그인 후 현재 페이지 갱신(선택)
                   }}
                 >
                   로그인
@@ -254,6 +213,11 @@ export default function PostDetailPage() {
           )}
         </div>
       </article>
+
+      {/* 버전 마커: 새 코드 반영 확인용 */}
+      <div className="text-center text-secondary small mt-2">
+        PostDetail v-2025-09-14-c
+      </div>
 
       <footer className="text-center text-secondary mt-4">
         <div className="small">
