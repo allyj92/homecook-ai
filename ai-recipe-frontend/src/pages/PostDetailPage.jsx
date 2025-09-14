@@ -179,12 +179,7 @@ export default function PostDetailPage() {
             >
               📌 북마크
             </button>
-            <button
-              className="btn btn-outline-primary"
-              onClick={() => requireAuth(() => alert("수정/댓글 기능은 추후 추가 예정이에요!"))}
-            >
-              상호작용
-            </button>
+           
           </div>
         )}
       </nav>
