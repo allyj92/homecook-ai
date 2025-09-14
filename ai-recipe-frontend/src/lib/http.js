@@ -2,9 +2,7 @@
 
 // ===== API_BASE 결정 =====
 // - DEV: VITE_API_BASE 사용 (예: http://localhost:8080)
-// - PROD: VITE_API_BASE의 오리진이 현재 오리진과 다르면 무시하고 상대경로 사용
-
-
+// - PROD: same-origin 이거나 같은 최상위 도메인(예: recipfree.com)일 때만 사용
 const RAW_API_BASE = (import.meta.env?.VITE_API_BASE || '').replace(/\/+$/, '');
 
 function safeResolveBase(raw) {
@@ -17,17 +15,29 @@ function safeResolveBase(raw) {
   }
 }
 
-// ✅ DEV(로컬)에서는 VITE_API_BASE를 그대로 사용
-// ✅ PROD(배포)에서는 same-origin일 때만 사용
 const API_BASE = (() => {
   const base = safeResolveBase(RAW_API_BASE);
   if (!base) return '';
   try {
-    const wOrigin = typeof window !== 'undefined' ? window.location.origin : '';
-    if (import.meta.env?.DEV) return base;                 // ← 여기 추가
-    const sameOrigin = new URL(base).origin === wOrigin;
-    return sameOrigin ? base : '';
-  } catch { return ''; }
+    const w = typeof window !== 'undefined' ? window : null;
+    const wOrigin = w ? w.location.origin : '';
+    const baseUrl = new URL(base);
+
+    // DEV(로컬 개발)에서는 무조건 사용
+    if (import.meta.env?.DEV) return base;
+
+    // same-origin 이면 사용
+    const sameOrigin = baseUrl.origin === wOrigin;
+    if (sameOrigin) return base;
+
+    // 최상위 도메인 동일 시 사용 (예: recipfree.com)
+    const hostA = (baseUrl.hostname || '').split('.').slice(-2).join('.');
+    const hostB = (w ? w.location.hostname : '').split('.').slice(-2).join('.');
+    const sameSite = hostA && hostB && hostA === hostB;
+    return sameSite ? base : '';
+  } catch {
+    return '';
+  }
 })();
 
 /* =========================
@@ -151,5 +161,9 @@ export const http = {
  * 디버그(선택): 현재 적용된 API_BASE 확인용
  * ========================= */
 export function getApiBaseForDebug() {
-  return { RAW_API_BASE, API_BASE, origin: typeof window !== 'undefined' ? window.location.origin : '' };
+  return {
+    RAW_API_BASE,
+    API_BASE,
+    origin: typeof window !== 'undefined' ? window.location.origin : ''
+  };
 }

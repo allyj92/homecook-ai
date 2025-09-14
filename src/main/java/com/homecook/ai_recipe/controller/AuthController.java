@@ -50,7 +50,8 @@ public class AuthController {
                 .httpOnly(true)
                 .secure(true)
                 .path("/")
-                .sameSite("Lax");
+                .sameSite("Lax")
+                .domain("recipfree.com");
         // 필요시 도메인 고정 (예: 서브도메인 공유)
         // b.domain(".recipfree.com");
 
@@ -66,6 +67,7 @@ public class AuthController {
                 .secure(true)
                 .path("/")
                 .sameSite("Lax")
+                .domain("recipfree.com")
                 .maxAge(0);
         // 필요시 도메인 고정
         // b.domain(".recipfree.com");
