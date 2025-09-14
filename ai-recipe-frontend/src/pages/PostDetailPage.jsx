@@ -5,6 +5,7 @@ import "bootstrap/dist/css/bootstrap.min.css";
 import BottomNav from "../compoments/BottomNav";
 import { ensureLogin, fetchMe } from "../lib/auth";
 import { getCommunityPost } from "../api/community";
+import { logActivity } from "../lib/activity";
 
 /** API 응답을 화면용으로 정규화 */
 function normalizePost(raw) {
@@ -133,6 +134,8 @@ export default function PostDetailPage() {
       setLiked((prev) => {
         const next = !prev;
         try { localStorage.setItem(`postLike:${post.id}`, next ? "1" : "0"); } catch {}
+        // 활동 로그
+        logActivity("post_like", { postId: post.id, title: post.title, on: next });
         // TODO: 서버 좋아요 API 연동
         return next;
       });
@@ -159,6 +162,8 @@ export default function PostDetailPage() {
           } else {
             localStorage.removeItem(dataKey);
           }
+          // 활동 로그
+          logActivity("post_bookmark", { postId: post.id, title: post.title, on: next });
         } catch {}
         // TODO: 서버 북마크 API 연동
         return next;
@@ -276,7 +281,14 @@ export default function PostDetailPage() {
                 <label className="form-label">댓글</label>
                 <textarea className="form-control" rows="4" placeholder="댓글을 입력하세요..." />
                 <div className="text-end mt-2">
-                  <button className="btn btn-success" onClick={() => alert("댓글 등록(예시)")}>
+                  <button
+                    className="btn btn-success"
+                    onClick={() => {
+                      // TODO: 댓글 등록 API
+                      logActivity("comment_create", { postId: post.id, title: post.title });
+                      alert("댓글 등록(예시)");
+                    }}
+                  >
                     등록
                   </button>
                 </div>
