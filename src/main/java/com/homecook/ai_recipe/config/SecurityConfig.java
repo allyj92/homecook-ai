@@ -41,31 +41,28 @@ public class SecurityConfig {
                         .requestMatchers("/", "/favicon.ico", "/assets/**", "/static/**", "/css/**", "/js/**", "/images/**").permitAll()
                         .requestMatchers("/oauth2/**", "/login/oauth2/code/**").permitAll()
                         .requestMatchers("/api/auth/**").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/uploads").permitAll()
-                        .anyRequest().permitAll()   // 필요시 authenticated() 로 바꾸세요
+
+                        .requestMatchers(HttpMethod.GET, "/api/community/posts", "/api/community/posts/*").permitAll()
+                        .requestMatchers("/api/community/**").authenticated()
+
+                        .anyRequest().permitAll()
                 )
                 .oauth2Login(oauth -> oauth
                         .successHandler((req, res, auth) -> {
                             System.out.println("[OAUTH] success: " + auth.getName());
-                            res.sendRedirect(frontBase + "/");
+                            res.sendRedirect(frontBase + "/"); // 프론트가 postLoginRedirect 처리
                         })
                         .failureHandler((req, res, ex) -> {
-                            ex.printStackTrace(); // 서버 콘솔에 원인 노출
+                            ex.printStackTrace();
                             res.sendRedirect(frontBase + "/login-signup?error=" + ex.getClass().getSimpleName());
-                        }) .failureHandler((req, res, ex) -> {
-                            ex.printStackTrace(); // 콘솔에 정확한 원인
-                            res.setStatus(401);
-                            res.setContentType("application/json;charset=UTF-8");
-                            String msg = ex.getMessage() == null ? "" : ex.getMessage().replace("\"","'");
-                            res.getWriter().write("{\"error\":\"" + ex.getClass().getSimpleName() + "\",\"message\":\"" + msg + "\"}");
                         })
                 )
-
                 .logout(lo -> lo
                         .logoutUrl("/api/auth/logout")
                         .logoutSuccessHandler((req, res, auth) -> res.setStatus(204))
                 )
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED));
+
         return http.build();
     }
 

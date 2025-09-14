@@ -22,43 +22,41 @@ public class CommunityController {
         this.service = service;
     }
 
-    /**
-     * 생성: id만 반환
-     */
-
-    @GetMapping("/my-posts")
-    public List<PostRes> myPosts(
-            @AuthenticationPrincipal(expression = "attributes['uid']") Long uid,
-            @RequestParam(defaultValue = "3") int size
+    /** ✅ 커뮤니티 목록 (카테고리/페이지/사이즈) */
+    @GetMapping("/posts")
+    public List<PostRes> list(
+            @RequestParam(required = false) String category,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
     ) {
-        if (uid == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
-        return service.findLatestByAuthor(uid, size); // 서비스에서 최근 size개 조회
-    }
-    // CommunityController.java
-    @PostMapping("/posts")
-    public Map<String, Long> create(@Valid @RequestBody CreatePostReq req,
-                                    @AuthenticationPrincipal(expression = "id") Long userId) {
-        if (userId == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
-        Long id = service.create(userId, req);
-        return Map.of("id", id);
+        return service.listLatest(category, page, size);
     }
 
-    /**
-     * 단건 조회: 전체 정보를 DTO로 반환
-     */
+    /** 단건 조회 */
     @GetMapping("/posts/{id}")
     public PostRes getOne(@PathVariable Long id) {
         return service.getOne(id);
     }
 
-    @GetMapping("/posts/mine")
-    public List<PostRes> myPosts(
-            @RequestParam(defaultValue = "3") int size,
-            @AuthenticationPrincipal(expression = "id") Long userId  // ✅ (A) 커스텀 Principal에 id 필드가 있을 때
+    /** 작성 */
+    @PostMapping("/posts")
+    public Map<String, Long> create(
+            @Valid @RequestBody CreatePostReq req,
+            @AuthenticationPrincipal(expression = "attributes['uid']") Number uid
     ) {
-        if (userId == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
-        return service.findRecentByAuthor(userId, size);
+        if (uid == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+        long userId = uid.longValue();
+        Long id = service.create(userId, req);
+        return Map.of("id", id);
+    }
+
+    /** 내가 쓴 글 최근 N개 */
+    @GetMapping("/my-posts")
+    public List<PostRes> myPosts(
+            @AuthenticationPrincipal(expression = "attributes['uid']") Number uid,
+            @RequestParam(defaultValue = "3") int size
+    ) {
+        if (uid == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+        return service.findLatestByAuthor(uid.longValue(), size);
     }
 }
-
-
