@@ -1,68 +1,56 @@
 // src/components/Header.jsx
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
-import { ensureLogin } from '../auth/ensureLogin';
-import { apiFetch } from '../lib/http';
-
-function readLocalUser() {
-  try { return JSON.parse(localStorage.getItem('authUser') || 'null'); }
-  catch { return null; }
-}
+import { useState, useEffect, useCallback } from 'react';
+import {
+  ensureLogin,
+  resolveAuthOnce,
+  fetchMe,
+  logout as doLogout,
+} from '../lib/auth'; // ✅ 경로/함수 정리
 
 export default function Header({ cartCount = 0, onCartClick }) {
   const loc = useLocation();
   const nav = useNavigate();
 
-  const [me, setMe] = useState(readLocalUser);
+  // 서버 세션이 ‘권위’. localStorage는 표시용 동기화만 (resolveAuthOnce가 알아서 동기화)
+  const [auth, setAuth] = useState({ loading: true, user: null });
+  const me = auth.user;
 
-  // ✅ 탭 간 동기화
-  useEffect(() => {
-    const onAuthChanged = () => setMe(readLocalUser());
-    window.addEventListener('auth:changed', onAuthChanged);
-    window.addEventListener('storage', onAuthChanged);
-    return () => {
-      window.removeEventListener('auth:changed', onAuthChanged);
-      window.removeEventListener('storage', onAuthChanged);
-    };
+  // 공통: 세션 재확인
+  const syncSession = useCallback(async () => {
+    // /api/auth/me → {authenticated:true,...} | null
+    const u = await fetchMe();
+    setAuth({ loading: false, user: u ?? null });
   }, []);
 
-  // ✅ 첫 진입 시 세션 확인
+  // 첫 진입 시 1회 확인(+캐시 동기화)
   useEffect(() => {
     (async () => {
-      try {
-        const res = await fetch('/api/auth/me', {
-          method: 'GET',
-          credentials: 'include',
-          cache: 'no-store',
-          headers: { 'Cache-Control': 'no-store' },
-        });
-        if (res.ok) {
-          const user = await res.json();
-          const local = readLocalUser();
-          if (!local || local.email !== user.email) {
-            localStorage.setItem('authUser', JSON.stringify(user));
-            setMe(user);
-            window.dispatchEvent(new Event('auth:changed'));
-          }
-        } else {
-          localStorage.removeItem('authUser');
-          localStorage.removeItem('authAccess');
-          setMe(null);
-          window.dispatchEvent(new Event('auth:changed'));
-        }
-      } catch {}
+      const r = await resolveAuthOnce(); // 내부에서 /me 조회 후 캐시 동기화
+      setAuth(r);
     })();
   }, []);
 
-  // ✅ 로그아웃
+  // 탭 간/포커스 복귀/스토리지 이벤트에 세션 재확인 (서브도메인 로그인 뒤 자동 반영)
+  useEffect(() => {
+    const onFocus = () => { syncSession(); };
+    const onStorage = (e) => {
+      if (!e || !e.key || e.key.startsWith('auth')) syncSession();
+    };
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('visibilitychange', onFocus);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('visibilitychange', onFocus);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, [syncSession]);
+
+  // 로그아웃
   const handleLogout = async () => {
-    try {
-      await apiFetch('/api/auth/logout', { method: 'POST', noAuthRedirect: true });
-    } catch {}
-    localStorage.removeItem('authUser');
-    localStorage.removeItem('authAccess');
-    setMe(null);
-    window.dispatchEvent(new Event('auth:changed'));
+    try { await doLogout(); } catch {}
+    setAuth({ loading: false, user: null });
     nav('/', { replace: true });
   };
 
@@ -115,7 +103,7 @@ export default function Header({ cartCount = 0, onCartClick }) {
                 <button
                   className={`nav-link btn btn-link ${isActive('/mypage') ? 'active text-success' : ''}`}
                   onClick={async () => {
-                    const user = await ensureLogin('/mypage');
+                    const user = await ensureLogin('/mypage'); // 서버 세션 기준
                     if (user) go('/mypage');
                   }}
                 >
@@ -133,7 +121,9 @@ export default function Header({ cartCount = 0, onCartClick }) {
                   </div>
                 ) : (
                   <div className="d-grid gap-2">
-                    <button className="btn btn-outline-success w-100" onClick={() => go('/login-signup?mode=login')}>로그인</button>
+                    <button className="btn btn-outline-success w-100" onClick={() => go('/login-signup?mode=login')}>
+                      로그인
+                    </button>
                   </div>
                 )}
               </li>

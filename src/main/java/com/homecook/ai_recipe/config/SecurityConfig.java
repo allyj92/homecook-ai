@@ -1,6 +1,7 @@
 // src/main/java/com/homecook/ai_recipe/config/SecurityConfig.java
 package com.homecook.ai_recipe.config;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -11,7 +12,6 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.cors.*;
 
 import java.util.List;
@@ -20,70 +20,68 @@ import java.util.List;
 @EnableWebSecurity
 public class SecurityConfig {
 
-
     @Bean
     public SecurityContextRepository securityContextRepository() {
-        HttpSessionSecurityContextRepository repo = new HttpSessionSecurityContextRepository();
-        // 필요시: repo.setDisableUrlRewriting(true);
+        var repo = new HttpSessionSecurityContextRepository();
+        repo.setDisableUrlRewriting(true);
         return repo;
     }
 
-    /**
-     * 보안 필터 체인
-     *
-     * - /api/** 에 대해 CSRF 미적용 (MVP의 REST API 용도)
-     * - CORS 기본 허용 (아래 corsConfigurationSource Bean과 함께 동작)
-     * - 인증/업로드/정적 리소스/프리플라이트 등 퍼블릭 접근 허용
-     * - 나머지는 필요에 맞게 조정 (현재는 permitAll)
-     */
+    @Value("${app.front-base:https://recipfree.com}")
+    private String frontBase;
+
     @Bean
     SecurityFilterChain security(HttpSecurity http) throws Exception {
         http
+                .cors(Customizer.withDefaults())
                 .csrf(csrf -> csrf.ignoringRequestMatchers("/api/**"))
+                .securityContext(ctx -> ctx.securityContextRepository(securityContextRepository()))
                 .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/", "/favicon.ico", "/assets/**", "/static/**", "/css/**", "/js/**", "/images/**").permitAll()
                         .requestMatchers("/oauth2/**", "/login/oauth2/code/**").permitAll()
                         .requestMatchers("/api/auth/**").permitAll()
-                        .anyRequest().authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/uploads").permitAll()
+                        .anyRequest().permitAll()   // 필요시 authenticated() 로 바꾸세요
                 )
                 .oauth2Login(oauth -> oauth
-                        .defaultSuccessUrl("/", true)
+                        .successHandler((req, res, auth) -> {
+                            System.out.println("[OAUTH] success: " + auth.getName());
+                            res.sendRedirect(frontBase + "/");
+                        })
+                        .failureHandler((req, res, ex) -> {
+                            ex.printStackTrace(); // 서버 콘솔에 원인 노출
+                            res.sendRedirect(frontBase + "/login-signup?error=" + ex.getClass().getSimpleName());
+                        }) .failureHandler((req, res, ex) -> {
+                            ex.printStackTrace(); // 콘솔에 정확한 원인
+                            res.setStatus(401);
+                            res.setContentType("application/json;charset=UTF-8");
+                            String msg = ex.getMessage() == null ? "" : ex.getMessage().replace("\"","'");
+                            res.getWriter().write("{\"error\":\"" + ex.getClass().getSimpleName() + "\",\"message\":\"" + msg + "\"}");
+                        })
                 )
-                .logout(logout -> logout.logoutUrl("/api/auth/logout"))
+
+                .logout(lo -> lo
+                        .logoutUrl("/api/auth/logout")
+                        .logoutSuccessHandler((req, res, auth) -> res.setStatus(204))
+                )
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED));
         return http.build();
     }
 
-    /**
-     * CORS 설정
-     * - 개발 프록시(예: http://localhost:5173) 또는 LAN에서 접근하는 경우 허용
-     * - 실제 배포에서는 origin을 정확히 제한하세요.
-     */
-
-    @GetMapping(value = "/{path:^(?!api|login|logout|oauth2|favicon\\.ico).*$}")
-    public String spa() { return "forward:/index.html"; }
-
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration config = new CorsConfiguration();
-
-        // 개발 편의: 와일드카드 ORIGIN은 credentials=true와 함께 사용할 수 없음.
-        // 프록시를 쓰면 같은 오리진처럼 동작하므로 아래 Origins는 사실 크게 의미 없지만,
-        // 만약 직접 다른 오리진에서 접근한다면 여기서 허용 도메인을 명시하세요.
-        config.setAllowedOrigins(List.of(
-                "http://localhost:5173",
-                "http://127.0.0.1:5173"
-                // 필요 시 추가: "http://192.168.0.xxx:5173"
+        var cfg = new CorsConfiguration();
+        cfg.setAllowedOrigins(List.of(
+                "http://localhost:5173", "http://127.0.0.1:5173",
+                "https://recipfree.com", "https://login.recipfree.com"
         ));
-        config.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
-        config.setAllowedHeaders(List.of("*"));
-        config.setAllowCredentials(true);
-        // 캐시(초)
-        config.setMaxAge(3600L);
-
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        // 모든 경로에 동일 CORS 적용
-        source.registerCorsConfiguration("/**", config);
+        cfg.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
+        cfg.setAllowedHeaders(List.of("*"));
+        cfg.setAllowCredentials(true);
+        cfg.setMaxAge(3600L);
+        var source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", cfg);
         return source;
     }
 }

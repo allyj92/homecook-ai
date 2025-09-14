@@ -1,10 +1,11 @@
+# src/main/resources/application.yml
 spring:
   profiles:
     active: prod
 
   jpa:
     hibernate:
-      ddl-auto: update   # 기존 테이블 유지 + 스키마 변경만 반영 (drop 아님)
+      ddl-auto: update
     properties:
       hibernate:
         format_sql: true
@@ -61,18 +62,21 @@ spring:
             user-name-attribute: id
 
 server:
+  error:
+    include-message: always
+    include-exception: true
+    include-stacktrace: on_param
   forward-headers-strategy: framework
   servlet:
     session:
       cookie:
-        name: JSESSIONID
+        name: RFSESSION               # 임의의 이름 권장
+        domain: recipfree.com        # ★ 서브도메인 공유 (점 포함)
         path: /
         http-only: true
-        secure: true
-        same-site: none
-        # domain: recipfree.com  # (필요할 때만 켜기. 보통은 주석 유지)
+        secure: true                  # HTTPS 필수
+        same-site: none               # 콜백 크로스사이트 허용
 
-# 로깅은 'spring' 블록 바깥(최상단)에 둬야 적용됨
 logging:
   level:
     root: info
@@ -80,9 +84,6 @@ logging:
     org.springframework.security: trace
     org.hibernate.SQL: debug
     org.hibernate.orm.jdbc.bind: trace
-
-openai:
-  model: gpt-4.1-mini
 
 app:
   front-base: ${FRONT_BASE:https://recipfree.com}
