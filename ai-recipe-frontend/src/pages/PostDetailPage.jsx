@@ -213,20 +213,32 @@ export default function PostDetailPage() {
           </div>
 
           {/* ✅ 로그인 상태에서만 댓글 입력 */}
-          {!auth.loading && auth.user && (
-            <div className="mt-4" id="comment-editor">
-              <label className="form-label">댓글</label>
-              <textarea className="form-control" rows="4" placeholder="댓글을 입력하세요..." />
-              <div className="text-end mt-2">
-                <button
-                  className="btn btn-success"
-                  onClick={() => requireAuth(() => alert("댓글 등록(예시)"))}
-                >
-                  등록
-                </button>
-              </div>
-            </div>
-          )}
+          {!auth.loading && (
+  auth.user ? (
+    <div className="mt-4" id="comment-editor">
+      <label className="form-label">댓글</label>
+      <textarea className="form-control" rows="4" placeholder="댓글을 입력하세요..." />
+      <div className="text-end mt-2">
+        <button
+          className="btn btn-success"
+          onClick={() => /* TODO: 댓글 등록 API */ alert("댓글 등록(예시)")}
+        >
+          등록
+        </button>
+      </div>
+    </div>
+  ) : (
+    <div className="mt-4 alert alert-light border d-flex justify-content-between align-items-center">
+      <span className="text-secondary">댓글을 쓰려면 로그인하세요.</span>
+      <button
+        className="btn btn-success"
+        onClick={() => ensureLogin(`/community/${post.id}`)}
+      >
+        로그인
+      </button>
+    </div>
+  )
+)}
         </div>
       </article>
 
