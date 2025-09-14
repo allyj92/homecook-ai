@@ -71,7 +71,7 @@ server:
     session:
       cookie:
         name: RFSESSION               # 임의의 이름 권장
-        domain: recipfree.com        # ★ 서브도메인 공유 (점 포함)
+#        domain: recipfree.com        # ★ 서브도메인 공유 (점 포함)
         path: /
         http-only: true
         secure: true                  # HTTPS 필수

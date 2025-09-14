@@ -1,6 +1,7 @@
 // src/main/java/com/homecook/ai_recipe/auth/CustomOAuth2UserService.java
-package com.homecook.ai_recipe.auth;
+package com.homecook.ai_recipe.service;
 
+import com.homecook.ai_recipe.auth.UserAccount;
 import com.homecook.ai_recipe.repo.UserAccountRepository;
 import com.homecook.ai_recipe.service.OAuthAccountService;
 import lombok.RequiredArgsConstructor;

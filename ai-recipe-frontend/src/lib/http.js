@@ -16,29 +16,10 @@ function safeResolveBase(raw) {
 }
 
 const API_BASE = (() => {
-  const base = safeResolveBase(RAW_API_BASE);
-  if (!base) return '';
-  try {
-    const w = typeof window !== 'undefined' ? window : null;
-    const wOrigin = w ? w.location.origin : '';
-    const baseUrl = new URL(base);
-
-    // DEV(로컬 개발)에서는 무조건 사용
-    if (import.meta.env?.DEV) return base;
-
-    // same-origin 이면 사용
-    const sameOrigin = baseUrl.origin === wOrigin;
-    if (sameOrigin) return base;
-
-    // 최상위 도메인 동일 시 사용 (예: recipfree.com)
-    const hostA = (baseUrl.hostname || '').split('.').slice(-2).join('.');
-    const hostB = (w ? w.location.hostname : '').split('.').slice(-2).join('.');
-    const sameSite = hostA && hostB && hostA === hostB;
-    return sameSite ? base : '';
-  } catch {
-    return '';
-  }
-})();
+   const base = safeResolveBase(RAW_API_BASE);
+   // 배포에서도 절대경로 베이스 허용 (예: https://login.recipfree.com)
+   return base || '';
+ })();
 
 /* =========================
  * helpers
