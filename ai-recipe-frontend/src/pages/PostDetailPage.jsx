@@ -137,15 +137,39 @@ export default function PostDetailPage() {
       });
     });
 
-  const onToggleBookmark = () =>
-    requireAuth(() => {
-      setBookmarked((prev) => {
-        const next = !prev;
-        try { localStorage.setItem(`postBookmark:${post.id}`, next ? "1" : "0"); } catch {}
-        // TODO: 서버 북마크 API 연동
-        return next;
-      });
+  // ...생략 (파일 상단 동일)
+
+const onToggleBookmark = () =>
+  requireAuth(() => {
+    setBookmarked((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(`postBookmark:${post.id}`, next ? "1" : "0");
+        const dataKey = `postBookmarkData:${post.id}`;
+        if (next) {
+          // 북마크 켤 때 메타데이터 저장 (MyPage에서 써먹어요)
+          const payload = {
+            id: post.id,
+            title: post.title,
+            category: post.category,
+            createdAt: post.createdAt || post.updatedAt || null,
+            repImageUrl: post.repImageUrl || null,
+            youtubeId: post.youtubeId || null,
+            tags: Array.isArray(post.tags) ? post.tags : [],
+          };
+          localStorage.setItem(dataKey, JSON.stringify(payload));
+        } else {
+          // 끌 때 메타데이터 제거
+          localStorage.removeItem(dataKey);
+        }
+      } catch {}
+      // TODO: 서버 북마크 API 연동 지점
+      return next;
     });
+  });
+
+// ...생략 (파일 하단 동일)
+
 
   /* 렌더링 분기 */
   if (loadingPost) {
