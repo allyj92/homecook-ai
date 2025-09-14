@@ -1,3 +1,4 @@
+// src/pages/MyPage.jsx
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import BottomNav from '../compoments/BottomNav'; // 프로젝트 구조상 compoments 맞음
@@ -77,14 +78,17 @@ export default function MyPage() {
         }
 
         const meData = await res.json();
-       if (aborted) return;
-       // 로그인 안 된 상태면 즉시 로그인 화면으로
-       if (!meData?.authenticated) {
+        if (aborted) return;
+
+        // 로그인 안 된 상태면 즉시 로그인 화면으로
+        if (!meData?.authenticated) {
           try { localStorage.removeItem('authUser'); } catch {}
-          localStorage.setItem('postLoginRedirect', '/mypage');+          navigate('/login-signup', { replace: true, state: { from: '/mypage' } });
-         return;
-       }
-       setMe(meData);
+          localStorage.setItem('postLoginRedirect', '/mypage');
+          navigate('/login-signup', { replace: true, state: { from: '/mypage' } });
+          return;
+        }
+
+        setMe(meData);
 
         // 2) me OK → favorites
         setWishLoading(true);

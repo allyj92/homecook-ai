@@ -1,9 +1,8 @@
-// src/pages/PostDetailPage.jsx
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import "bootstrap/dist/css/bootstrap.min.css";
 import BottomNav from "../compoments/BottomNav";
-import { ensureLogin, fetchMe } from "../lib/auth";          // ✅ 경로/함수 정리
+import { ensureLogin, fetchMe } from "../lib/auth";   // ✅ 경로/함수 정리
 import { getCommunityPost } from "../api/community.js";
 
 /** API 응답을 화면용으로 정규화 */
@@ -11,6 +10,7 @@ function normalizePost(raw) {
   if (!raw) return null;
   let d = raw;
 
+  // 문자열/래핑 방어
   if (typeof d === "string") {
     try { d = JSON.parse(d); } catch {}
   }
@@ -47,41 +47,49 @@ export default function PostDetailPage() {
   const navigate = useNavigate();
   const loc = useLocation();
 
-  // ✅ 로그인 상태
+  /* =========================
+   *  로그인 상태 동기화
+   * ========================= */
   const [auth, setAuth] = useState({ loading: true, user: null });
 
+  // 포커스/보임/스토리지/커스텀 이벤트 때 사용할 공용 동기화 함수
   const syncAuth = useCallback(async () => {
-    const u = await fetchMe();                 // /api/auth/me
-    setAuth({ loading: false, user: u ?? null });
+    const u = await fetchMe(); // /api/auth/me
+    setAuth(prev => ({ ...prev, loading: false, user: u ?? null }));
   }, []);
 
   useEffect(() => {
-    let alive = true;
+    let mounted = true;
+
+    // 최초 1회: 언마운트 이후 setState 방지
     (async () => {
-      try { await syncAuth(); } finally {}
+      const u = await fetchMe();
+      if (mounted) setAuth({ loading: false, user: u ?? null });
     })();
 
-    // 탭 포커스/가시성/스토리지/커스텀 이벤트 시 동기화
+    // 이벤트 바인딩: 포커스/가시성/스토리지/커스텀 auth 이벤트 시 재확인
     const onFocus = () => syncAuth();
-    const onVisible = () => { if (document.visibilityState === 'visible') syncAuth(); };
-    const onStorage = (e) => { if (!e || !e.key || e.key.startsWith('auth')) syncAuth(); };
+    const onVisible = () => { if (document.visibilityState === "visible") syncAuth(); };
+    const onStorage = (e) => { if (!e || !e.key || e.key.startsWith("auth")) syncAuth(); };
     const onAuthChanged = () => syncAuth();
 
-    window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', onVisible);
-    window.addEventListener('storage', onStorage);
-    window.addEventListener('auth:changed', onAuthChanged);
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("auth:changed", onAuthChanged);
 
     return () => {
-      alive = false;
-      window.removeEventListener('focus', onFocus);
-      document.removeEventListener('visibilitychange', onVisible);
-      window.removeEventListener('storage', onStorage);
-      window.removeEventListener('auth:changed', onAuthChanged);
+      mounted = false;
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("auth:changed", onAuthChanged);
     };
   }, [syncAuth]);
 
-  // ✅ 게시글
+  /* =========================
+   *  게시글 로드
+   * ========================= */
   const [post, setPost] = useState(null);
   const [loadingPost, setLoadingPost] = useState(true);
   const [err, setErr] = useState(null);
@@ -104,7 +112,9 @@ export default function PostDetailPage() {
     return () => { alive = false; };
   }, [id]);
 
-  // ✅ 로그인 필요 액션 가드
+  /* =========================
+   *  로그인 필요 액션 가드
+   * ========================= */
   const requireAuth = useCallback(async (action) => {
     if (auth.user) return action?.();
     const backTo = `${loc.pathname}${loc.search || ""}`;
@@ -112,6 +122,9 @@ export default function PostDetailPage() {
     if (u) action?.();
   }, [auth.user, loc]);
 
+  /* =========================
+   *  렌더링 분기
+   * ========================= */
   if (loadingPost) {
     return (
       <div className="container-xxl py-3">
@@ -149,7 +162,7 @@ export default function PostDetailPage() {
     );
   }
 
-  // ✅ 로딩이 끝났고, 미로그인일 때만 CTA 보이기 (깜빡임 방지)
+  // 로딩 종료 + 미로그인일 때만 CTA 노출 (깜빡임 방지)
   const showLoginCTA = !auth.loading && !auth.user;
 
   return (
@@ -157,11 +170,14 @@ export default function PostDetailPage() {
       <nav className="mb-3 d-flex gap-2 align-items-center">
         <button className="btn btn-outline-secondary" onClick={() => navigate(-1)}>← 목록</button>
 
-        {/* ✅ 로그인 상태에 따라 상호작용 영역 분기 */}
+        {/* 로그인 상태에 따른 상단 CTA/액션 */}
         {showLoginCTA ? (
           <button
             className="btn btn-success ms-auto"
-            onClick={() => ensureLogin(`/community/${post.id}`)}
+            onClick={async () => {
+              const ok = await ensureLogin(`/community/${post.id}`);
+              if (ok) navigate(0); // 로그인 직후 현재 페이지 리프레시(선택)
+            }}
           >
             로그인 후 상호작용
           </button>
@@ -179,7 +195,6 @@ export default function PostDetailPage() {
             >
               📌 북마크
             </button>
-           
           </div>
         )}
       </nav>
@@ -207,33 +222,36 @@ export default function PostDetailPage() {
             {post.content ? post.content : <span className="text-secondary">내용이 비어 있습니다.</span>}
           </div>
 
-          {/* ✅ 로그인 상태에서만 댓글 입력 */}
+          {/* 로그인 상태에서만 댓글 입력, 미로그인 안내 */}
           {!auth.loading && (
-  auth.user ? (
-    <div className="mt-4" id="comment-editor">
-      <label className="form-label">댓글</label>
-      <textarea className="form-control" rows="4" placeholder="댓글을 입력하세요..." />
-      <div className="text-end mt-2">
-        <button
-          className="btn btn-success"
-          onClick={() => /* TODO: 댓글 등록 API */ alert("댓글 등록(예시)")}
-        >
-          등록
-        </button>
-      </div>
-    </div>
-  ) : (
-    <div className="mt-4 alert alert-light border d-flex justify-content-between align-items-center">
-      <span className="text-secondary">댓글을 쓰려면 로그인하세요.</span>
-      <button
-        className="btn btn-success"
-        onClick={() => ensureLogin(`/community/${post.id}`)}
-      >
-        로그인
-      </button>
-    </div>
-  )
-)}
+            auth.user ? (
+              <div className="mt-4" id="comment-editor">
+                <label className="form-label">댓글</label>
+                <textarea className="form-control" rows="4" placeholder="댓글을 입력하세요..." />
+                <div className="text-end mt-2">
+                  <button
+                    className="btn btn-success"
+                    onClick={() => /* TODO: 댓글 등록 API */ alert("댓글 등록(예시)")}
+                  >
+                    등록
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 alert alert-light border d-flex justify-content-between align-items-center">
+                <span className="text-secondary">댓글을 쓰려면 로그인하세요.</span>
+                <button
+                  className="btn btn-success"
+                  onClick={async () => {
+                    const ok = await ensureLogin(`/community/${post.id}`);
+                    if (ok) navigate(0);
+                  }}
+                >
+                  로그인
+                </button>
+              </div>
+            )
+          )}
         </div>
       </article>
 
