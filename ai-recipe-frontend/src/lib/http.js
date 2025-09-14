@@ -3,6 +3,8 @@
 // ===== API_BASE 결정 =====
 // - DEV: VITE_API_BASE 사용 (예: http://localhost:8080)
 // - PROD: VITE_API_BASE의 오리진이 현재 오리진과 다르면 무시하고 상대경로 사용
+
+
 const RAW_API_BASE = (import.meta.env?.VITE_API_BASE || '').replace(/\/+$/, '');
 
 function safeResolveBase(raw) {
@@ -18,14 +20,17 @@ function safeResolveBase(raw) {
 const API_BASE = (() => {
   const base = safeResolveBase(RAW_API_BASE);
   if (!base) return '';
-  try {
-    const wOrigin = typeof window !== 'undefined' ? window.location.origin : '';
-    const sameOrigin = new URL(base).origin === wOrigin;
-    // ✅ 개발/배포 모두 same-origin 일 때만 BASE 사용
-    return sameOrigin ? base : '';
-  } catch {
-    return '';
-  }
+  if (typeof window === 'undefined') return base;
+
+  const wOrigin = window.location.origin;
+  const bOrigin = new URL(base).origin;
+  const sameOrigin = bOrigin === wOrigin;
+
+  // ✅ dev(vite)에서는 오리진 달라도 VITE_API_BASE 사용
+  if (import.meta?.env?.DEV) return base;
+
+  // ✅ prod에서는 same-origin일 때만 사용, 아니면 상대경로 사용
+  return sameOrigin ? base : '';
 })();
 
 /* =========================
