@@ -2,6 +2,7 @@
 // 프론트 → 백엔드 즐겨찾기(Favorites) API 모듈 (http.js의 buildUrl만 사용)
 
 import { buildUrl, apiFetch } from './http';
+import { logActivity } from './activity'; // ✅ 추가
 
 function api(path) {
   const p = path.startsWith('/') ? path : `/${path}`;
@@ -126,7 +127,16 @@ export async function addFavorite(recipeOrId) {
     const t = await res.text().catch(()=> '');
     throw new Error(`찜 추가 실패: ${res.status} ${t}`);
   }
-  return res.json();
+
+  // ✅ 저장 성공 → 활동 로그 남기기
+  const saved = (await safeJson(res)) ?? {};
+  try {
+    logActivity('favorite_add', {
+      recipeId: Number(rid),
+      title: saved.title ?? body.title ?? undefined,
+    });
+  } catch {}
+  return saved;
 }
 
 /** 찜 해제 (DELETE /api/me/favorites/{recipeId}) */
@@ -138,6 +148,7 @@ export async function removeFavorite(recipeId) {
     if (res.status === 401) throw new Error(pickServerMessage(server, '로그인이 필요합니다.'));
     throw new Error(pickServerMessage(server, '찜 해제 실패'));
   }
+  // ⚠️ 해제 로그는 MyPage.onRemove에서 이미 기록하고 있으므로 여기서는 찍지 않음(중복 방지)
   return true;
 }
 
@@ -148,7 +159,7 @@ export async function toggleFavorite(recipeOrId, savedNow) {
     await removeFavorite(rid);
     return { saved: false };
   }
-  const savedItem = await addFavorite(recipeOrId);
+  const savedItem = await addFavorite(recipeOrId); // addFavorite 내부에서 로그 찍음
   return { saved: true, item: savedItem };
 }
 
