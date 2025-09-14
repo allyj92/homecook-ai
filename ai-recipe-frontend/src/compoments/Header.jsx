@@ -6,45 +6,54 @@ import {
   syncAuthWithServer,
   fetchMe,
   logout as doLogout,
-} from '../lib/auth'; // ✅ 경로/함수 정리
+} from '../lib/auth';
 
 export default function Header({ cartCount = 0, onCartClick }) {
   const loc = useLocation();
   const nav = useNavigate();
 
-  // 서버 세션이 ‘권위’. localStorage는 표시용 동기화만
+  // 서버 세션이 ‘권위’. localStorage는 표시용 동기화만.
   const [auth, setAuth] = useState({ loading: true, user: null });
   const me = auth.user;
 
-  // 공통: 세션 재확인
+  // 공통 세션 재확인
   const syncSession = useCallback(async () => {
-    // /api/auth/me → {authenticated:true,...} | null
-    const u = await fetchMe();
+    const u = await fetchMe(); // /api/auth/me → {authenticated:true,...} | null
     setAuth({ loading: false, user: u ?? null });
   }, []);
 
-  // 첫 진입 시 1회 확인(+캐시 동기화)
+  // 첫 진입: 서버/캐시 동기화
   useEffect(() => {
+    let mounted = true;
     (async () => {
-      const u = await syncAuthWithServer(); // 서버/캐시 동기화 후 사용자 반환
-      setAuth({ loading: false, user: u ?? null });
+      try {
+        const u = await syncAuthWithServer(); // 서버 ↔ 캐시 동기화
+        if (mounted) setAuth({ loading: false, user: u ?? null });
+      } catch {
+        if (mounted) setAuth({ loading: false, user: null });
+      }
     })();
+    return () => { mounted = false; };
   }, []);
 
-  // 탭 간/포커스 복귀/스토리지 이벤트에 세션 재확인 (서브도메인 로그인 뒤 자동 반영)
+  // 포커스/가시성/스토리지/커스텀 이벤트 시 재확인
   useEffect(() => {
     const onFocusOrVisible = () => { syncSession(); };
     const onStorage = (e) => {
-      // 다른 탭에서 auth 관련 변경 발생 시 동기화
       if (!e || !e.key || e.key.startsWith('auth')) syncSession();
     };
+    const onAuthChanged = () => syncSession();
+
     window.addEventListener('focus', onFocusOrVisible);
     document.addEventListener('visibilitychange', onFocusOrVisible);
     window.addEventListener('storage', onStorage);
+    window.addEventListener('auth:changed', onAuthChanged);
+
     return () => {
       window.removeEventListener('focus', onFocusOrVisible);
       document.removeEventListener('visibilitychange', onFocusOrVisible);
       window.removeEventListener('storage', onStorage);
+      window.removeEventListener('auth:changed', onAuthChanged);
     };
   }, [syncSession]);
 
@@ -56,7 +65,8 @@ export default function Header({ cartCount = 0, onCartClick }) {
   };
 
   const [open, setOpen] = useState(false);
-  const isActive = (path) => loc.pathname === path || loc.pathname.startsWith(path + '/');
+  const isActive = (path) =>
+    loc.pathname === path || loc.pathname.startsWith(path + '/');
   const go = (path) => { nav(path); setOpen(false); };
 
   return (
@@ -75,7 +85,7 @@ export default function Header({ cartCount = 0, onCartClick }) {
             type="button"
             aria-label="메뉴 열기/닫기"
             aria-expanded={open}
-            onClick={() => setOpen((v) => !v)}
+            onClick={() => setOpen(v => !v)}
           >
             <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
@@ -114,7 +124,7 @@ export default function Header({ cartCount = 0, onCartClick }) {
 
               {/* 모바일 로그인/로그아웃 */}
               <li className="nav-item d-lg-none mt-2">
-                {me ? (
+                {auth.loading ? null : me ? (
                   <div className="d-grid gap-2">
                     <button className="btn btn-outline-secondary w-100" onClick={handleLogout}>
                       로그아웃
@@ -132,7 +142,7 @@ export default function Header({ cartCount = 0, onCartClick }) {
 
             {/* PC 우측 */}
             <div className="d-none d-lg-flex align-items-center gap-2">
-              {me ? (
+              {auth.loading ? null : me ? (
                 <button className="btn btn-outline-secondary" onClick={handleLogout}>
                   로그아웃
                 </button>
@@ -149,7 +159,10 @@ export default function Header({ cartCount = 0, onCartClick }) {
               >
                 장바구니
                 {cartCount > 0 && (
-                  <span className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-success" style={{ fontSize: 10 }}>
+                  <span
+                    className="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-success"
+                    style={{ fontSize: 10 }}
+                  >
                     {cartCount > 99 ? '99+' : cartCount}
                   </span>
                 )}
