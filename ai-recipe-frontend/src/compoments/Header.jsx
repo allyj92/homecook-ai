@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useCallback } from 'react';
 import {
   ensureLogin,
-  resolveAuthOnce,
+  syncAuthWithServer,
   fetchMe,
   logout as doLogout,
 } from '../lib/auth'; // ✅ 경로/함수 정리
@@ -12,7 +12,7 @@ export default function Header({ cartCount = 0, onCartClick }) {
   const loc = useLocation();
   const nav = useNavigate();
 
-  // 서버 세션이 ‘권위’. localStorage는 표시용 동기화만 (resolveAuthOnce가 알아서 동기화)
+  // 서버 세션이 ‘권위’. localStorage는 표시용 동기화만
   const [auth, setAuth] = useState({ loading: true, user: null });
   const me = auth.user;
 
@@ -26,23 +26,24 @@ export default function Header({ cartCount = 0, onCartClick }) {
   // 첫 진입 시 1회 확인(+캐시 동기화)
   useEffect(() => {
     (async () => {
-      const r = await resolveAuthOnce(); // 내부에서 /me 조회 후 캐시 동기화
-      setAuth(r);
+      const u = await syncAuthWithServer(); // 서버/캐시 동기화 후 사용자 반환
+      setAuth({ loading: false, user: u ?? null });
     })();
   }, []);
 
   // 탭 간/포커스 복귀/스토리지 이벤트에 세션 재확인 (서브도메인 로그인 뒤 자동 반영)
   useEffect(() => {
-    const onFocus = () => { syncSession(); };
+    const onFocusOrVisible = () => { syncSession(); };
     const onStorage = (e) => {
+      // 다른 탭에서 auth 관련 변경 발생 시 동기화
       if (!e || !e.key || e.key.startsWith('auth')) syncSession();
     };
-    window.addEventListener('focus', onFocus);
-    window.addEventListener('visibilitychange', onFocus);
+    window.addEventListener('focus', onFocusOrVisible);
+    document.addEventListener('visibilitychange', onFocusOrVisible);
     window.addEventListener('storage', onStorage);
     return () => {
-      window.removeEventListener('focus', onFocus);
-      window.removeEventListener('visibilitychange', onFocus);
+      window.removeEventListener('focus', onFocusOrVisible);
+      document.removeEventListener('visibilitychange', onFocusOrVisible);
       window.removeEventListener('storage', onStorage);
     };
   }, [syncSession]);
