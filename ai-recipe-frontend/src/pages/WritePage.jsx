@@ -34,11 +34,22 @@ function mdPreview(md) {
   return `<p>${html}</p>`;
 }
 
+/* 업로드 응답을 표준화 */
+function pickUploadUrl(any) {
+  if (!any) return null;
+  if (typeof any === "string") return any;
+  const c =
+    any.url || any.URL || any.link || any.location || any.Location ||
+    any.secure_url || any.fileUrl || any.fileURL ||
+    (any.data && (any.data.url || any.data.link || any.data.Location));
+  return c || null;
+}
+
 export default function WritePage() {
   const navigate = useNavigate();
   const loc = useLocation();
 
-  // ✅ 수정 ID를 여러 경로에서 인식: ?id=12, /write/12, navigate state
+  // ✅ 수정 ID 여러 패턴 지원
   const params = new URLSearchParams(loc.search);
   let editId = params.get("id");
   if (!editId) {
@@ -66,12 +77,12 @@ export default function WritePage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
+  const [repUploading, setRepUploading] = useState(false); // 대표이미지 업로드 표시
   const contentRef = useRef(null);
 
-  // 초기화: 로그인 보장 + (수정이면 글 로드 / 아니면 임시저장 복구)
+  // 초기화
   useEffect(() => {
     (async () => {
-      // console.log('[WritePage] isEdit=', isEdit, 'editId=', editId, 'pathname=', loc.pathname, 'search=', loc.search, 'state=', loc.state);
       const me = await ensureLogin(isEdit ? `/write?id=${editId}` : "/write");
       if (!me) return;
       const u = await fetchMe();
@@ -80,7 +91,6 @@ export default function WritePage() {
       if (isEdit) {
         try {
           const p = await getCommunityPost(editId);
-          // (선택) 소유자 가드
           if (p?.authorId && u?.uid && Number(p.authorId) !== Number(u.uid)) {
             alert("본인의 글만 수정할 수 있어요.");
             navigate(`/community/${editId}`, { replace: true });
@@ -113,7 +123,7 @@ export default function WritePage() {
       }
       setLoading(false);
     })();
-  }, [isEdit, editId, navigate]); // loc은 의존성에서 제외(무한루프 방지)
+  }, [isEdit, editId, navigate]);
 
   // 새 글일 때만 자동 임시저장
   useEffect(() => {
@@ -122,7 +132,7 @@ export default function WritePage() {
     localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
   }, [isEdit, title, category, tags, content, repImageUrl, youtubeUrl]);
 
-  // 태그 처리
+  // 태그
   function tryCommitTag() {
     const raw = tagInput.trim().replace(/^#/, "");
     if (!raw) return;
@@ -152,7 +162,7 @@ export default function WritePage() {
     return Object.keys(e).length === 0;
   }
 
-  // 본문 이미지 붙여넣기/드래그 업로드 → 마크다운 삽입
+  // 본문에 이미지 삽입
   function insertAtCursor(textarea, text) {
     const start = textarea?.selectionStart ?? content.length;
     const end = textarea?.selectionEnd ?? content.length;
@@ -169,8 +179,17 @@ export default function WritePage() {
   async function handlePastedFiles(files) {
     for (const f of files) {
       if (!f.type?.startsWith?.("image/")) continue;
-      const { url } = await uploadFile(f);
-      insertAtCursor(contentRef.current, `\n![](${url})\n`);
+      try {
+        // 1) 업로드 시도
+        const up = await uploadFile(f);
+        const url = pickUploadUrl(up);
+        if (!url) throw new Error("업로드 응답에 URL이 없어요.");
+        // 2) 본문에 삽입
+        insertAtCursor(contentRef.current, `\n![](${url})\n`);
+      } catch (err) {
+        console.error(err);
+        alert(err?.message || "이미지 업로드에 실패했습니다.");
+      }
     }
   }
 
@@ -178,21 +197,42 @@ export default function WritePage() {
     const files = Array.from(e.clipboardData?.files || []);
     if (!files.length) return;
     e.preventDefault();
-    handlePastedFiles(files).catch((err) => alert(err.message || "이미지 업로드 실패"));
+    handlePastedFiles(files);
   }
 
   function onDrop(e) {
     e.preventDefault();
     const files = Array.from(e.dataTransfer?.files || []);
     if (!files.length) return;
-    handlePastedFiles(files).catch((err) => alert(err.message || "이미지 업로드 실패"));
+    handlePastedFiles(files);
   }
 
+  // 대표이미지 업로드 (낙관적 미리보기 + 교체)
   async function onPickRep(e) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const { url } = await uploadFile(file);
-    setRepImageUrl(url);
+
+    // 로컬 미리보기 먼저
+    const localUrl = URL.createObjectURL(file);
+    setRepImageUrl(localUrl);
+    setRepUploading(true);
+
+    try {
+      const up = await uploadFile(file);
+      const url = pickUploadUrl(up);
+      if (!url) throw new Error("업로드 응답에 URL이 없어요.");
+
+      // 실제 URL로 교체
+      setRepImageUrl(url);
+    } catch (err) {
+      console.error(err);
+      alert(err?.message || "대표이미지 업로드에 실패했습니다.");
+      // 실패 시, 유튜브 썸네일이나 빈값으로 롤백
+      setRepImageUrl(youtubeCover || "");
+    } finally {
+      setRepUploading(false);
+      try { URL.revokeObjectURL(localUrl); } catch {}
+    }
   }
 
   // 제출(등록/수정 공용)
@@ -220,15 +260,11 @@ export default function WritePage() {
 
         if (isEdit) {
           await updatePost(editId, payload);
-          try {
-            logActivity("post_update", { postId: Number(editId), title: payload.title });
-          } catch {}
+          try { logActivity("post_update", { postId: Number(editId), title: payload.title }); } catch {}
           navigate(`/community/${editId}`);
         } else {
           const { id } = await createPost(payload);
-          try {
-            logActivity("post_create", { postId: id, title: payload.title });
-          } catch {}
+          try { logActivity("post_create", { postId: id, title: payload.title }); } catch {}
           localStorage.removeItem(DRAFT_KEY);
           navigate(`/community/${id}`);
         }
@@ -294,9 +330,7 @@ export default function WritePage() {
             <label className="form-label">카테고리</label>
             <select className="form-select" value={category} onChange={(e) => setCategory(e.target.value)}>
               {CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
+                <option key={c} value={c}>{c}</option>
               ))}
             </select>
           </div>
@@ -308,7 +342,7 @@ export default function WritePage() {
               <label className="form-label d-flex align-items-center gap-2">
                 대표이미지 <span className="text-secondary small">(드래그·드롭/선택)</span>
               </label>
-              <div className="border rounded-3 p-2 d-flex align-items-center gap-3">
+              <div className="border rounded-3 p-2 d-flex align-items-center gap-3 position-relative">
                 <div className="flex-shrink-0">
                   <div
                     style={{
@@ -330,6 +364,17 @@ export default function WritePage() {
                   <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setRepImageUrl("")}>
                     제거
                   </button>
+                )}
+
+                {/* 업로드 스피너 */}
+                {repUploading && (
+                  <div
+                    className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
+                    style={{ background: "rgba(255,255,255,0.5)", borderRadius: 12 }}
+                    aria-label="업로드 중"
+                  >
+                    <div className="spinner-border text-secondary" role="status" />
+                  </div>
                 )}
               </div>
             </div>
@@ -479,7 +524,7 @@ export default function WritePage() {
                   임시저장
                 </button>
               )}
-              <button type="submit" className="btn btn-success" disabled={submitting}>
+              <button type="submit" className="btn btn-success" disabled={submitting || repUploading}>
                 {submitting ? (isEdit ? "수정 중…" : "등록 중…") : (isEdit ? "수정하기" : "등록하기")}
               </button>
             </div>
