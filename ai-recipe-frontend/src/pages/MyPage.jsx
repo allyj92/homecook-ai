@@ -22,30 +22,64 @@ function AdSlot({ id, height = 250, label = 'AD', sticky = false }) {
   );
 }
 
-/* ── 공통 이미지 썸네일 ─────────────────────
-   - primary → placeholder → 마지막으로 텍스트 박스 유지
-*/
-const PLACEHOLDER = '/images/placeholder-recipe.jpg';
-function ImageThumb({ src, alt = 'thumbnail', width = 80, height = 56, rounded = true }) {
-  const [cur, setCur] = useState(src || PLACEHOLDER);
-  const triedPlaceholder = useMemo(() => ({ value: false }), []);
+/* ── 파스텔 톤(갈색 계열) 그라데이션 팔레트 ───────────────────── */
+const PASTELS = [
+  ['#f3ebe3', '#e7d8c9'],
+  ['#efe2d1', '#e4d5c3'],
+  ['#f5eadf', '#e8dccb'],
+  ['#ede5da', '#e0d2c3'],
+  ['#f1e6d8', '#e5d6c6'],
+  ['#f2e8de', '#e6d8c9'],
+];
+
+function hashCode(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+/* ── 스마트 썸네일
+   - src가 로드되면 이미지만 보여줌
+   - src가 없거나 로드 실패면 파스텔톤 갈색계열 그라데이션 블록을 보여줌
+   - 튀지 않도록 아이콘/문양 없이 심플하게
+──────────────────────── */
+function SmartThumb({
+  src,
+  seed = 'fallback',
+  alt = 'thumbnail',
+  width = 80,
+  height = 56,
+  rounded = true,
+  className = '',
+}) {
+  const [loaded, setLoaded] = useState(false);
+  const [broken, setBroken] = useState(false);
+
+  const [c1, c2] = useMemo(() => {
+    const idx = hashCode(String(seed)) % PASTELS.length;
+    return PASTELS[idx];
+  }, [seed]);
+
+  const hasImg = !!src && !broken;
+
   return (
     <div
-      className="position-relative bg-light"
-      style={{ width, height, borderRadius: rounded ? 8 : 0, overflow: 'hidden' }}
+      className={`position-relative ${className}`}
+      style={{ width, height, borderRadius: rounded ? 8 : 0, overflow: 'hidden', background: `linear-gradient(135deg, ${c1}, ${c2})` }}
+      aria-label={alt}
     >
-      <img
-        src={cur}
-        alt={alt}
-        loading="lazy"
-        className="position-absolute top-0 start-0 w-100 h-100 object-fit-cover"
-        onError={() => {
-          if (!triedPlaceholder.value) {
-            triedPlaceholder.value = true;
-            setCur(PLACEHOLDER);
-          }
-        }}
-      />
+      {/* 이미지가 있을 때만 시도; 로드 전까지는 배경(그라데이션)만 보임 */}
+      {hasImg && (
+        <img
+          src={src}
+          alt={alt}
+          loading="lazy"
+          className="position-absolute top-0 start-0 w-100 h-100 object-fit-cover"
+          style={{ display: loaded ? 'block' : 'none' }}
+          onLoad={() => setLoaded(true)}
+          onError={() => setBroken(true)}
+        />
+      )}
     </div>
   );
 }
@@ -64,10 +98,10 @@ function normalizePostMeta(p) {
     ...p,
     youtubeId,
     repImageUrl,
-    // 커버 우선순위: 대표이미지 → 유튜브 썸네일 → 없음
-    __cover: repImageUrl || ytThumb(youtubeId) || null,
     title: p.title ?? '',
     category: p.category ?? '',
+    // 커버 후보 그대로 보냄(스마트 썸네일이 로드 확인/폴백 처리)
+    __cover: repImageUrl || ytThumb(youtubeId) || null,
   };
 }
 
@@ -403,25 +437,24 @@ export default function MyPage() {
                 {wishlist.slice(0, 3).map((w) => {
                   const key = w.id ?? w.recipeId;
                   const to  = `/result?id=${encodeURIComponent(w.recipeId)}`;
+                  const cover = w.image || null;
                   return (
                     <Link key={key} to={to} className="list-group-item list-group-item-action">
                       <div className="d-flex align-items-center gap-3">
                         <div className="flex-shrink-0">
-                          <ImageThumb src={w.image} alt={w.title ?? `레시피 #${w.recipeId}`} />
+                          <SmartThumb src={cover} seed={`wish-${w.recipeId}-${w.title || ''}`} />
                         </div>
                         <div className="flex-grow-1" style={{ minWidth: 0 }}>
-                          <div className="fw-semibold" style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                          <div className="fw-semibold" style={oneLine}>
                             {w.title ?? `레시피 #${w.recipeId}`}
                           </div>
                           {w.meta && (
-                            <div className="small text-secondary" style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                            <div className="small text-secondary" style={oneLine}>
                               {w.meta}
                             </div>
                           )}
                           {w.summary && (
-                            <div className="small text-secondary" style={{
-                              display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden'
-                            }}>
+                            <div className="small text-secondary" style={twoLine}>
                               {w.summary}
                             </div>
                           )}
@@ -465,7 +498,7 @@ export default function MyPage() {
               <div className="p-4 text-center text-secondary">
                 아직 북마크한 글이 없어요.
                 <div className="mt-2">
-                  <Link className="btn btn-sm btn-success" to="/community">커뮤니티로 가기</Link>
+                  <Link className="btn btn-sm btn_success" to="/community">커뮤니티로 가기</Link>
                 </div>
               </div>
             )}
@@ -474,26 +507,26 @@ export default function MyPage() {
               <div className="list-group list-group-flush">
                 {bookmarks.slice(0, 5).map((b) => {
                   const to = `/community/${b.id}`;
-                  const cover = b.repImageUrl || b.rep_image_url || ytThumb(b.youtubeId || b.youtube_id);
+                  const cover = b.repImageUrl || b.rep_image_url || ytThumb(b.youtubeId || b.youtube_id) || null;
                   return (
                     <Link key={b.id} to={to} className="list-group-item list-group-item-action">
                       <div className="d-flex align-items-center gap-3">
                         <div className="flex-shrink-0">
-                          <ImageThumb src={cover} alt={b.title || `게시글 #${b.id}`} />
+                          <SmartThumb src={cover} seed={`bm-${b.id}-${b.title || ''}`} />
                         </div>
                         <div className="flex-grow-1" style={{ minWidth: 0 }}>
-                          <div className="fw-semibold" style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                          <div className="fw-semibold" style={oneLine}>
                             {b.title || `게시글 #${b.id}`}
                           </div>
-                          <div className="small text-secondary" style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
-                            {(b.category || '커뮤니티')}{b.createdAt ? ` · ${formatDate(b.createdAt)}` : ''}
+                          <div className="small text-secondary" style={oneLine}>
+                            {b.category || '커뮤니티'}{b.createdAt ? ` · ${formatDate(b.createdAt)}` : ''}
                           </div>
                         </div>
                         <div className="d-flex gap-2 flex-shrink-0">
                           <button
                             className="btn btn-sm btn-outline-danger"
                             style={{ minWidth: 72, height: 32, padding: '0 12px' }}
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); localStorage.setItem(`postBookmark:${String(b.id)}`, '0'); localStorage.removeItem(`postBookmarkData:${String(b.id)}`); }}
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); localStorage.setItem(`postBookmark:${String(b.id)}`, '0'); localStorage.removeItem(`postBookmarkData:${String(b.id)}`); setBookmarks(arr => arr.filter(x => x.id !== b.id)); }}
                             title="북마크 해제"
                           >
                             해제
@@ -543,16 +576,15 @@ export default function MyPage() {
               <div className="list-group list-group-flush">
                 {myPosts.map(p => {
                   const to = `/community/${p.id}`;
-                  const cover = p.__cover; // 표준화 단계에서 계산
                   return (
                     <Link key={p.id} to={to} className="list-group-item list-group-item-action">
                       <div className="d-flex align-items-center gap-3">
                         <div className="flex-shrink-0">
-                          <ImageThumb src={cover} alt={p.title} />
+                          <SmartThumb src={p.__cover} seed={`post-${p.id}-${p.title}`} />
                         </div>
                         <div className="flex-grow-1" style={{ minWidth: 0 }}>
-                          <div className="fw-semibold" style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{p.title}</div>
-                          <div className="small text-secondary" style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                          <div className="fw-semibold" style={oneLine}>{p.title}</div>
+                          <div className="small text-secondary" style={oneLine}>
                             {p.category}{p.createdAt ? ` · ${formatDate(p.createdAt)}` : ''}
                           </div>
                         </div>
