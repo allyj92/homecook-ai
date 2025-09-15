@@ -471,9 +471,7 @@ export default function MyPage() {
 
   return (
     <div className="container-xxl py-3">
-      {/* 상단 배너 */}
-      <AdSlot id="ad-mypage-top" height={90} label="Top Banner (728×90)" />
-
+      
       {/* 헤더 */}
       <div className="d-flex align-items-center justify-content-between mb-3">
         <h1 className="h4 fw-bold">마이페이지</h1>
@@ -483,11 +481,15 @@ export default function MyPage() {
         </div>
       </div>
 
+      {/* 배너 */}
+      <AdSlot id="ad-mypage-top" height={90} label="Top Banner (728×90)" />
+
+
       <div className="row g-4">
         {/* 사이드 프로필 (고정) */}
 <aside className="col-12 col-lg-4">
   {/* ★ wrapper에 sticky 적용 */}
-  <div className="sticky-lg-top" style={{ top: 16, zIndex: 2 }}>
+  <div className="sticky-lg-top" style={{ top: 0, zIndex: 2 }}>
     <div className="card shadow-sm mb-3">
       <div className="card-body text-center">
         <img src={user.avatar} alt="avatar" className="rounded-circle mb-2" width={80} height={80} />
