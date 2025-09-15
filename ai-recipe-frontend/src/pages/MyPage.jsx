@@ -7,48 +7,45 @@ import { listFavoritesSimple, removeFavorite } from '../lib/wishlist';
 import { getMyPosts } from '../api/community';
 import { listActivities, subscribeActivity, formatActivityText, logActivity } from '../lib/activity';
 
-/* ─────────────────────────────────────────
-   URL 정규화 (혼합콘텐츠/포트 이슈 방지)
-   - 같은 호스트면 상대경로로 바꿈
-   - https 페이지에서 http 이미지는 https로 업그레이드 시도
-────────────────────────────────────────── */
+/* URL 정규화/버전 */
+const BACKEND_HOSTS = ['login.recipfree.com', 'localhost:8080', '127.0.0.1:8080'];
+
 function normalizeCoverUrl(url) {
   if (!url) return null;
   try {
     if (url.startsWith('/')) return url;
     const u = new URL(url, window.location.origin);
     const here = window.location;
-    if (u.host === here.host) {
-      return u.pathname + u.search + u.hash; // 상대경로
+    if (u.host === here.host || BACKEND_HOSTS.includes(u.host)) {
+      return u.pathname + u.search + u.hash;
     }
     if (here.protocol === 'https:' && u.protocol === 'http:') {
       u.protocol = 'https:';
       return u.toString();
     }
-    return u.toString();
+    return url;
   } catch {
     return url;
   }
 }
 
-/* 캐시 버스터: 이미지 URL에 ?v=updatedAt(또는 now) 붙여서 수정 즉시 반영 */
-function withVersion(url, ver) {
+function withVersion(url, v) {
   if (!url) return url;
   try {
     const u = new URL(url, window.location.origin);
-    const v = ver != null ? (typeof ver === 'number' ? ver : (Date.parse(ver) || Date.now())) : Date.now();
-    u.searchParams.set('v', String(v));
-    // 같은 호스트면 상대경로로
-    if (u.hostname === window.location.hostname && u.port === window.location.port) {
+    const ver = v ? String(v) : String(Date.now());
+    u.searchParams.set('v', ver);
+    if (u.host === window.location.host || BACKEND_HOSTS.includes(u.host)) {
       return u.pathname + (u.search || '') + (u.hash || '');
     }
     return u.toString();
   } catch {
-    return url;
+    const sep = url.includes('?') ? '&' : '?';
+    return `${url}${sep}v=${encodeURIComponent(v || Date.now())}`;
   }
 }
 
-/* ── 광고 슬롯 ───────────────────── */
+/* 광고 슬롯 */
 function AdSlot({ id, height = 250, label = 'AD', sticky = false }) {
   return (
     <div
@@ -63,7 +60,7 @@ function AdSlot({ id, height = 250, label = 'AD', sticky = false }) {
   );
 }
 
-/* ── 파스텔 톤(갈색 계열) 그라데이션 팔레트 ───────────────────── */
+/* 파스텔 그라데이션 팔레트 */
 const PASTELS = [
   ['#f3ebe3', '#e7d8c9'],
   ['#efe2d1', '#e4d5c3'],
@@ -79,11 +76,7 @@ function hashCode(str) {
   return Math.abs(h);
 }
 
-/* ── 스마트 썸네일 ─────────────────────
-   - src가 로드되면 이미지만 보여줌
-   - src가 없거나 로드 실패면 파스텔톤 갈색계열 그라데이션 블록
-   - src 변경 시 로딩/오류 상태 리셋 (초진입 미표시 이슈 해결)
-────────────────────────────────────── */
+/* 스마트 썸네일 */
 function SmartThumb({
   src,
   seed = 'fallback',
@@ -96,12 +89,6 @@ function SmartThumb({
   const [loaded, setLoaded] = useState(false);
   const [broken, setBroken] = useState(false);
 
-  // ★ src가 바뀌면 상태 리셋
-  useEffect(() => {
-    setLoaded(false);
-    setBroken(false);
-  }, [src]);
-
   const [c1, c2] = useMemo(() => {
     const idx = hashCode(String(seed)) % PASTELS.length;
     return PASTELS[idx];
@@ -112,18 +99,12 @@ function SmartThumb({
   return (
     <div
       className={`position-relative ${className}`}
-      style={{
-        width,
-        height,
-        borderRadius: rounded ? 8 : 0,
-        overflow: 'hidden',
-        background: `linear-gradient(135deg, ${c1}, ${c2})`,
-      }}
+      style={{ width, height, borderRadius: rounded ? 8 : 0, overflow: 'hidden', background: `linear-gradient(135deg, ${c1}, ${c2})` }}
       aria-label={alt}
     >
       {hasImg && (
         <img
-          key={src || 'empty'}               
+          key={src || 'empty'}
           src={src}
           alt={alt}
           loading="lazy"
@@ -137,9 +118,8 @@ function SmartThumb({
   );
 }
 
-/* 유튜브 썸네일 */
+/* 유튜브 썸네일 / 날짜 포맷 */
 const ytThumb = (id) => (id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : null);
-/* 날짜 포맷 */
 const formatDate = (s) => {
   try {
     return new Date(s).toLocaleDateString();
@@ -148,7 +128,7 @@ const formatDate = (s) => {
   }
 };
 
-/* 단건 글 조회(북마크 최신화를 위해) */
+/* 단건 글 조회(북마크 최신화) */
 async function getPostById(id) {
   try {
     const res = await apiFetch(`/api/community/${encodeURIComponent(id)}`);
@@ -159,16 +139,16 @@ async function getPostById(id) {
   }
 }
 
-/* 백엔드가 snake_case를 줄 수도 있어 표준화 + 커버 정규화 + 버전 부여 */
+/* 글 메타 표준화(+커버 URL 버전) */
 function normalizePostMeta(p) {
   if (!p) return null;
   const youtubeId = p.youtubeId ?? p.youtube_id ?? null;
-  const repImageUrlRaw = p.repImageUrl ?? p.rep_image_url ?? null;
-  const updatedAt = p.updatedAt ?? p.updated_at ?? p.createdAt ?? p.created_at ?? null;
-
-  // 정규화 + 캐시버스터
-  const repImageUrl = withVersion(normalizeCoverUrl(repImageUrlRaw), updatedAt);
-  const yt = ytThumb(youtubeId);
+  const raw = p.repImageUrl ?? p.rep_image_url ?? null;
+  const updated =
+    p.updatedAt ?? p.updated_at ?? p.modifiedAt ?? p.modified_at ?? null;
+  const ver = updated ? Date.parse(updated) || updated : p.id;
+  const normalized = normalizeCoverUrl(raw);
+  const repImageUrl = withVersion(normalized, ver);
 
   return {
     ...p,
@@ -176,7 +156,7 @@ function normalizePostMeta(p) {
     repImageUrl,
     title: p.title ?? '',
     category: p.category ?? '',
-    __cover: repImageUrl || yt || null,
+    __cover: repImageUrl || ytThumb(youtubeId) || null,
   };
 }
 
@@ -186,30 +166,25 @@ export default function MyPage() {
     window.scrollTo(0, 0);
   }, []);
 
-  // 프로필/세션
+  /* 상태 */
   const [me, setMe] = useState(null);
   const [meLoading, setMeLoading] = useState(true);
 
-  // 환경설정 상태(데모)
-  const [notifOn, setNotifOn] = useState(true);
-  const [adPref, setAdPref] = useState('balanced');
-  const [dietGoal, setDietGoal] = useState('diet');
-
-  // 즐겨찾기(레시피)
   const [wishLoading, setWishLoading] = useState(false);
   const [wishErr, setWishErr] = useState('');
-  const [wishlist, setWishlist] = useState([]); // [{ id, recipeId, title, summary, image, meta, createdAt }]
+  const [wishlist, setWishlist] = useState([]);
 
-  // 내가 쓴 글
-  const [myPosts, setMyPosts] = useState([]); // [{ id, title, category, createdAt, youtubeId, repImageUrl, tags }]
+  const [myPosts, setMyPosts] = useState([]);
   const [myLoading, setMyLoading] = useState(false);
   const [myErr, setMyErr] = useState('');
 
-  // 최근 활동 (실데이터)
+  const [bookmarks, setBookmarks] = useState([]);
+  const [bmLoading, setBmLoading] = useState(false);
+
   const [activities, setActivities] = useState([]);
   const [actLoading, setActLoading] = useState(true);
 
-  // me 먼저 → OK일 때 favorites & myPosts 호출
+  /* 세션 → 찜/내글 */
   useEffect(() => {
     let aborted = false;
 
@@ -219,17 +194,12 @@ export default function MyPage() {
         const res = await apiFetch('/api/auth/me', { noAuthRedirect: true });
         if (aborted) return;
 
-        if (res.status === 401) {
+        if (res.status === 401 || !res.ok) {
           try { localStorage.removeItem('authUser'); } catch {}
           localStorage.setItem('postLoginRedirect', '/mypage');
           navigate('/login-signup', { replace: true, state: { from: '/mypage' } });
           return;
         }
-        if (!res.ok) {
-          navigate('/login-signup', { replace: true, state: { from: '/mypage' } });
-          return;
-        }
-
         const meData = await res.json();
         if (aborted) return;
 
@@ -242,11 +212,10 @@ export default function MyPage() {
 
         setMe(meData);
 
-        // favorites
         setWishLoading(true);
         setWishErr('');
         try {
-          const items = await listFavoritesSimple(3); // credentials: 'include'
+          const items = await listFavoritesSimple(3);
           if (!aborted) setWishlist(Array.isArray(items) ? items : []);
         } catch {
           if (!aborted) setWishErr('저장한 레시피를 불러오지 못했어요.');
@@ -254,7 +223,6 @@ export default function MyPage() {
           if (!aborted) setWishLoading(false);
         }
 
-        // my posts
         setMyLoading(true);
         setMyErr('');
         try {
@@ -274,30 +242,25 @@ export default function MyPage() {
     return () => { aborted = true; };
   }, [navigate]);
 
-  // 찜 해제: recipeId 기준 (활동 로그 포함)
+  /* 찜 해제 */
   async function onRemove(e, recipeId) {
     if (e) { e.preventDefault(); e.stopPropagation(); }
     const rid = Number(recipeId);
     if (!Number.isFinite(rid) || rid <= 0) return;
 
     const prev = wishlist;
-    setWishlist(arr => arr.filter(it => Number(it.recipeId) !== rid)); // 낙관적 업데이트
+    setWishlist(arr => arr.filter(it => Number(it.recipeId) !== rid));
     try {
-      await removeFavorite(rid); // 200 OK
+      await removeFavorite(rid);
       const removed = prev.find(it => Number(it.recipeId) === rid);
-      logActivity("favorite_remove", { recipeId: rid, title: removed?.title });
+      logActivity('favorite_remove', { recipeId: rid, title: removed?.title });
     } catch {
       alert('삭제에 실패했어요.');
-      setWishlist(prev); // 롤백
+      setWishlist(prev);
     }
   }
 
-  // ─────────────────────────────────────────
-  // 북마크한 글 (localStorage 기반)
-  // ─────────────────────────────────────────
-  const [bookmarks, setBookmarks] = useState([]);   // [{ id, title, category, createdAt, repImageUrl, youtubeId, updatedAt, tags }]
-  const [bmLoading, setBmLoading] = useState(false);
-
+  /* 북마크 로컬 로드 */
   function loadBookmarksFromLS() {
     const list = [];
     try {
@@ -324,6 +287,7 @@ export default function MyPage() {
     return list;
   }
 
+  /* 북마크 로드 + 스냅샷 최신화 */
   useEffect(() => {
     const pull = () => {
       setBmLoading(true);
@@ -335,29 +299,32 @@ export default function MyPage() {
     };
     pull();
 
-    // 북마크 메타 최신화: 서버에서 최신 글 정보를 당겨와 로컬 스냅샷 갱신 (수정 시 자동 반영)
     (async () => {
       try {
         const raw = loadBookmarksFromLS();
-        const ids = raw.slice(0, 20).map((b) => b.id); // 과하지 않게 20개까지만
+        const ids = raw.slice(0, 20).map(b => b.id);
         if (!ids.length) return;
+
         for (let i = 0; i < ids.length; i += 4) {
           const chunk = ids.slice(i, i + 4);
-          const results = await Promise.allSettled(chunk.map((id) => getPostById(id)));
-          results.forEach((r) => {
+          const results = await Promise.allSettled(chunk.map(id => getPostById(id)));
+          results.forEach(r => {
             if (r.status !== 'fulfilled' || !r.value) return;
             const p = r.value;
-            const updatedAt = p.updatedAt ?? p.updated_at ?? p.createdAt ?? p.created_at ?? null;
             try {
+              const updated = p.updatedAt ?? p.updated_at ?? Date.now();
               localStorage.setItem(
                 `postBookmarkData:${p.id}`,
                 JSON.stringify({
                   id: p.id,
                   title: p.title,
                   category: p.category,
-                  createdAt: p.createdAt ?? p.created_at,
-                  updatedAt, // 저장
-                  repImageUrl: withVersion(normalizeCoverUrl(p.repImageUrl ?? p.rep_image_url ?? null), updatedAt),
+                  createdAt: p.createdAt,
+                  updatedAt: updated,
+                  coverUrl: withVersion(
+                    normalizeCoverUrl(p.repImageUrl ?? p.rep_image_url ?? null),
+                    updated
+                  ),
                   youtubeId: p.youtubeId ?? p.youtube_id ?? null,
                 })
               );
@@ -385,7 +352,7 @@ export default function MyPage() {
     setBookmarks(arr => arr.filter(b => String(b.id) !== id));
   }
 
-  // 최근 활동 로드 & 실시간 반영
+  /* 최근 활동 */
   useEffect(() => {
     const pull = () => {
       setActLoading(true);
@@ -400,7 +367,7 @@ export default function MyPage() {
     return off;
   }, []);
 
-  // 로딩 스켈레톤 (me)
+  /* 로딩 스켈레톤 */
   if (meLoading) {
     return (
       <div className="container-xxl py-3">
@@ -437,44 +404,37 @@ export default function MyPage() {
     );
   }
 
-  // 데모 유저(표시용)
+  /* 프로필/표시용 */
   const demoUser = {
     name: '레시프리',
     handle: '@recipfree',
     bio: '레시프리와 함께, 자유롭게 창작하는 맞춤형 건강 레시피.',
-    avatar: 'https://picsum.photos/seed/recipfree/200/200'
+    avatar: 'https://picsum.photos/seed/recipfree/200/200',
   };
 
-  // 실제 로그인 정보 우선, 없으면 데모
-  const user = me ? {
-    name: me.name || (me.email ? me.email.split('@')[0] : '회원'),
-    handle: me.email ? `@${me.email.split('@')[0]}` : '@member',
-    bio: demoUser.bio,
-    avatar: me.avatar || me.picture || demoUser.avatar,
-  } : demoUser;
+  const user = me
+    ? {
+        name: me.name || (me.email ? me.email.split('@')[0] : '회원'),
+        handle: me.email ? `@${me.email.split('@')[0]}` : '@member',
+        bio: demoUser.bio,
+        avatar: me.avatar || me.picture || demoUser.avatar,
+      }
+    : demoUser;
 
   const stats = {
     recipes: myPosts.length,
     saved: wishlist.length,
     comments: 67,
-    streak: 6
+    streak: 6,
   };
 
-  // 텍스트 줄임 스타일
   const oneLine = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
-  const twoLine = {
-    display: '-webkit-box',
-    WebkitLineClamp: 2,
-    WebkitBoxOrient: 'vertical',
-    overflow: 'hidden'
-  };
+  const twoLine = { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' };
 
   return (
     <div className="container-xxl py-3">
-      {/* 상단 배너 */}
       <AdSlot id="ad-mypage-top" height={90} label="Top Banner (728×90)" />
 
-      {/* 헤더 */}
       <div className="d-flex align-items-center justify-content-between mb-3">
         <h1 className="h4 fw-bold">마이페이지</h1>
         <div className="d-flex gap-2">
@@ -484,7 +444,6 @@ export default function MyPage() {
       </div>
 
       <div className="row g-4">
-        {/* 사이드 프로필 */}
         <aside className="col-12 col-lg-4">
           <div className="card shadow-sm mb-3">
             <div className="card-body text-center">
@@ -507,7 +466,6 @@ export default function MyPage() {
           <AdSlot id="ad-mypage-side" height={600} label="Skyscraper 300×600" sticky />
         </aside>
 
-        {/* 메인 */}
         <section className="col-12 col-lg-8">
           {/* 저장한 레시피 */}
           <div className="card shadow-sm mb-3">
@@ -547,7 +505,10 @@ export default function MyPage() {
                 {wishlist.slice(0, 3).map((w) => {
                   const key = w.id ?? w.recipeId;
                   const to  = `/result?id=${encodeURIComponent(w.recipeId)}`;
-                  const cover = normalizeCoverUrl(w.image || null); // 외부 이미지도 정규화
+                  const cover = withVersion(
+                    normalizeCoverUrl(w.image || null),
+                    w.updatedAt || w.createdAt || w.recipeId
+                  );
                   return (
                     <Link key={key} to={to} className="list-group-item list-group-item-action">
                       <div className="d-flex align-items-center gap-3">
@@ -559,14 +520,10 @@ export default function MyPage() {
                             {w.title ?? `레시피 #${w.recipeId}`}
                           </div>
                           {w.meta && (
-                            <div className="small text-secondary" style={oneLine}>
-                              {w.meta}
-                            </div>
+                            <div className="small text-secondary" style={oneLine}>{w.meta}</div>
                           )}
                           {w.summary && (
-                            <div className="small text-secondary" style={twoLine}>
-                              {w.summary}
-                            </div>
+                            <div className="small text-secondary" style={twoLine}>{w.summary}</div>
                           )}
                         </div>
                         <div className="d-flex gap-2 flex-shrink-0">
@@ -587,7 +544,7 @@ export default function MyPage() {
             )}
           </div>
 
-          {/* 🔖 북마크한 글 */}
+          {/* 북마크한 글 */}
           <div className="card shadow-sm mb-3">
             <div className="card-header d-flex justify-content-between align-items-center">
               <h5 className="m-0">북마크한 글</h5>
@@ -617,11 +574,15 @@ export default function MyPage() {
               <div className="list-group list-group-flush">
                 {bookmarks.slice(0, 5).map((b) => {
                   const to = `/community/${b.id}`;
-                  const coverBase =
-                    normalizeCoverUrl(b.repImageUrl || b.rep_image_url) ||
+                  const cover =
+                    b.coverUrl ||
+                    withVersion(
+                      normalizeCoverUrl(b.repImageUrl || b.rep_image_url || ''),
+                      b.updatedAt || b.createdAt || b.id
+                    ) ||
                     ytThumb(b.youtubeId || b.youtube_id) ||
                     null;
-                  const cover = withVersion(coverBase, b.updatedAt || b.updated_at || b.createdAt || b.created_at);
+
                   return (
                     <Link key={b.id} to={to} className="list-group-item list-group-item-action">
                       <div className="d-flex align-items-center gap-3">
@@ -640,7 +601,13 @@ export default function MyPage() {
                           <button
                             className="btn btn-sm btn-outline-danger"
                             style={{ minWidth: 72, height: 32, padding: '0 12px' }}
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); localStorage.setItem(`postBookmark:${String(b.id)}`, '0'); localStorage.removeItem(`postBookmarkData:${String(b.id)}`); setBookmarks(arr => arr.filter(x => x.id !== b.id)); }}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              localStorage.setItem(`postBookmark:${String(b.id)}`, '0');
+                              localStorage.removeItem(`postBookmarkData:${String(b.id)}`);
+                              setBookmarks(arr => arr.filter(x => x.id !== b.id));
+                            }}
                             title="북마크 해제"
                           >
                             해제
@@ -681,7 +648,7 @@ export default function MyPage() {
               <div className="p-4 text-center text-secondary">
                 아직 작성한 글이 없어요.
                 <div className="mt-2">
-                  <button className="btn btn-sm btn-success" onClick={()=>navigate('/write')}>첫 글 쓰기</button>
+                  <button className="btn btn-sm btn-success" onClick={() => navigate('/write')}>첫 글 쓰기</button>
                 </div>
               </div>
             )}
@@ -703,7 +670,7 @@ export default function MyPage() {
                           </div>
                         </div>
                         <div className="text-secondary small d-none d-md-block">
-                          {p.tags?.slice(0,3).map(t => (
+                          {p.tags?.slice(0, 3).map(t => (
                             <span key={t} className="badge bg-light text-dark border ms-1">#{t}</span>
                           ))}
                         </div>
@@ -715,7 +682,6 @@ export default function MyPage() {
             )}
           </div>
 
-          {/* 광고 */}
           <AdSlot id="ad-mypage-native" height={120} label="네이티브 인라인" />
 
           {/* 최근 활동 */}
@@ -740,9 +706,7 @@ export default function MyPage() {
                 {activities.map(a => (
                   <li key={a.id} className="list-group-item d-flex justify-content-between">
                     <span>{formatActivityText(a)}</span>
-                    <small className="text-secondary">
-                      {new Date(a.ts).toLocaleString()}
-                    </small>
+                    <small className="text-secondary">{new Date(a.ts).toLocaleString()}</small>
                   </li>
                 ))}
               </ul>
@@ -751,13 +715,11 @@ export default function MyPage() {
         </section>
       </div>
 
-      {/* 푸터 */}
       <footer className="text-center text-secondary small mt-4">
-        * 일부 링크는 제휴/광고일 수 있으며, 구매 시 수수료를 받을 수 있습니다.<br/>
+        * 일부 링크는 제휴/광고일 수 있으며, 구매 시 수수료를 받을 수 있습니다.<br />
         © {new Date().getFullYear()} <span className="fw-semibold">RECIP</span><span className="text-primary fw-semibold">FREE</span>
       </footer>
 
-      {/* 모바일 하단 네비 */}
       <BottomNav />
     </div>
   );

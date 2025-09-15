@@ -53,3 +53,12 @@
   from = "/*"
   to   = "/index.html"
   status = 200
+
+[[redirects]]
+  from = "/static/*"
+  to = "https://login.recipfree.com/static/:splat"
+  status = 200
+  force = true
+  [redirects.headers]
+    X-Forwarded-Host = "recipfree.com"
+    X-Forwarded-Proto = "https"
