@@ -60,6 +60,9 @@ public class SecurityConfig {
 
                         .requestMatchers("/api/community/**").authenticated()
 
+                        .requestMatchers("/files/**").permitAll()     // 저장된 이미지 접근 허용
+                        .requestMatchers("/api/upload").authenticated()// 업로드는 로그인만
+
                         .anyRequest().permitAll()
                 )
 

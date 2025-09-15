@@ -7,6 +7,30 @@ import { listFavoritesSimple, removeFavorite } from '../lib/wishlist';
 import { getMyPosts } from '../api/community';
 import { listActivities, subscribeActivity, formatActivityText, logActivity } from '../lib/activity';
 
+/* ─────────────────────────────────────────
+   URL 정규화 (혼합콘텐츠/포트 이슈 방지)
+   - 같은 호스트면 상대경로로 바꿈
+   - https 페이지에서 http 이미지는 https로 업그레이드 시도
+────────────────────────────────────────── */
+function normalizeCoverUrl(url) {
+  if (!url) return null;
+  try {
+    if (url.startsWith('/')) return url;
+    const u = new URL(url);
+    const here = window.location;
+    if (u.host === here.host) {
+      return u.pathname + u.search + u.hash; // 상대경로
+    }
+    if (here.protocol === 'https:' && u.protocol === 'http:') {
+      u.protocol = 'https:';
+      return u.toString();
+    }
+    return url;
+  } catch {
+    return url;
+  }
+}
+
 /* ── 광고 슬롯 ───────────────────── */
 function AdSlot({ id, height = 250, label = 'AD', sticky = false }) {
   return (
@@ -38,11 +62,10 @@ function hashCode(str) {
   return Math.abs(h);
 }
 
-/* ── 스마트 썸네일
+/* ── 스마트 썸네일 ─────────────────────
    - src가 로드되면 이미지만 보여줌
-   - src가 없거나 로드 실패면 파스텔톤 갈색계열 그라데이션 블록을 보여줌
-   - 튀지 않도록 아이콘/문양 없이 심플하게
-──────────────────────── */
+   - src가 없거나 로드 실패면 파스텔톤 갈색계열 그라데이션 블록
+────────────────────────────────────── */
 function SmartThumb({
   src,
   seed = 'fallback',
@@ -65,10 +88,15 @@ function SmartThumb({
   return (
     <div
       className={`position-relative ${className}`}
-      style={{ width, height, borderRadius: rounded ? 8 : 0, overflow: 'hidden', background: `linear-gradient(135deg, ${c1}, ${c2})` }}
+      style={{
+        width,
+        height,
+        borderRadius: rounded ? 8 : 0,
+        overflow: 'hidden',
+        background: `linear-gradient(135deg, ${c1}, ${c2})`,
+      }}
       aria-label={alt}
     >
-      {/* 이미지가 있을 때만 시도; 로드 전까지는 배경(그라데이션)만 보임 */}
       {hasImg && (
         <img
           src={src}
@@ -87,27 +115,46 @@ function SmartThumb({
 /* 유튜브 썸네일 */
 const ytThumb = (id) => (id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : null);
 /* 날짜 포맷 */
-const formatDate = (s) => { try { return new Date(s).toLocaleDateString(); } catch { return ''; } };
+const formatDate = (s) => {
+  try {
+    return new Date(s).toLocaleDateString();
+  } catch {
+    return '';
+  }
+};
 
-/* 백엔드가 snake_case를 줄 수도 있어 표준화 */
+/* 단건 글 조회(북마크 최신화를 위해) */
+async function getPostById(id) {
+  try {
+    const res = await apiFetch(`/api/community/${encodeURIComponent(id)}`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+/* 백엔드가 snake_case를 줄 수도 있어 표준화 + 커버 정규화 */
 function normalizePostMeta(p) {
   if (!p) return null;
   const youtubeId = p.youtubeId ?? p.youtube_id ?? null;
-  const repImageUrl = p.repImageUrl ?? p.rep_image_url ?? null;
+  const repImageUrlRaw = p.repImageUrl ?? p.rep_image_url ?? null;
+  const repImageUrl = normalizeCoverUrl(repImageUrlRaw);
   return {
     ...p,
     youtubeId,
     repImageUrl,
     title: p.title ?? '',
     category: p.category ?? '',
-    // 커버 후보 그대로 보냄(스마트 썸네일이 로드 확인/폴백 처리)
     __cover: repImageUrl || ytThumb(youtubeId) || null,
   };
 }
 
 export default function MyPage() {
   const navigate = useNavigate();
-  useEffect(() => { window.scrollTo(0, 0); }, []);
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
 
   // 프로필/세션
   const [me, setMe] = useState(null);
@@ -124,7 +171,7 @@ export default function MyPage() {
   const [wishlist, setWishlist] = useState([]); // [{ id, recipeId, title, summary, image, meta, createdAt }]
 
   // 내가 쓴 글
-  const [myPosts, setMyPosts] = useState([]);   // [{ id, title, category, createdAt, youtubeId, repImageUrl, tags }]
+  const [myPosts, setMyPosts] = useState([]); // [{ id, title, category, createdAt, youtubeId, repImageUrl, tags }]
   const [myLoading, setMyLoading] = useState(false);
   const [myErr, setMyErr] = useState('');
 
@@ -143,7 +190,9 @@ export default function MyPage() {
         if (aborted) return;
 
         if (res.status === 401) {
-          try { localStorage.removeItem('authUser'); } catch {}
+          try {
+            localStorage.removeItem('authUser');
+          } catch {}
           localStorage.setItem('postLoginRedirect', '/mypage');
           navigate('/login-signup', { replace: true, state: { from: '/mypage' } });
           return;
@@ -157,7 +206,9 @@ export default function MyPage() {
         if (aborted) return;
 
         if (!meData?.authenticated) {
-          try { localStorage.removeItem('authUser'); } catch {}
+          try {
+            localStorage.removeItem('authUser');
+          } catch {}
           localStorage.setItem('postLoginRedirect', '/mypage');
           navigate('/login-signup', { replace: true, state: { from: '/mypage' } });
           return;
@@ -170,7 +221,8 @@ export default function MyPage() {
         setWishErr('');
         try {
           const items = await listFavoritesSimple(3); // credentials: 'include'
-          if (!aborted) setWishlist(Array.isArray(items) ? items : []);
+          if (!aborted)
+            setWishlist(Array.isArray(items) ? items : []);
         } catch {
           if (!aborted) setWishErr('저장한 레시피를 불러오지 못했어요.');
         } finally {
@@ -194,21 +246,26 @@ export default function MyPage() {
       }
     })();
 
-    return () => { aborted = true; };
+    return () => {
+      aborted = true;
+    };
   }, [navigate]);
 
   // 찜 해제: recipeId 기준 (활동 로그 포함)
   async function onRemove(e, recipeId) {
-    if (e) { e.preventDefault(); e.stopPropagation(); }
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     const rid = Number(recipeId);
     if (!Number.isFinite(rid) || rid <= 0) return;
 
     const prev = wishlist;
-    setWishlist(arr => arr.filter(it => Number(it.recipeId) !== rid)); // 낙관적 업데이트
+    setWishlist((arr) => arr.filter((it) => Number(it.recipeId) !== rid)); // 낙관적 업데이트
     try {
       await removeFavorite(rid); // 200 OK
-      const removed = prev.find(it => Number(it.recipeId) === rid);
-      logActivity("favorite_remove", { recipeId: rid, title: removed?.title });
+      const removed = prev.find((it) => Number(it.recipeId) === rid);
+      logActivity('favorite_remove', { recipeId: rid, title: removed?.title });
     } catch {
       alert('삭제에 실패했어요.');
       setWishlist(prev); // 롤백
@@ -218,7 +275,7 @@ export default function MyPage() {
   // ─────────────────────────────────────────
   // 북마크한 글 (localStorage 기반)
   // ─────────────────────────────────────────
-  const [bookmarks, setBookmarks] = useState([]);   // [{ id, title, category, createdAt, repImageUrl, youtubeId, tags }]
+  const [bookmarks, setBookmarks] = useState([]); // [{ id, title, category, createdAt, repImageUrl, youtubeId, tags }]
   const [bmLoading, setBmLoading] = useState(false);
 
   function loadBookmarksFromLS() {
@@ -234,7 +291,9 @@ export default function MyPage() {
         let meta = null;
         const raw = localStorage.getItem(dataKey);
         if (raw) {
-          try { meta = JSON.parse(raw); } catch {}
+          try {
+            meta = JSON.parse(raw);
+          } catch {}
         }
         list.push({ id: Number(id), ...(meta || {}) });
       }
@@ -258,6 +317,39 @@ export default function MyPage() {
     };
     pull();
 
+    // 북마크 메타 최신화: 서버에서 최신 글 정보를 당겨와 로컬 스냅샷 갱신
+    (async () => {
+      try {
+        const raw = loadBookmarksFromLS();
+        const ids = raw.slice(0, 20).map((b) => b.id); // 과하지 않게 20개까지만
+        if (!ids.length) return;
+        // 병렬(동시성 과도 방지 위해 chunk 처리)
+        for (let i = 0; i < ids.length; i += 4) {
+          const chunk = ids.slice(i, i + 4);
+          const results = await Promise.allSettled(chunk.map((id) => getPostById(id)));
+          results.forEach((r) => {
+            if (r.status !== 'fulfilled' || !r.value) return;
+            const p = r.value;
+            try {
+              localStorage.setItem(
+                `postBookmarkData:${p.id}`,
+                JSON.stringify({
+                  id: p.id,
+                  title: p.title,
+                  category: p.category,
+                  createdAt: p.createdAt,
+                  repImageUrl: normalizeCoverUrl(p.repImageUrl ?? p.rep_image_url ?? null),
+                  youtubeId: p.youtubeId ?? p.youtube_id ?? null,
+                })
+              );
+            } catch {}
+          });
+        }
+        // 갱신 반영
+        setBookmarks(loadBookmarksFromLS());
+      } catch {}
+    })();
+
     const onStorage = (e) => {
       if (!e || !e.key || e.key.startsWith('postBookmark')) pull();
     };
@@ -266,13 +358,16 @@ export default function MyPage() {
   }, []);
 
   function onUnbookmark(e, postId) {
-    if (e) { e.preventDefault(); e.stopPropagation(); }
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     const id = String(postId);
     try {
       localStorage.setItem(`postBookmark:${id}`, '0');
       localStorage.removeItem(`postBookmarkData:${id}`);
     } catch {}
-    setBookmarks(arr => arr.filter(b => String(b.id) !== id));
+    setBookmarks((arr) => arr.filter((b) => String(b.id) !== id));
   }
 
   // 최근 활동 로드 & 실시간 반영
@@ -311,7 +406,9 @@ export default function MyPage() {
           </aside>
           <section className="col-12 col-lg-8">
             <div className="card shadow-sm mb-3">
-              <div className="card-header"><h5 className="m-0">저장한 레시피</h5></div>
+              <div className="card-header">
+                <h5 className="m-0">저장한 레시피</h5>
+              </div>
               <div className="p-3">
                 <div className="placeholder-glow">
                   <div className="placeholder col-12 mb-2" style={{ height: 18 }} />
@@ -332,22 +429,24 @@ export default function MyPage() {
     name: '레시프리',
     handle: '@recipfree',
     bio: '레시프리와 함께, 자유롭게 창작하는 맞춤형 건강 레시피.',
-    avatar: 'https://picsum.photos/seed/recipfree/200/200'
+    avatar: 'https://picsum.photos/seed/recipfree/200/200',
   };
 
   // 실제 로그인 정보 우선, 없으면 데모
-  const user = me ? {
-    name: me.name || (me.email ? me.email.split('@')[0] : '회원'),
-    handle: me.email ? `@${me.email.split('@')[0]}` : '@member',
-    bio: demoUser.bio,
-    avatar: me.avatar || me.picture || demoUser.avatar,
-  } : demoUser;
+  const user = me
+    ? {
+        name: me.name || (me.email ? me.email.split('@')[0] : '회원'),
+        handle: me.email ? `@${me.email.split('@')[0]}` : '@member',
+        bio: demoUser.bio,
+        avatar: me.avatar || me.picture || demoUser.avatar,
+      }
+    : demoUser;
 
   const stats = {
     recipes: myPosts.length,
     saved: wishlist.length,
     comments: 67,
-    streak: 6
+    streak: 6,
   };
 
   // 텍스트 줄임 스타일
@@ -356,7 +455,7 @@ export default function MyPage() {
     display: '-webkit-box',
     WebkitLineClamp: 2,
     WebkitBoxOrient: 'vertical',
-    overflow: 'hidden'
+    overflow: 'hidden',
   };
 
   return (
@@ -368,8 +467,12 @@ export default function MyPage() {
       <div className="d-flex align-items-center justify-content-between mb-3">
         <h1 className="h4 fw-bold">마이페이지</h1>
         <div className="d-flex gap-2">
-          <button className="btn btn-success btn-sm" onClick={() => navigate('/profile')}>프로필 편집</button>
-          <button className="btn btn-outline-secondary btn-sm" onClick={() => navigate('/settings')}>계정/보안</button>
+          <button className="btn btn-success btn-sm" onClick={() => navigate('/profile')}>
+            프로필 편집
+          </button>
+          <button className="btn btn-outline-secondary btn-sm" onClick={() => navigate('/settings')}>
+            계정/보안
+          </button>
         </div>
       </div>
 
@@ -383,14 +486,30 @@ export default function MyPage() {
               <div className="text-secondary small mb-1">{user.handle}</div>
               <p className="text-secondary small">{user.bio}</p>
               <div className="row text-center mt-3">
-                <div className="col"><strong>{stats.recipes}</strong><div className="small">작성</div></div>
-                <div className="col"><strong>{stats.saved}</strong><div className="small">저장</div></div>
-                <div className="col"><strong>{stats.comments}</strong><div className="small">댓글</div></div>
-                <div className="col"><strong>{stats.streak}일</strong><div className="small">연속</div></div>
+                <div className="col">
+                  <strong>{stats.recipes}</strong>
+                  <div className="small">작성</div>
+                </div>
+                <div className="col">
+                  <strong>{stats.saved}</strong>
+                  <div className="small">저장</div>
+                </div>
+                <div className="col">
+                  <strong>{stats.comments}</strong>
+                  <div className="small">댓글</div>
+                </div>
+                <div className="col">
+                  <strong>{stats.streak}일</strong>
+                  <div className="small">연속</div>
+                </div>
               </div>
               <div className="d-grid gap-2 mt-3">
-                <button className="btn btn-outline-success btn-sm" onClick={() => navigate('/saved')}>저장한 레시피</button>
-                <button className="btn btn-outline-secondary btn-sm" onClick={() => navigate('/activity')}>활동 내역</button>
+                <button className="btn btn-outline-success btn-sm" onClick={() => navigate('/saved')}>
+                  저장한 레시피
+                </button>
+                <button className="btn btn-outline-secondary btn-sm" onClick={() => navigate('/activity')}>
+                  활동 내역
+                </button>
               </div>
             </div>
           </div>
@@ -405,7 +524,9 @@ export default function MyPage() {
               <h5 className="m-0">저장한 레시피</h5>
               <div className="d-flex align-items-center gap-2">
                 <span className="text-secondary small">{wishlist.length}개</span>
-                <Link className="btn btn-sm btn-outline-primary" to="/saved">전체보기</Link>
+                <Link className="btn btn-sm btn-outline-primary" to="/saved">
+                  전체보기
+                </Link>
               </div>
             </div>
 
@@ -420,14 +541,18 @@ export default function MyPage() {
             )}
 
             {!wishLoading && wishErr && (
-              <div className="alert alert-danger m-3" role="alert">{wishErr}</div>
+              <div className="alert alert-danger m-3" role="alert">
+                {wishErr}
+              </div>
             )}
 
             {!wishLoading && !wishErr && wishlist.length === 0 && (
               <div className="p-4 text-center text-secondary">
                 아직 저장한 레시피가 없어요.
                 <div className="mt-2">
-                  <Link className="btn btn-sm btn-success" to="/input">레시피 받으러 가기</Link>
+                  <Link className="btn btn-sm btn-success" to="/input">
+                    레시피 받으러 가기
+                  </Link>
                 </div>
               </div>
             )}
@@ -436,8 +561,8 @@ export default function MyPage() {
               <div className="list-group list-group-flush">
                 {wishlist.slice(0, 3).map((w) => {
                   const key = w.id ?? w.recipeId;
-                  const to  = `/result?id=${encodeURIComponent(w.recipeId)}`;
-                  const cover = w.image || null;
+                  const to = `/result?id=${encodeURIComponent(w.recipeId)}`;
+                  const cover = normalizeCoverUrl(w.image || null);
                   return (
                     <Link key={key} to={to} className="list-group-item list-group-item-action">
                       <div className="d-flex align-items-center gap-3">
@@ -498,7 +623,9 @@ export default function MyPage() {
               <div className="p-4 text-center text-secondary">
                 아직 북마크한 글이 없어요.
                 <div className="mt-2">
-                  <Link className="btn btn-sm btn_success" to="/community">커뮤니티로 가기</Link>
+                  <Link className="btn btn-sm btn-success" to="/community">
+                    커뮤니티로 가기
+                  </Link>
                 </div>
               </div>
             )}
@@ -507,7 +634,10 @@ export default function MyPage() {
               <div className="list-group list-group-flush">
                 {bookmarks.slice(0, 5).map((b) => {
                   const to = `/community/${b.id}`;
-                  const cover = b.repImageUrl || b.rep_image_url || ytThumb(b.youtubeId || b.youtube_id) || null;
+                  const cover =
+                    normalizeCoverUrl(b.repImageUrl || b.rep_image_url) ||
+                    ytThumb(b.youtubeId || b.youtube_id) ||
+                    null;
                   return (
                     <Link key={b.id} to={to} className="list-group-item list-group-item-action">
                       <div className="d-flex align-items-center gap-3">
@@ -519,14 +649,21 @@ export default function MyPage() {
                             {b.title || `게시글 #${b.id}`}
                           </div>
                           <div className="small text-secondary" style={oneLine}>
-                            {b.category || '커뮤니티'}{b.createdAt ? ` · ${formatDate(b.createdAt)}` : ''}
+                            {b.category || '커뮤니티'}
+                            {b.createdAt ? ` · ${formatDate(b.createdAt)}` : ''}
                           </div>
                         </div>
                         <div className="d-flex gap-2 flex-shrink-0">
                           <button
                             className="btn btn-sm btn-outline-danger"
                             style={{ minWidth: 72, height: 32, padding: '0 12px' }}
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); localStorage.setItem(`postBookmark:${String(b.id)}`, '0'); localStorage.removeItem(`postBookmarkData:${String(b.id)}`); setBookmarks(arr => arr.filter(x => x.id !== b.id)); }}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              localStorage.setItem(`postBookmark:${String(b.id)}`, '0');
+                              localStorage.removeItem(`postBookmarkData:${String(b.id)}`);
+                              setBookmarks((arr) => arr.filter((x) => x.id !== b.id));
+                            }}
                             title="북마크 해제"
                           >
                             해제
@@ -545,7 +682,9 @@ export default function MyPage() {
             <div className="card-header d-flex justify-content-between align-items-center">
               <h5 className="m-0">내가 쓴 글</h5>
               <div className="d-flex gap-2">
-                <button className="btn btn-sm btn-success" onClick={() => navigate('/write')}>글쓰기</button>
+                <button className="btn btn-sm btn-success" onClick={() => navigate('/write')}>
+                  글쓰기
+                </button>
               </div>
             </div>
 
@@ -560,21 +699,25 @@ export default function MyPage() {
             )}
 
             {!myLoading && myErr && (
-              <div className="alert alert-danger m-3" role="alert">{myErr}</div>
+              <div className="alert alert-danger m-3" role="alert">
+                {myErr}
+              </div>
             )}
 
             {!myLoading && !myErr && myPosts.length === 0 && (
               <div className="p-4 text-center text-secondary">
                 아직 작성한 글이 없어요.
                 <div className="mt-2">
-                  <button className="btn btn-sm btn-success" onClick={()=>navigate('/write')}>첫 글 쓰기</button>
+                  <button className="btn btn-sm btn-success" onClick={() => navigate('/write')}>
+                    첫 글 쓰기
+                  </button>
                 </div>
               </div>
             )}
 
             {!myLoading && !myErr && myPosts.length > 0 && (
               <div className="list-group list-group-flush">
-                {myPosts.map(p => {
+                {myPosts.map((p) => {
                   const to = `/community/${p.id}`;
                   return (
                     <Link key={p.id} to={to} className="list-group-item list-group-item-action">
@@ -583,14 +726,19 @@ export default function MyPage() {
                           <SmartThumb src={p.__cover} seed={`post-${p.id}-${p.title}`} />
                         </div>
                         <div className="flex-grow-1" style={{ minWidth: 0 }}>
-                          <div className="fw-semibold" style={oneLine}>{p.title}</div>
+                          <div className="fw-semibold" style={oneLine}>
+                            {p.title}
+                          </div>
                           <div className="small text-secondary" style={oneLine}>
-                            {p.category}{p.createdAt ? ` · ${formatDate(p.createdAt)}` : ''}
+                            {p.category}
+                            {p.createdAt ? ` · ${formatDate(p.createdAt)}` : ''}
                           </div>
                         </div>
                         <div className="text-secondary small d-none d-md-block">
-                          {p.tags?.slice(0,3).map(t => (
-                            <span key={t} className="badge bg-light text-dark border ms-1">#{t}</span>
+                          {p.tags?.slice(0, 3).map((t) => (
+                            <span key={t} className="badge bg-light text-dark border ms-1">
+                              #{t}
+                            </span>
                           ))}
                         </div>
                       </div>
@@ -608,7 +756,9 @@ export default function MyPage() {
           <div className="card shadow-sm mb-3">
             <div className="card-header d-flex justify-content-between align-items-center">
               <h5 className="m-0">최근 활동</h5>
-              <button className="btn btn-link btn-sm" onClick={() => navigate('/activity')}>전체보기</button>
+              <button className="btn btn-link btn-sm" onClick={() => navigate('/activity')}>
+                전체보기
+              </button>
             </div>
 
             {actLoading ? (
@@ -623,12 +773,10 @@ export default function MyPage() {
               <div className="p-4 text-center text-secondary">아직 활동 내역이 없어요.</div>
             ) : (
               <ul className="list-group list-group-flush">
-                {activities.map(a => (
+                {activities.map((a) => (
                   <li key={a.id} className="list-group-item d-flex justify-content-between">
                     <span>{formatActivityText(a)}</span>
-                    <small className="text-secondary">
-                      {new Date(a.ts).toLocaleString()}
-                    </small>
+                    <small className="text-secondary">{new Date(a.ts).toLocaleString()}</small>
                   </li>
                 ))}
               </ul>
@@ -639,8 +787,10 @@ export default function MyPage() {
 
       {/* 푸터 */}
       <footer className="text-center text-secondary small mt-4">
-        * 일부 링크는 제휴/광고일 수 있으며, 구매 시 수수료를 받을 수 있습니다.<br/>
-        © {new Date().getFullYear()} <span className="fw-semibold">RECIP</span><span className="text-primary fw-semibold">FREE</span>
+        * 일부 링크는 제휴/광고일 수 있으며, 구매 시 수수료를 받을 수 있습니다.
+        <br />
+        © {new Date().getFullYear()} <span className="fw-semibold">RECIP</span>
+        <span className="text-primary fw-semibold">FREE</span>
       </footer>
 
       {/* 모바일 하단 네비 */}

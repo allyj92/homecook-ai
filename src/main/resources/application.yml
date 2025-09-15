@@ -1,5 +1,9 @@
 # src/main/resources/application.yml
 spring:
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 12MB
   profiles:
     active: prod
 
@@ -86,4 +90,5 @@ logging:
     org.hibernate.orm.jdbc.bind: trace
 
 app:
+  upload-dir: uploads
   front-base: ${FRONT_BASE:https://recipfree.com}

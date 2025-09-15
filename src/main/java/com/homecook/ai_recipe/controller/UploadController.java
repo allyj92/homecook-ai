@@ -1,43 +1,89 @@
-// src/main/java/com/homecook/ai_recipe/controller/UploadController.java
 package com.homecook.ai_recipe.controller;
 
-import org.springframework.http.MediaType;
+import jakarta.servlet.http.HttpServletRequest;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 
-import java.io.*;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.*;
 import java.time.LocalDate;
-import java.util.*;
+import java.util.Map;
+import java.util.UUID;
 
+@Slf4j
 @RestController
-@RequestMapping("/api/uploads")
+@RequestMapping("/api")
 public class UploadController {
 
-    private final Path root = Paths.get("uploads"); // 프로젝트 루트에 /uploads
+    @Value("${app.upload-dir:uploads}")
+    private String uploadDir;
 
-    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public Map<String, Object> upload(@RequestParam("file") MultipartFile file) throws IOException {
-        if (file.isEmpty()) throw new IllegalArgumentException("파일이 비어 있습니다.");
+    @Value("${app.cdn-base:}")
+    private String cdnBase;
 
-        // 폴더: /uploads/2025-09-13 같은 형태
-        LocalDate today = LocalDate.now();
-        Path dir = root.resolve(today.toString());
-        Files.createDirectories(dir);
+    @PostMapping("/upload")
+    public Map<String, String> upload(@RequestParam("file") MultipartFile file,
+                                      HttpServletRequest req) throws IOException {
+        log.info("[UPLOAD] hit /api/upload, file={}, ct={}",
+                (file != null ? file.getOriginalFilename() : null),
+                (file != null ? file.getContentType() : null));
 
-        String ext = Optional.ofNullable(StringUtils.getFilenameExtension(file.getOriginalFilename()))
-                .map(String::toLowerCase).orElse("bin");
-        String basename = UUID.randomUUID().toString().replace("-", "");
-        String filename = basename + "." + ext;
+        if (file == null || file.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "empty_file");
+        }
+        String ct = (file.getContentType() == null ? "" : file.getContentType().toLowerCase());
+        if (!ct.startsWith("image/")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "only_image_allowed");
+        }
 
-        Path dest = dir.resolve(filename);
+        // ── 절대 경로로 저장 디렉터리 구성 ──────────────────────────
+        LocalDate d = LocalDate.now();
+        Path base = Paths.get(uploadDir,
+                        String.valueOf(d.getYear()),
+                        String.format("%02d", d.getMonthValue()),
+                        String.format("%02d", d.getDayOfMonth()))
+                .toAbsolutePath()
+                .normalize();
+
+        Files.createDirectories(base); // 상위 폴더까지 생성
+
+        // 확장자 결정
+        String origExt = StringUtils.getFilenameExtension(file.getOriginalFilename());
+        String ext = (origExt != null && origExt.matches("[A-Za-z0-9]{1,5}"))
+                ? origExt.toLowerCase()
+                : (ct.contains("png") ? "png" :
+                ct.contains("webp") ? "webp" :
+                        ct.contains("gif") ? "gif" : "jpg");
+
+        String name = UUID.randomUUID().toString().replace("-", "") + "." + ext;
+        Path dest = base.resolve(name).normalize();
+
+        // ── 저장: transferTo 대신 Files.copy 사용 ─────────────────
         try (InputStream in = file.getInputStream()) {
             Files.copy(in, dest, StandardCopyOption.REPLACE_EXISTING);
         }
 
-        // 정적 URL: /static/uploads/...
-        String url = "/static/uploads/" + today + "/" + filename;
-        return Map.of("url", url, "name", filename, "size", file.getSize(), "type", file.getContentType());
+        // 퍼블릭 URL (/files/** 리소스 핸들러와 매칭)
+        String pathPart = "/files/" + d.getYear()
+                + "/" + String.format("%02d", d.getMonthValue())
+                + "/" + String.format("%02d", d.getDayOfMonth())
+                + "/" + name;
+
+        String url;
+        if (cdnBase != null && !cdnBase.isBlank()) {
+            url = cdnBase.replaceAll("/+$", "") + pathPart;
+        } else {
+            String origin = req.getRequestURL().toString().replace(req.getRequestURI(), "");
+            url = origin + pathPart;
+        }
+
+        log.info("[UPLOAD] saved={}, url={}", dest.toAbsolutePath(), url);
+        return Map.of("url", url);
     }
 }
