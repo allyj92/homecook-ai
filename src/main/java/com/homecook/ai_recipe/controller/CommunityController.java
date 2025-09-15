@@ -71,21 +71,16 @@ public class CommunityController {
      *
      * 다음 스텝에서 service.update(userId, id, req) 형태로 실제 저장 로직을 연결하자.
      */
+    /** ✅ 수정 (작성자 본인만) */
     @PutMapping("/posts/{id}")
-    public Map<String, Object> updateStub(
+    public PostRes update(
             @PathVariable Long id,
-            @Valid @RequestBody CreatePostReq req, // 임시로 생성 DTO 재사용
+            @Valid @RequestBody CreatePostReq req,
             @AuthenticationPrincipal(expression = "attributes['uid']") Number uid
     ) {
         if (uid == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
-
-        // TODO: 다음 단계에서 실제 수정 로직 연결
-        // ex) service.update(uid.longValue(), id, req);
-
-        return Map.of(
-                "id", id,
-                "ok", true,
-                "served_by", "stub"  // 디버깅용 마커
-        );
+        service.update(uid.longValue(), id, req);
+        // ✅ 방금 저장된 최신값을 바로 반환
+        return service.getOne(id);
     }
 }

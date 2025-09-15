@@ -1,5 +1,5 @@
 // src/pages/MyPage.jsx
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import BottomNav from '../compoments/BottomNav';
 import { apiFetch } from '../lib/http';
@@ -20,6 +20,55 @@ function AdSlot({ id, height = 250, label = 'AD', sticky = false }) {
       {label}
     </div>
   );
+}
+
+/* ── 공통 이미지 썸네일 ─────────────────────
+   - primary → placeholder → 마지막으로 텍스트 박스 유지
+*/
+const PLACEHOLDER = '/images/placeholder-recipe.jpg';
+function ImageThumb({ src, alt = 'thumbnail', width = 80, height = 56, rounded = true }) {
+  const [cur, setCur] = useState(src || PLACEHOLDER);
+  const triedPlaceholder = useMemo(() => ({ value: false }), []);
+  return (
+    <div
+      className="position-relative bg-light"
+      style={{ width, height, borderRadius: rounded ? 8 : 0, overflow: 'hidden' }}
+    >
+      <img
+        src={cur}
+        alt={alt}
+        loading="lazy"
+        className="position-absolute top-0 start-0 w-100 h-100 object-fit-cover"
+        onError={() => {
+          if (!triedPlaceholder.value) {
+            triedPlaceholder.value = true;
+            setCur(PLACEHOLDER);
+          }
+        }}
+      />
+    </div>
+  );
+}
+
+/* 유튜브 썸네일 */
+const ytThumb = (id) => (id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : null);
+/* 날짜 포맷 */
+const formatDate = (s) => { try { return new Date(s).toLocaleDateString(); } catch { return ''; } };
+
+/* 백엔드가 snake_case를 줄 수도 있어 표준화 */
+function normalizePostMeta(p) {
+  if (!p) return null;
+  const youtubeId = p.youtubeId ?? p.youtube_id ?? null;
+  const repImageUrl = p.repImageUrl ?? p.rep_image_url ?? null;
+  return {
+    ...p,
+    youtubeId,
+    repImageUrl,
+    // 커버 우선순위: 대표이미지 → 유튜브 썸네일 → 없음
+    __cover: repImageUrl || ytThumb(youtubeId) || null,
+    title: p.title ?? '',
+    category: p.category ?? '',
+  };
 }
 
 export default function MyPage() {
@@ -48,11 +97,6 @@ export default function MyPage() {
   // 최근 활동 (실데이터)
   const [activities, setActivities] = useState([]);
   const [actLoading, setActLoading] = useState(true);
-
-  const ytThumb = (id) => id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : null;
-  const formatDate = (s) => {
-    try { return new Date(s).toLocaleDateString(); } catch { return ''; }
-  };
 
   // me 먼저 → OK일 때 favorites & myPosts 호출
   useEffect(() => {
@@ -103,8 +147,9 @@ export default function MyPage() {
         setMyLoading(true);
         setMyErr('');
         try {
-          const posts = await getMyPosts(3);
-          if (!aborted) setMyPosts(Array.isArray(posts) ? posts : []);
+          const posts = await getMyPosts(5);
+          const fixed = (Array.isArray(posts) ? posts : []).map(normalizePostMeta);
+          if (!aborted) setMyPosts(fixed);
         } catch {
           if (!aborted) setMyErr('내가 쓴 글을 불러오지 못했어요.');
         } finally {
@@ -192,8 +237,6 @@ export default function MyPage() {
     try {
       localStorage.setItem(`postBookmark:${id}`, '0');
       localStorage.removeItem(`postBookmarkData:${id}`);
-      // 활동 로그 (북마크 해제도 로그로 남기고 싶으면)
-      // logActivity("post_bookmark", { postId: Number(id), title: /*제목 모르면 생략*/ undefined, on: false });
     } catch {}
     setBookmarks(arr => arr.filter(b => String(b.id) !== id));
   }
@@ -322,7 +365,7 @@ export default function MyPage() {
 
         {/* 메인 */}
         <section className="col-12 col-lg-8">
-          {/* 저장한 레시피 (미리보기 3개 + 전체보기 버튼) */}
+          {/* 저장한 레시피 */}
           <div className="card shadow-sm mb-3">
             <div className="card-header d-flex justify-content-between align-items-center">
               <h5 className="m-0">저장한 레시피</h5>
@@ -361,42 +404,28 @@ export default function MyPage() {
                   const key = w.id ?? w.recipeId;
                   const to  = `/result?id=${encodeURIComponent(w.recipeId)}`;
                   return (
-                    <Link
-                      key={key}
-                      to={to}
-                      className="list-group-item list-group-item-action"
-                    >
+                    <Link key={key} to={to} className="list-group-item list-group-item-action">
                       <div className="d-flex align-items-center gap-3">
-                        {/* 썸네일 */}
                         <div className="flex-shrink-0">
-                          <div
-                            className="rounded"
-                            style={{
-                              width: 80, height: 56, background: '#f3f3f3',
-                              backgroundImage: w.image ? `url(${w.image})` : undefined,
-                              backgroundSize: 'cover', backgroundPosition: 'center'
-                            }}
-                          />
+                          <ImageThumb src={w.image} alt={w.title ?? `레시피 #${w.recipeId}`} />
                         </div>
-
-                        {/* 텍스트 영역 */}
                         <div className="flex-grow-1" style={{ minWidth: 0 }}>
-                          <div className="fw-semibold" style={oneLine}>
+                          <div className="fw-semibold" style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
                             {w.title ?? `레시피 #${w.recipeId}`}
                           </div>
                           {w.meta && (
-                            <div className="small text-secondary" style={oneLine}>
+                            <div className="small text-secondary" style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
                               {w.meta}
                             </div>
                           )}
                           {w.summary && (
-                            <div className="small text-secondary" style={twoLine}>
+                            <div className="small text-secondary" style={{
+                              display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden'
+                            }}>
                               {w.summary}
                             </div>
                           )}
                         </div>
-
-                        {/* 액션 버튼 */}
                         <div className="d-flex gap-2 flex-shrink-0">
                           <button
                             className="btn btn-sm btn-outline-danger"
@@ -415,7 +444,7 @@ export default function MyPage() {
             )}
           </div>
 
-          {/* 🔖 북마크한 글 (상세에서 📌 누른 커뮤니티 글) */}
+          {/* 🔖 북마크한 글 */}
           <div className="card shadow-sm mb-3">
             <div className="card-header d-flex justify-content-between align-items-center">
               <h5 className="m-0">북마크한 글</h5>
@@ -445,33 +474,26 @@ export default function MyPage() {
               <div className="list-group list-group-flush">
                 {bookmarks.slice(0, 5).map((b) => {
                   const to = `/community/${b.id}`;
-                  const cover = b.repImageUrl || (b.youtubeId ? ytThumb(b.youtubeId) : null);
+                  const cover = b.repImageUrl || b.rep_image_url || ytThumb(b.youtubeId || b.youtube_id);
                   return (
                     <Link key={b.id} to={to} className="list-group-item list-group-item-action">
                       <div className="d-flex align-items-center gap-3">
                         <div className="flex-shrink-0">
-                          <div
-                            className="rounded"
-                            style={{
-                              width: 80, height: 56, background: '#f3f3f3',
-                              backgroundImage: cover ? `url(${cover})` : undefined,
-                              backgroundSize: 'cover', backgroundPosition: 'center'
-                            }}
-                          />
+                          <ImageThumb src={cover} alt={b.title || `게시글 #${b.id}`} />
                         </div>
                         <div className="flex-grow-1" style={{ minWidth: 0 }}>
-                          <div className="fw-semibold" style={oneLine}>
+                          <div className="fw-semibold" style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
                             {b.title || `게시글 #${b.id}`}
                           </div>
-                          <div className="small text-secondary" style={oneLine}>
-                            {b.category || '커뮤니티'}{b.createdAt ? ` · ${formatDate(b.createdAt)}` : ''}
+                          <div className="small text-secondary" style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                            {(b.category || '커뮤니티')}{b.createdAt ? ` · ${formatDate(b.createdAt)}` : ''}
                           </div>
                         </div>
                         <div className="d-flex gap-2 flex-shrink-0">
                           <button
                             className="btn btn-sm btn-outline-danger"
                             style={{ minWidth: 72, height: 32, padding: '0 12px' }}
-                            onClick={(e) => onUnbookmark(e, b.id)}
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); localStorage.setItem(`postBookmark:${String(b.id)}`, '0'); localStorage.removeItem(`postBookmarkData:${String(b.id)}`); }}
                             title="북마크 해제"
                           >
                             해제
@@ -512,7 +534,7 @@ export default function MyPage() {
               <div className="p-4 text-center text-secondary">
                 아직 작성한 글이 없어요.
                 <div className="mt-2">
-                  <button className="btn btn-sm btn_SUCCESS" onClick={()=>navigate('/write')}>첫 글 쓰기</button>
+                  <button className="btn btn-sm btn-success" onClick={()=>navigate('/write')}>첫 글 쓰기</button>
                 </div>
               </div>
             )}
@@ -521,23 +543,16 @@ export default function MyPage() {
               <div className="list-group list-group-flush">
                 {myPosts.map(p => {
                   const to = `/community/${p.id}`;
-                  const cover = p.repImageUrl || ytThumb(p.youtubeId);
+                  const cover = p.__cover; // 표준화 단계에서 계산
                   return (
                     <Link key={p.id} to={to} className="list-group-item list-group-item-action">
                       <div className="d-flex align-items-center gap-3">
                         <div className="flex-shrink-0">
-                          <div
-                            className="rounded"
-                            style={{
-                              width: 80, height: 56, background: '#f3f3f3',
-                              backgroundImage: cover ? `url(${cover})` : undefined,
-                              backgroundSize: 'cover', backgroundPosition: 'center'
-                            }}
-                          />
+                          <ImageThumb src={cover} alt={p.title} />
                         </div>
                         <div className="flex-grow-1" style={{ minWidth: 0 }}>
-                          <div className="fw-semibold" style={oneLine}>{p.title}</div>
-                          <div className="small text-secondary" style={oneLine}>
+                          <div className="fw-semibold" style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{p.title}</div>
+                          <div className="small text-secondary" style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
                             {p.category}{p.createdAt ? ` · ${formatDate(p.createdAt)}` : ''}
                           </div>
                         </div>
@@ -586,58 +601,6 @@ export default function MyPage() {
                 ))}
               </ul>
             )}
-          </div>
-
-          {/* 환경설정 */}
-          <div className="card shadow-sm">
-            <div className="card-header"><h5 className="m-0">환경 설정</h5></div>
-            <div className="card-body d-grid gap-3">
-              {/* 알림 */}
-              <div className="d-flex justify-content-between align-items-center">
-                <div>
-                  <div className="fw-semibold">알림</div>
-                  <div className="text-secondary small">댓글/좋아요/팔로우 알림</div>
-                </div>
-                <div className="form-check form-switch">
-                  <input className="form-check-input" type="checkbox" checked={notifOn} onChange={(e)=>setNotifOn(e.target.checked)} />
-                </div>
-              </div>
-              {/* 광고 */}
-              <div>
-                <label className="form-label">광고 노출 선호도</label>
-                <select className="form-select" value={adPref} onChange={(e)=>setAdPref(e.target.value)}>
-                  <option value="min">최소</option>
-                  <option value="balanced">보통</option>
-                  <option value="max">많이</option>
-                </select>
-              </div>
-              {/* 목표 */}
-              <div>
-                <label className="form-label">기본 목표</label>
-                <select className="form-select" value={dietGoal} onChange={(e)=>setDietGoal(e.target.value)}>
-                  <option value="diet">다이어트</option>
-                  <option value="highProtein">고단백</option>
-                  <option value="lowSodium">저염</option>
-                  <option value="lowSugar">저당</option>
-                  <option value="bulk">벌크업</option>
-                  <option value="vegan">비건</option>
-                  <option value="glutenFree">글루텐프리</option>
-                </select>
-              </div>
-              <div className="d-flex gap-2">
-                <button className="btn btn-success" onClick={()=>alert('저장되었습니다 (데모)')}>저장</button>
-                <button
-                  className="btn btn-outline-secondary"
-                  onClick={()=>{
-                    setNotifOn(true);
-                    setAdPref('balanced');
-                    setDietGoal('diet');
-                  }}
-                >
-                  기본값으로
-                </button>
-              </div>
-            </div>
           </div>
         </section>
       </div>
