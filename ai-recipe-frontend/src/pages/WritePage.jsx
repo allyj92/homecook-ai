@@ -11,6 +11,7 @@ import { logActivity } from "../lib/activity";
 const DRAFT_KEY = "draft:community";
 const CATEGORIES = ["후기", "질문", "레시피", "노하우", "자유"];
 
+/* 유튜브 URL/ID → videoId */
 function toYoutubeId(url) {
   if (!url) return null;
   const u = url.trim();
@@ -18,12 +19,14 @@ function toYoutubeId(url) {
   if ((m = u.match(/youtu\.be\/([A-Za-z0-9_\-]{8,})/))) return m[1];
   if ((m = u.match(/[?&]v=([A-Za-z0-9_\-]{8,})/))) return m[1];
   if ((m = u.match(/\/shorts\/([A-Za-z0-9_\-]{8,})/))) return m[1];
-  if (/^[A-Za-z0-9_\-]{8,32}$/.test(u)) return u;
+  if (/^[A-Za-z0-9_\-]{8,32}$/.test(u)) return u; // ID만 들어온 경우
   return null;
 }
 
+/* 아주 가벼운 마크다운 프리뷰(이미지/링크/단락/줄바꿈) */
 function mdPreview(md) {
-  const esc = (s) => s.replace(/[&<>"']/g, (m) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m]));
+  const esc = (s) =>
+    s.replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
   let html = esc(md || "");
   html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, `<img alt="$1" src="$2" style="max-width:100%;border-radius:8px;margin:8px 0;" />`);
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, `<a href="$2" target="_blank" rel="noreferrer noopener">$1</a>`);
@@ -34,12 +37,23 @@ function mdPreview(md) {
 export default function WritePage() {
   const navigate = useNavigate();
   const loc = useLocation();
+
+  // ✅ 수정 ID를 여러 경로에서 인식: ?id=12, /write/12, navigate state
   const params = new URLSearchParams(loc.search);
-  const editId = params.get("id");         // ?id=12 있으면 수정 모드
+  let editId = params.get("id");
+  if (!editId) {
+    const m = loc.pathname.match(/\/write\/(\d+)/);
+    if (m) editId = m[1];
+  }
+  if (!editId && loc.state && typeof loc.state.editId !== "undefined") {
+    editId = String(loc.state.editId);
+  }
   const isEdit = !!editId;
 
+  // 로그인/유저
   const [auth, setAuth] = useState({ loading: true, user: null });
 
+  // 폼 상태
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState(CATEGORIES[0]);
   const [tagInput, setTagInput] = useState("");
@@ -48,24 +62,25 @@ export default function WritePage() {
   const [repImageUrl, setRepImageUrl] = useState("");
   const [youtubeUrl, setYoutubeUrl] = useState("");
 
+  // UX 상태
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
   const contentRef = useRef(null);
 
-  // 로그인 보장 + 내 정보
+  // 초기화: 로그인 보장 + (수정이면 글 로드 / 아니면 임시저장 복구)
   useEffect(() => {
     (async () => {
+      // console.log('[WritePage] isEdit=', isEdit, 'editId=', editId, 'pathname=', loc.pathname, 'search=', loc.search, 'state=', loc.state);
       const me = await ensureLogin(isEdit ? `/write?id=${editId}` : "/write");
       if (!me) return;
       const u = await fetchMe();
       setAuth({ loading: false, user: u ?? null });
 
       if (isEdit) {
-        // 수정모드: 기존 글 불러오기
         try {
           const p = await getCommunityPost(editId);
-          // (선택) 소유자 아닌 경우 가드
+          // (선택) 소유자 가드
           if (p?.authorId && u?.uid && Number(p.authorId) !== Number(u.uid)) {
             alert("본인의 글만 수정할 수 있어요.");
             navigate(`/community/${editId}`, { replace: true });
@@ -84,7 +99,6 @@ export default function WritePage() {
           return;
         }
       } else {
-        // 새 글쓰기: 임시저장 복구
         try {
           const saved = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null");
           if (saved) {
@@ -99,16 +113,16 @@ export default function WritePage() {
       }
       setLoading(false);
     })();
-  }, [isEdit, editId, navigate]);
+  }, [isEdit, editId, navigate]); // loc은 의존성에서 제외(무한루프 방지)
 
-  // 임시저장(새 글일 때만)
+  // 새 글일 때만 자동 임시저장
   useEffect(() => {
     if (isEdit) return;
     const payload = { title, category, tags, content, repImageUrl, youtubeUrl, savedAt: Date.now() };
     localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
   }, [isEdit, title, category, tags, content, repImageUrl, youtubeUrl]);
 
-  // 태그
+  // 태그 처리
   function tryCommitTag() {
     const raw = tagInput.trim().replace(/^#/, "");
     if (!raw) return;
@@ -119,13 +133,14 @@ export default function WritePage() {
     setTags((xs) => xs.filter((x) => x !== t));
   }
 
+  // 유튜브
   const youtubeId = useMemo(() => toYoutubeId(youtubeUrl), [youtubeUrl]);
   const youtubeCover = useMemo(
     () => (youtubeId ? ytThumb(youtubeId, "maxresdefault") || ytThumb(youtubeId, "hqdefault") : null),
     [youtubeId]
   );
-  const embedUrl = youtubeId ? `https://www.youtube.com/embed/${youtubeId}` : null;
 
+  // 검증
   function validate() {
     const e = {};
     if (!title.trim()) e.title = "제목을 입력하세요.";
@@ -137,6 +152,7 @@ export default function WritePage() {
     return Object.keys(e).length === 0;
   }
 
+  // 본문 이미지 붙여넣기/드래그 업로드 → 마크다운 삽입
   function insertAtCursor(textarea, text) {
     const start = textarea?.selectionStart ?? content.length;
     const end = textarea?.selectionEnd ?? content.length;
@@ -179,51 +195,59 @@ export default function WritePage() {
     setRepImageUrl(url);
   }
 
-  const onSubmit = useCallback(async (e) => {
-    e.preventDefault();
-    if (!validate()) {
-      if (errors.content && contentRef.current) contentRef.current.focus();
-      return;
-    }
-    if (submitting) return;
-    setSubmitting(true);
-    try {
-      const finalRep = repImageUrl || youtubeCover || "";
-      const cleanTags = tags.map((t) => String(t).trim()).filter(Boolean);
-      const payload = {
-        title: title.trim(),
-        category,
-        tags: cleanTags,
-        content: content.trim(),
-        youtubeUrl: youtubeUrl.trim() || null,
-        youtubeId: youtubeId || null,
-        repImageUrl: finalRep || null,
-      };
+  // 제출(등록/수정 공용)
+  const onSubmit = useCallback(
+    async (e) => {
+      e.preventDefault();
+      if (!validate()) {
+        if (errors.content && contentRef.current) contentRef.current.focus();
+        return;
+      }
+      if (submitting) return;
+      setSubmitting(true);
+      try {
+        const finalRep = repImageUrl || youtubeCover || "";
+        const cleanTags = tags.map((t) => String(t).trim()).filter(Boolean);
+        const payload = {
+          title: title.trim(),
+          category,
+          tags: cleanTags,
+          content: content.trim(),
+          youtubeUrl: youtubeUrl.trim() || null,
+          youtubeId: youtubeId || null,
+          repImageUrl: finalRep || null,
+        };
 
-      if (isEdit) {
-        await updatePost(editId, payload);
-        try { logActivity("post_update", { postId: Number(editId), title: payload.title }); } catch {}
-        navigate(`/community/${editId}`);
-      } else {
-        const { id } = await createPost(payload);
-        try { logActivity("post_create", { postId: id, title: payload.title }); } catch {}
-        localStorage.removeItem(DRAFT_KEY);
-        navigate(`/community/${id}`);
+        if (isEdit) {
+          await updatePost(editId, payload);
+          try {
+            logActivity("post_update", { postId: Number(editId), title: payload.title });
+          } catch {}
+          navigate(`/community/${editId}`);
+        } else {
+          const { id } = await createPost(payload);
+          try {
+            logActivity("post_create", { postId: id, title: payload.title });
+          } catch {}
+          localStorage.removeItem(DRAFT_KEY);
+          navigate(`/community/${id}`);
+        }
+      } catch (err) {
+        console.error(err);
+        if (err?.status === 401 || /401/.test(String(err?.message))) {
+          const ok = await ensureLogin(isEdit ? `/write?id=${editId}` : "/write");
+          if (ok) alert("로그인이 갱신되었습니다. 다시 시도해주세요.");
+        } else if (err?.status === 403) {
+          alert("본인의 글만 수정할 수 있어요.");
+        } else {
+          alert(err?.message || "처리 중 오류가 발생했어요. 잠시 후 다시 시도해주세요.");
+        }
+      } finally {
+        setSubmitting(false);
       }
-    } catch (err) {
-      console.error(err);
-      if (err?.status === 401 || /401/.test(String(err?.message))) {
-        const ok = await ensureLogin(isEdit ? `/write?id=${editId}` : "/write");
-        if (ok) alert("로그인이 갱신되었습니다. 다시 시도해주세요.");
-      } else if (err?.status === 403) {
-        alert("본인의 글만 수정할 수 있어요.");
-      } else {
-        alert(err?.message || "처리 중 오류가 발생했어요. 잠시 후 다시 시도해주세요.");
-      }
-    } finally {
-      setSubmitting(false);
-    }
-  }, [isEdit, editId, title, category, tags, content, youtubeUrl, youtubeId, repImageUrl, youtubeCover, submitting]);
+    },
+    [isEdit, editId, title, category, tags, content, youtubeUrl, youtubeId, repImageUrl, youtubeCover, submitting]
+  );
 
   const tagHint = useMemo(() => (tags.length ? `#${tags.join("  #")}` : "예) 저염, 에어프라이어"), [tags]);
 
@@ -269,12 +293,17 @@ export default function WritePage() {
           <div className="mb-3">
             <label className="form-label">카테고리</label>
             <select className="form-select" value={category} onChange={(e) => setCategory(e.target.value)}>
-              {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              {CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
             </select>
           </div>
 
           {/* 대표이미지 + 유튜브 */}
           <div className="row g-3 mb-3">
+            {/* 대표이미지 */}
             <div className="col-12 col-md-6">
               <label className="form-label d-flex align-items-center gap-2">
                 대표이미지 <span className="text-secondary small">(드래그·드롭/선택)</span>
@@ -283,9 +312,13 @@ export default function WritePage() {
                 <div className="flex-shrink-0">
                   <div
                     style={{
-                      width: 120, height: 80, borderRadius: 8, background: "#f3f3f3",
+                      width: 120,
+                      height: 80,
+                      borderRadius: 8,
+                      background: "#f3f3f3",
                       backgroundImage: repImageUrl ? `url(${repImageUrl})` : undefined,
-                      backgroundSize: "cover", backgroundPosition: "center",
+                      backgroundSize: "cover",
+                      backgroundPosition: "center",
                     }}
                   />
                 </div>
@@ -301,6 +334,7 @@ export default function WritePage() {
               </div>
             </div>
 
+            {/* 유튜브 URL */}
             <div className="col-12 col-md-6">
               <label className="form-label">유튜브 URL (선택)</label>
               <input
@@ -318,11 +352,13 @@ export default function WritePage() {
                     <img
                       src={youtubeCover || ytThumb(youtubeId, "hqdefault")}
                       alt="YT thumbnail"
-                      width={120} height={68}
+                      width={120}
+                      height={68}
                       style={{ borderRadius: 8, objectFit: "cover" }}
                     />
                     <div className="small text-secondary">유튜브 썸네일이 대표이미지로 사용될 수 있어요.</div>
                   </div>
+
                   <div className="ratio ratio-16x9 mt-2" style={{ borderRadius: 8, overflow: "hidden" }}>
                     <iframe
                       src={`https://www.youtube.com/embed/${youtubeId}`}
@@ -353,16 +389,29 @@ export default function WritePage() {
                   }
                 }}
               />
-              <button type="button" className="btn btn-outline-secondary" onClick={tryCommitTag}>추가</button>
+              <button type="button" className="btn btn-outline-secondary" onClick={tryCommitTag}>
+                추가
+              </button>
             </div>
             <div className="form-text">
               {tags.length ? (
-                <>현재 태그: {tags.map((t) => (
-                  <span key={t} className="badge rounded-pill bg-light text-dark border me-1" role="button" onClick={() => removeTag(t)} title="클릭하여 제거">
-                    #{t} ×
-                  </span>
-                ))}</>
-              ) : (<>예시: {tagHint}</>)}
+                <>
+                  현재 태그:{" "}
+                  {tags.map((t) => (
+                    <span
+                      key={t}
+                      className="badge rounded-pill bg-light text-dark border me-1"
+                      role="button"
+                      onClick={() => removeTag(t)}
+                      title="클릭하여 제거"
+                    >
+                      #{t} ×
+                    </span>
+                  ))}
+                </>
+              ) : (
+                <>예시: {tagHint}</>
+              )}
             </div>
           </div>
 
@@ -386,6 +435,7 @@ export default function WritePage() {
             </div>
             {errors.content && <div className="invalid-feedback d-block">{errors.content}</div>}
 
+            {/* 미리보기 */}
             <details className="mt-2">
               <summary className="text-secondary">미리보기</summary>
               <div className="border rounded-3 p-3 mt-2" dangerouslySetInnerHTML={{ __html: mdPreview(content) }} />
@@ -401,8 +451,12 @@ export default function WritePage() {
                 onClick={() => {
                   if (confirm("임시저장을 삭제할까요?")) {
                     localStorage.removeItem(DRAFT_KEY);
-                    setTitle(""); setCategory(CATEGORIES[0]); setTags([]);
-                    setContent(""); setRepImageUrl(""); setYoutubeUrl("");
+                    setTitle("");
+                    setCategory(CATEGORIES[0]);
+                    setTags([]);
+                    setContent("");
+                    setRepImageUrl("");
+                    setYoutubeUrl("");
                   }
                 }}
               >
