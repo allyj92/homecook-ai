@@ -3,14 +3,14 @@ import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import "bootstrap/dist/css/bootstrap.min.css";
 import BottomNav from "../compoments/BottomNav";
-import { ensureLogin } from "../lib/auth";
+import { ensureLogin, fetchMe } from "../lib/auth";
 import { createPost, updatePost, getCommunityPost } from "../api/community";
 import { uploadFile, ytThumb } from "../lib/upload";
 import { logActivity } from "../lib/activity";
 
+const DRAFT_KEY = "draft:community";
 const CATEGORIES = ["후기", "질문", "레시피", "노하우", "자유"];
 
-/* 유튜브 URL/ID → videoId */
 function toYoutubeId(url) {
   if (!url) return null;
   const u = url.trim();
@@ -18,14 +18,12 @@ function toYoutubeId(url) {
   if ((m = u.match(/youtu\.be\/([A-Za-z0-9_\-]{8,})/))) return m[1];
   if ((m = u.match(/[?&]v=([A-Za-z0-9_\-]{8,})/))) return m[1];
   if ((m = u.match(/\/shorts\/([A-Za-z0-9_\-]{8,})/))) return m[1];
-  if (/^[A-Za-z0-9_\-]{8,32}$/.test(u)) return u; // ID만 들어온 경우
+  if (/^[A-Za-z0-9_\-]{8,32}$/.test(u)) return u;
   return null;
 }
 
-/* 아주 가벼운 마크다운 프리뷰(이미지/링크/단락/줄바꿈) */
 function mdPreview(md) {
-  const esc = (s) =>
-    s.replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+  const esc = (s) => s.replace(/[&<>"']/g, (m) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m]));
   let html = esc(md || "");
   html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, `<img alt="$1" src="$2" style="max-width:100%;border-radius:8px;margin:8px 0;" />`);
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, `<a href="$2" target="_blank" rel="noreferrer noopener">$1</a>`);
@@ -35,19 +33,13 @@ function mdPreview(md) {
 
 export default function WritePage() {
   const navigate = useNavigate();
-  const location = useLocation();
-  const search = new URLSearchParams(location.search);
-  const editId = search.get("edit");
+  const loc = useLocation();
+  const params = new URLSearchParams(loc.search);
+  const editId = params.get("id");         // ?id=12 있으면 수정 모드
   const isEdit = !!editId;
-  const editIdNum = isEdit ? Number(editId) : null;
 
-  // 임시저장 키: 작성/수정 모드 분리
-  const draftKey = useMemo(
-    () => (isEdit && Number.isFinite(editIdNum) ? `draft:community:edit:${editIdNum}` : "draft:community"),
-    [isEdit, editIdNum]
-  );
+  const [auth, setAuth] = useState({ loading: true, user: null });
 
-  // 폼 상태
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState(CATEGORIES[0]);
   const [tagInput, setTagInput] = useState("");
@@ -56,82 +48,67 @@ export default function WritePage() {
   const [repImageUrl, setRepImageUrl] = useState("");
   const [youtubeUrl, setYoutubeUrl] = useState("");
 
-  // UX 상태
+  const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
-  const [initLoading, setInitLoading] = useState(true); // 최초 로딩(로그인/초기값 세팅)
-  const [loadErr, setLoadErr] = useState("");
   const contentRef = useRef(null);
 
-  // 0) 진입 시 로그인 보장 + 초기 값 로드(임시저장 또는 서버글)
+  // 로그인 보장 + 내 정보
   useEffect(() => {
-    let alive = true;
-
     (async () => {
-      // backTo는 현재 경로 그대로(수정 모드면 쿼리 포함)
-      const backTo = location.pathname + location.search;
-      const me = await ensureLogin(backTo);
-      if (!me) { if (alive) setInitLoading(false); return; }
+      const me = await ensureLogin(isEdit ? `/write?id=${editId}` : "/write");
+      if (!me) return;
+      const u = await fetchMe();
+      setAuth({ loading: false, user: u ?? null });
 
-      try {
-        // 1) 임시저장 불러오기
-        let draft = null;
-        try { draft = JSON.parse(localStorage.getItem(draftKey) || "null"); } catch {}
-
-        if (isEdit && Number.isFinite(editIdNum)) {
-          // 2) 수정 모드: 서버에서 글 로드
-          const raw = await getCommunityPost(editIdNum);
-          // 서버 응답 정규화(필요 최소치만)
-          const server = {
-            title: raw?.title ?? "",
-            category: raw?.category ?? CATEGORIES[0],
-            tags: Array.isArray(raw?.tags) ? raw.tags : [],
-            content: raw?.content ?? "",
-            repImageUrl: raw?.repImageUrl ?? "",
-            youtubeId: raw?.youtubeId ?? null,
-          };
-          const serverYoutubeUrl = server.youtubeId ? `https://www.youtube.com/watch?v=${server.youtubeId}` : "";
-
-          // 드래프트가 있으면 드래프트 우선, 없으면 서버 값으로 채움
-          const src = draft || {};
-          if (alive) {
-            setTitle(src.title ?? server.title);
-            setCategory(src.category ?? server.category);
-            setTags(Array.isArray(src.tags) ? src.tags : server.tags);
-            setContent(src.content ?? server.content);
-            setRepImageUrl(src.repImageUrl ?? server.repImageUrl);
-            setYoutubeUrl(src.youtubeUrl ?? serverYoutubeUrl);
+      if (isEdit) {
+        // 수정모드: 기존 글 불러오기
+        try {
+          const p = await getCommunityPost(editId);
+          // (선택) 소유자 아닌 경우 가드
+          if (p?.authorId && u?.uid && Number(p.authorId) !== Number(u.uid)) {
+            alert("본인의 글만 수정할 수 있어요.");
+            navigate(`/community/${editId}`, { replace: true });
+            return;
           }
-        } else {
-          // 작성 모드: 드래프트만 복구
-          if (draft && alive) {
-            setTitle(draft.title || "");
-            setCategory(draft.category || CATEGORIES[0]);
-            setTags(Array.isArray(draft.tags) ? draft.tags : []);
-            setContent(draft.content || "");
-            setRepImageUrl(draft.repImageUrl || "");
-            setYoutubeUrl(draft.youtubeUrl || "");
-          }
+          setTitle(p.title || "");
+          setCategory(p.category || CATEGORIES[0]);
+          setTags(Array.isArray(p.tags) ? p.tags : []);
+          setContent(p.content || "");
+          setRepImageUrl(p.repImageUrl || "");
+          setYoutubeUrl(p.youtubeId ? `https://youtu.be/${p.youtubeId}` : "");
+        } catch (e) {
+          console.error(e);
+          alert("글을 불러오지 못했어요.");
+          navigate(-1);
+          return;
         }
-      } catch (e) {
-        if (alive) setLoadErr("초기 데이터를 불러오지 못했어요.");
-        console.error(e);
-      } finally {
-        if (alive) setInitLoading(false);
+      } else {
+        // 새 글쓰기: 임시저장 복구
+        try {
+          const saved = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null");
+          if (saved) {
+            setTitle(saved.title || "");
+            setCategory(saved.category || CATEGORIES[0]);
+            setTags(saved.tags || []);
+            setContent(saved.content || "");
+            setRepImageUrl(saved.repImageUrl || "");
+            setYoutubeUrl(saved.youtubeUrl || "");
+          }
+        } catch {}
       }
+      setLoading(false);
     })();
+  }, [isEdit, editId, navigate]);
 
-    return () => { alive = false; };
-  }, [isEdit, editIdNum, draftKey, location.pathname, location.search]);
-
-  // 1) 자동 임시저장
+  // 임시저장(새 글일 때만)
   useEffect(() => {
-    if (initLoading) return; // 초기 로딩 중엔 저장하지 않음
+    if (isEdit) return;
     const payload = { title, category, tags, content, repImageUrl, youtubeUrl, savedAt: Date.now() };
-    try { localStorage.setItem(draftKey, JSON.stringify(payload)); } catch {}
-  }, [title, category, tags, content, repImageUrl, youtubeUrl, draftKey, initLoading]);
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
+  }, [isEdit, title, category, tags, content, repImageUrl, youtubeUrl]);
 
-  // 2) 태그 처리
+  // 태그
   function tryCommitTag() {
     const raw = tagInput.trim().replace(/^#/, "");
     if (!raw) return;
@@ -142,7 +119,6 @@ export default function WritePage() {
     setTags((xs) => xs.filter((x) => x !== t));
   }
 
-  // 3) 유튜브 파싱/썸네일
   const youtubeId = useMemo(() => toYoutubeId(youtubeUrl), [youtubeUrl]);
   const youtubeCover = useMemo(
     () => (youtubeId ? ytThumb(youtubeId, "maxresdefault") || ytThumb(youtubeId, "hqdefault") : null),
@@ -150,7 +126,6 @@ export default function WritePage() {
   );
   const embedUrl = youtubeId ? `https://www.youtube.com/embed/${youtubeId}` : null;
 
-  // 4) 검증
   function validate() {
     const e = {};
     if (!title.trim()) e.title = "제목을 입력하세요.";
@@ -162,7 +137,6 @@ export default function WritePage() {
     return Object.keys(e).length === 0;
   }
 
-  // 5) 본문 이미지 붙여넣기/드래그 업로드 → 마크다운 삽입
   function insertAtCursor(textarea, text) {
     const start = textarea?.selectionStart ?? content.length;
     const end = textarea?.selectionEnd ?? content.length;
@@ -205,7 +179,6 @@ export default function WritePage() {
     setRepImageUrl(url);
   }
 
-  // 6) 제출 (작성/수정 공용)
   const onSubmit = useCallback(async (e) => {
     e.preventDefault();
     if (!validate()) {
@@ -227,38 +200,34 @@ export default function WritePage() {
         repImageUrl: finalRep || null,
       };
 
-      if (isEdit && Number.isFinite(editIdNum)) {
-        await updatePost(editIdNum, payload);
-        try { logActivity("post_update", { postId: editIdNum, title: payload.title }); } catch {}
-        localStorage.removeItem(draftKey);
-        navigate(`/community/${editIdNum}`);
+      if (isEdit) {
+        await updatePost(editId, payload);
+        try { logActivity("post_update", { postId: Number(editId), title: payload.title }); } catch {}
+        navigate(`/community/${editId}`);
       } else {
         const { id } = await createPost(payload);
         try { logActivity("post_create", { postId: id, title: payload.title }); } catch {}
-        localStorage.removeItem(draftKey);
+        localStorage.removeItem(DRAFT_KEY);
         navigate(`/community/${id}`);
       }
     } catch (err) {
       console.error(err);
       if (err?.status === 401 || /401/.test(String(err?.message))) {
-        const backTo = location.pathname + location.search;
-        const ok = await ensureLogin(backTo);
-        if (ok) alert("로그인이 갱신되었습니다. 다시 제출해 주세요.");
+        const ok = await ensureLogin(isEdit ? `/write?id=${editId}` : "/write");
+        if (ok) alert("로그인이 갱신되었습니다. 다시 시도해주세요.");
+      } else if (err?.status === 403) {
+        alert("본인의 글만 수정할 수 있어요.");
       } else {
         alert(err?.message || "처리 중 오류가 발생했어요. 잠시 후 다시 시도해주세요.");
       }
     } finally {
       setSubmitting(false);
     }
-  }, [
-    isEdit, editIdNum, draftKey, title, category, tags, content,
-    youtubeUrl, youtubeId, repImageUrl, youtubeCover, submitting, errors.content, navigate, location.pathname, location.search
-  ]);
+  }, [isEdit, editId, title, category, tags, content, youtubeUrl, youtubeId, repImageUrl, youtubeCover, submitting]);
 
   const tagHint = useMemo(() => (tags.length ? `#${tags.join("  #")}` : "예) 저염, 에어프라이어"), [tags]);
 
-  /* ---------------- 렌더 ---------------- */
-  if (initLoading) {
+  if (loading || auth.loading) {
     return (
       <div className="container-xxl py-3">
         <div className="placeholder-glow">
@@ -273,28 +242,11 @@ export default function WritePage() {
     );
   }
 
-  if (loadErr) {
-    return (
-      <div className="container-xxl py-3">
-        <div className="alert alert-danger">{loadErr}</div>
-        <button className="btn btn-outline-secondary" onClick={() => navigate(-1)}>뒤로가기</button>
-        <BottomNav />
-      </div>
-    );
-  }
-
   return (
     <div className="container-xxl py-3">
-      <header className="mb-3 d-flex justify-content-between align-items-center">
-        <div>
-          <h1 className="h4 mb-1">{isEdit ? "글 수정" : "글쓰기"}</h1>
-          <p className="text-secondary small mb-0">커뮤니티 가이드에 맞지 않는 글은 숨김/제한될 수 있어요.</p>
-        </div>
-        {isEdit && (
-          <button className="btn btn-outline-secondary" onClick={() => navigate(`/community/${editIdNum}`)}>
-            ← 글로 돌아가기
-          </button>
-        )}
+      <header className="mb-3">
+        <h1 className="h4 mb-1">{isEdit ? "글 수정" : "글쓰기"}</h1>
+        <p className="text-secondary small mb-0">커뮤니티 가이드에 맞지 않는 글은 숨김/제한될 수 있어요.</p>
       </header>
 
       <form className="card shadow-sm" onSubmit={onSubmit}>
@@ -317,15 +269,12 @@ export default function WritePage() {
           <div className="mb-3">
             <label className="form-label">카테고리</label>
             <select className="form-select" value={category} onChange={(e) => setCategory(e.target.value)}>
-              {CATEGORIES.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
+              {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
 
           {/* 대표이미지 + 유튜브 */}
           <div className="row g-3 mb-3">
-            {/* 대표이미지 */}
             <div className="col-12 col-md-6">
               <label className="form-label d-flex align-items-center gap-2">
                 대표이미지 <span className="text-secondary small">(드래그·드롭/선택)</span>
@@ -334,13 +283,9 @@ export default function WritePage() {
                 <div className="flex-shrink-0">
                   <div
                     style={{
-                      width: 120,
-                      height: 80,
-                      borderRadius: 8,
-                      background: "#f3f3f3",
+                      width: 120, height: 80, borderRadius: 8, background: "#f3f3f3",
                       backgroundImage: repImageUrl ? `url(${repImageUrl})` : undefined,
-                      backgroundSize: "cover",
-                      backgroundPosition: "center",
+                      backgroundSize: "cover", backgroundPosition: "center",
                     }}
                   />
                 </div>
@@ -356,7 +301,6 @@ export default function WritePage() {
               </div>
             </div>
 
-            {/* 유튜브 URL */}
             <div className="col-12 col-md-6">
               <label className="form-label">유튜브 URL (선택)</label>
               <input
@@ -368,23 +312,20 @@ export default function WritePage() {
               />
               {errors.youtubeUrl && <div className="invalid-feedback">{errors.youtubeUrl}</div>}
 
-              {/* 썸네일/임베드 미리보기 */}
               {!!youtubeId && (
                 <>
                   <div className="d-flex align-items-center gap-2 mt-2">
                     <img
                       src={youtubeCover || ytThumb(youtubeId, "hqdefault")}
                       alt="YT thumbnail"
-                      width={120}
-                      height={68}
+                      width={120} height={68}
                       style={{ borderRadius: 8, objectFit: "cover" }}
                     />
                     <div className="small text-secondary">유튜브 썸네일이 대표이미지로 사용될 수 있어요.</div>
                   </div>
-
                   <div className="ratio ratio-16x9 mt-2" style={{ borderRadius: 8, overflow: "hidden" }}>
                     <iframe
-                      src={embedUrl}
+                      src={`https://www.youtube.com/embed/${youtubeId}`}
                       title="YouTube video"
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                       allowFullScreen
@@ -412,33 +353,20 @@ export default function WritePage() {
                   }
                 }}
               />
-              <button type="button" className="btn btn-outline-secondary" onClick={tryCommitTag}>
-                추가
-              </button>
+              <button type="button" className="btn btn-outline-secondary" onClick={tryCommitTag}>추가</button>
             </div>
             <div className="form-text">
               {tags.length ? (
-                <>
-                  현재 태그:{" "}
-                  {tags.map((t) => (
-                    <span
-                      key={t}
-                      className="badge rounded-pill bg-light text-dark border me-1"
-                      role="button"
-                      onClick={() => removeTag(t)}
-                      title="클릭하여 제거"
-                    >
-                      #{t} ×
-                    </span>
-                  ))}
-                </>
-              ) : (
-                <>예시: {tagHint}</>
-              )}
+                <>현재 태그: {tags.map((t) => (
+                  <span key={t} className="badge rounded-pill bg-light text-dark border me-1" role="button" onClick={() => removeTag(t)} title="클릭하여 제거">
+                    #{t} ×
+                  </span>
+                ))}</>
+              ) : (<>예시: {tagHint}</>)}
             </div>
           </div>
 
-          {/* 내용 (붙여넣기/드롭 업로드 + 미리보기) */}
+          {/* 내용 */}
           <div className="mb-3">
             <label className="form-label d-flex align-items-center gap-2">
               내용 <span className="text-secondary small">(이미지 붙여넣기/드래그 업로드 가능 · Markdown 간단 지원)</span>
@@ -458,7 +386,6 @@ export default function WritePage() {
             </div>
             {errors.content && <div className="invalid-feedback d-block">{errors.content}</div>}
 
-            {/* 미리보기 */}
             <details className="mt-2">
               <summary className="text-secondary">미리보기</summary>
               <div className="border rounded-3 p-3 mt-2" dangerouslySetInnerHTML={{ __html: mdPreview(content) }} />
@@ -467,37 +394,37 @@ export default function WritePage() {
 
           {/* 액션 */}
           <div className="d-flex justify-content-between">
-            <button
-              type="button"
-              className="btn btn-outline-secondary"
-              onClick={() => {
-                if (confirm("임시저장을 삭제할까요?")) {
-                  localStorage.removeItem(draftKey);
-                  setTitle("");
-                  setCategory(CATEGORIES[0]);
-                  setTags([]);
-                  setContent("");
-                  setRepImageUrl("");
-                  setYoutubeUrl("");
-                }
-              }}
-            >
-              임시저장 초기화
-            </button>
-            <div className="d-flex gap-2">
+            {!isEdit && (
               <button
                 type="button"
-                className="btn btn-outline-primary"
+                className="btn btn-outline-secondary"
                 onClick={() => {
-                  localStorage.setItem(
-                    draftKey,
-                    JSON.stringify({ title, category, tags, content, repImageUrl, youtubeUrl, savedAt: Date.now() })
-                  );
-                  alert("임시저장 완료!");
+                  if (confirm("임시저장을 삭제할까요?")) {
+                    localStorage.removeItem(DRAFT_KEY);
+                    setTitle(""); setCategory(CATEGORIES[0]); setTags([]);
+                    setContent(""); setRepImageUrl(""); setYoutubeUrl("");
+                  }
                 }}
               >
-                임시저장
+                임시저장 초기화
               </button>
+            )}
+            <div className="d-flex gap-2 ms-auto">
+              {!isEdit && (
+                <button
+                  type="button"
+                  className="btn btn-outline-primary"
+                  onClick={() => {
+                    localStorage.setItem(
+                      DRAFT_KEY,
+                      JSON.stringify({ title, category, tags, content, repImageUrl, youtubeUrl, savedAt: Date.now() })
+                    );
+                    alert("임시저장 완료!");
+                  }}
+                >
+                  임시저장
+                </button>
+              )}
               <button type="submit" className="btn btn-success" disabled={submitting}>
                 {submitting ? (isEdit ? "수정 중…" : "등록 중…") : (isEdit ? "수정하기" : "등록하기")}
               </button>

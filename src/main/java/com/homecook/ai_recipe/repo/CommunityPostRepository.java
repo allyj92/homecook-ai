@@ -5,22 +5,24 @@ import com.homecook.ai_recipe.domain.CommunityPost;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;          // ✅ 추가
-import org.springframework.data.repository.query.Param;    // ✅ 추가
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
-import java.util.List;                                    // ✅ 추가
+import java.util.Optional;
 
 public interface CommunityPostRepository extends JpaRepository<CommunityPost, Long> {
 
+    // 내가 쓴 글 페이징
     Page<CommunityPost> findByAuthorId(Long authorId, Pageable pageable);
 
-    // ✅ category가 null/빈문자면 전체, 아니면 해당 카테고리만 최신순
+    // 카테고리 필터(없으면 전체) + 최신순
     @Query("""
         select p from CommunityPost p
         where (:category is null or :category = '' or p.category = :category)
         order by p.createdAt desc
     """)
-    //✅ 카테고리별 페이지 조회 (목록용)
-    Page<CommunityPost> findByCategory(String category, Pageable pageable);
+    Page<CommunityPost> findByCategory(@Param("category") String category, Pageable pageable);
 
+    // ✅ 수정 시 소유자 검증용
+    Optional<CommunityPost> findByIdAndAuthorId(Long id, Long authorId);
 }
