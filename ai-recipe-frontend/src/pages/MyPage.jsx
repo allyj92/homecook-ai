@@ -123,7 +123,7 @@ function SmartThumb({
     >
       {hasImg && (
         <img
-          key={src || 'empty'}               {/* ★ 강제 재마운트로 초기 로딩 보장 */}
+          key={src || 'empty'}               
           src={src}
           alt={alt}
           loading="lazy"
