@@ -8,10 +8,13 @@ import com.homecook.ai_recipe.repo.CommunityPostRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Objects;
 
 @Service
 public class CommunityService {
@@ -63,6 +66,33 @@ public class CommunityService {
         p.setAuthorId(authorId);
         p.setYoutubeId(toYoutubeId(req.youtubeUrl()));
         p.setRepImageUrl(req.repImageUrl());
+        // createdAt/updatedAt 은 엔티티의 @CreationTimestamp / @PrePersist / @PreUpdate / Auditing 에 맡김
+        repo.save(p);
+        return p.getId();
+    }
+
+    /* ---------------- 수정 (작성자만) ---------------- */
+    @Transactional
+    public Long update(Long authorId, Long postId, CreatePostReq req) {
+        CommunityPost p = repo.findById(postId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "post_not_found"));
+
+        // 작성자 본인만 수정 가능
+        if (p.getAuthorId() == null || !Objects.equals(p.getAuthorId(), authorId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "not_owner");
+        }
+
+        // 필드 반영
+        p.setTitle((req.title() == null ? "" : req.title()).trim());
+        p.setCategory((req.category() == null ? "" : req.category()).trim());
+        p.setContent((req.content() == null ? "" : req.content()).trim());
+        p.setTags(req.tags() == null ? List.of() : req.tags());
+
+        // 유튜브/대표이미지 업데이트(비우면 제거)
+        p.setYoutubeId(toYoutubeId(req.youtubeUrl())); // url/ID → ID or null
+        p.setRepImageUrl((req.repImageUrl() == null || req.repImageUrl().isBlank()) ? null : req.repImageUrl());
+
+        // updatedAt 역시 엔티티의 @PreUpdate/Auditing이 있으면 자동 반영됨
         repo.save(p);
         return p.getId();
     }
@@ -71,7 +101,7 @@ public class CommunityService {
     @Transactional(readOnly = true)
     public PostRes getOne(Long id) {
         CommunityPost p = repo.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("post not found: " + id));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "post_not_found"));
         return new PostRes(
                 p.getId(), p.getTitle(), p.getCategory(), p.getContent(),
                 p.getTags(), p.getAuthorId(), p.getCreatedAt(), p.getUpdatedAt(),

@@ -1,9 +1,10 @@
+// src/pages/WritePage.jsx
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { useNavigate, useLocation, useParams } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import "bootstrap/dist/css/bootstrap.min.css";
 import BottomNav from "../compoments/BottomNav";
 import { ensureLogin } from "../lib/auth";
-import { createPost, getCommunityPost, updatePost } from "../api/community";
+import { createPost, updatePost, getCommunityPost } from "../api/community";
 import { uploadFile, ytThumb } from "../lib/upload";
 import { logActivity } from "../lib/activity";
 
@@ -21,25 +22,7 @@ function toYoutubeId(url) {
   return null;
 }
 
-/* 상세 응답을 폼 상태로 정규화 */
-function normalizePost(raw) {
-  if (!raw) return null;
-  const d = typeof raw === "string" ? (() => { try { return JSON.parse(raw); } catch { return {}; } })() : raw;
-  return {
-    id: d.id ?? d.postId ?? null,
-    title: d.title ?? d.subject ?? "",
-    category: d.category ?? d.type ?? CATEGORIES[0],
-    content: d.content ?? d.body ?? "",
-    tags: Array.isArray(d.tags) ? d.tags : (Array.isArray(d.tagList) ? d.tagList : []),
-    repImageUrl: d.repImageUrl ?? d.rep_image_url ?? "",
-    youtubeUrl: d.youtubeUrl ?? "",
-    youtubeId: d.youtubeId ?? "",
-    createdAt: d.createdAt ?? d.created_at ?? null,
-    authorId: d.authorId ?? d.userId ?? null,
-  };
-}
-
-/* 아주 가벼운 마크다운 프리뷰 */
+/* 아주 가벼운 마크다운 프리뷰(이미지/링크/단락/줄바꿈) */
 function mdPreview(md) {
   const esc = (s) =>
     s.replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
@@ -53,17 +36,16 @@ function mdPreview(md) {
 export default function WritePage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const params = useParams();
-
-  // ✅ 수정모드 감지: /write?edit=12 또는 /write?id=12 또는 /community/:id/edit
-  const sp = new URLSearchParams(location.search);
-  const editParam = sp.get("edit") || sp.get("id");
-  const routeParam = params?.id; // 라우터가 /community/:id/edit 같은 걸 WritePage로 매핑했을 때
-  const editId = editParam || routeParam || null;
+  const search = new URLSearchParams(location.search);
+  const editId = search.get("edit");
   const isEdit = !!editId;
+  const editIdNum = isEdit ? Number(editId) : null;
 
-  // 임시저장 키를 모드별로 분리
-  const DRAFT_KEY = isEdit ? `draft:community:edit:${editId}` : "draft:community";
+  // 임시저장 키: 작성/수정 모드 분리
+  const draftKey = useMemo(
+    () => (isEdit && Number.isFinite(editIdNum) ? `draft:community:edit:${editIdNum}` : "draft:community"),
+    [isEdit, editIdNum]
+  );
 
   // 폼 상태
   const [title, setTitle] = useState("");
@@ -74,74 +56,82 @@ export default function WritePage() {
   const [repImageUrl, setRepImageUrl] = useState("");
   const [youtubeUrl, setYoutubeUrl] = useState("");
 
-  // 파생
-  const youtubeId = useMemo(() => toYoutubeId(youtubeUrl), [youtubeUrl]);
-  const youtubeCover = useMemo(
-    () => (youtubeId ? ytThumb(youtubeId, "maxresdefault") || ytThumb(youtubeId, "hqdefault") : null),
-    [youtubeId]
-  );
-
   // UX 상태
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
-  const [loadingInit, setLoadingInit] = useState(true);
+  const [initLoading, setInitLoading] = useState(true); // 최초 로딩(로그인/초기값 세팅)
+  const [loadErr, setLoadErr] = useState("");
   const contentRef = useRef(null);
 
-  // 로그인 보장 + 초기값 로딩
+  // 0) 진입 시 로그인 보장 + 초기 값 로드(임시저장 또는 서버글)
   useEffect(() => {
     let alive = true;
+
     (async () => {
-      const me = await ensureLogin(isEdit ? `/community/${editId}/edit` : "/write");
-      if (!me) return;
+      // backTo는 현재 경로 그대로(수정 모드면 쿼리 포함)
+      const backTo = location.pathname + location.search;
+      const me = await ensureLogin(backTo);
+      if (!me) { if (alive) setInitLoading(false); return; }
 
       try {
-        if (isEdit) {
-          // 🔹 수정모드: 서버에서 글 로드 → 상태 세팅
-          const raw = await getCommunityPost(editId);
-          const p = normalizePost(raw) || {};
-          if (!alive) return;
+        // 1) 임시저장 불러오기
+        let draft = null;
+        try { draft = JSON.parse(localStorage.getItem(draftKey) || "null"); } catch {}
 
-          setTitle(p.title || "");
-          setCategory(p.category || CATEGORIES[0]);
-          setTags(Array.isArray(p.tags) ? p.tags : []);
-          setContent(p.content || "");
-          setRepImageUrl(p.repImageUrl || "");
+        if (isEdit && Number.isFinite(editIdNum)) {
+          // 2) 수정 모드: 서버에서 글 로드
+          const raw = await getCommunityPost(editIdNum);
+          // 서버 응답 정규화(필요 최소치만)
+          const server = {
+            title: raw?.title ?? "",
+            category: raw?.category ?? CATEGORIES[0],
+            tags: Array.isArray(raw?.tags) ? raw.tags : [],
+            content: raw?.content ?? "",
+            repImageUrl: raw?.repImageUrl ?? "",
+            youtubeId: raw?.youtubeId ?? null,
+          };
+          const serverYoutubeUrl = server.youtubeId ? `https://www.youtube.com/watch?v=${server.youtubeId}` : "";
 
-          // 기존 글에 youtubeId만 있다면 URL 형태로 보이게 함(수정 편의)
-          const initYoutubeUrl =
-            p.youtubeUrl ||
-            (p.youtubeId ? `https://youtu.be/${p.youtubeId}` : "");
-          setYoutubeUrl(initYoutubeUrl);
+          // 드래프트가 있으면 드래프트 우선, 없으면 서버 값으로 채움
+          const src = draft || {};
+          if (alive) {
+            setTitle(src.title ?? server.title);
+            setCategory(src.category ?? server.category);
+            setTags(Array.isArray(src.tags) ? src.tags : server.tags);
+            setContent(src.content ?? server.content);
+            setRepImageUrl(src.repImageUrl ?? server.repImageUrl);
+            setYoutubeUrl(src.youtubeUrl ?? serverYoutubeUrl);
+          }
         } else {
-          // 🔹 새 글: 로컬 임시저장 복원
-          try {
-            const saved = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null");
-            if (saved) {
-              setTitle(saved.title || "");
-              setCategory(saved.category || CATEGORIES[0]);
-              setTags(saved.tags || []);
-              setContent(saved.content || "");
-              setRepImageUrl(saved.repImageUrl || "");
-              setYoutubeUrl(saved.youtubeUrl || "");
-            }
-          } catch {}
+          // 작성 모드: 드래프트만 복구
+          if (draft && alive) {
+            setTitle(draft.title || "");
+            setCategory(draft.category || CATEGORIES[0]);
+            setTags(Array.isArray(draft.tags) ? draft.tags : []);
+            setContent(draft.content || "");
+            setRepImageUrl(draft.repImageUrl || "");
+            setYoutubeUrl(draft.youtubeUrl || "");
+          }
         }
+      } catch (e) {
+        if (alive) setLoadErr("초기 데이터를 불러오지 못했어요.");
+        console.error(e);
       } finally {
-        if (alive) setLoadingInit(false);
+        if (alive) setInitLoading(false);
       }
     })();
+
     return () => { alive = false; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEdit, editId]);
+  }, [isEdit, editIdNum, draftKey, location.pathname, location.search]);
 
-  // 자동 임시저장
+  // 1) 자동 임시저장
   useEffect(() => {
-    if (loadingInit) return;
+    if (initLoading) return; // 초기 로딩 중엔 저장하지 않음
     const payload = { title, category, tags, content, repImageUrl, youtubeUrl, savedAt: Date.now() };
-    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(payload)); } catch {}
-  }, [title, category, tags, content, repImageUrl, youtubeUrl, DRAFT_KEY, loadingInit]);
+    try { localStorage.setItem(draftKey, JSON.stringify(payload)); } catch {}
+  }, [title, category, tags, content, repImageUrl, youtubeUrl, draftKey, initLoading]);
 
-  // 태그
+  // 2) 태그 처리
   function tryCommitTag() {
     const raw = tagInput.trim().replace(/^#/, "");
     if (!raw) return;
@@ -152,19 +142,27 @@ export default function WritePage() {
     setTags((xs) => xs.filter((x) => x !== t));
   }
 
-  // 검증
+  // 3) 유튜브 파싱/썸네일
+  const youtubeId = useMemo(() => toYoutubeId(youtubeUrl), [youtubeUrl]);
+  const youtubeCover = useMemo(
+    () => (youtubeId ? ytThumb(youtubeId, "maxresdefault") || ytThumb(youtubeId, "hqdefault") : null),
+    [youtubeId]
+  );
+  const embedUrl = youtubeId ? `https://www.youtube.com/embed/${youtubeId}` : null;
+
+  // 4) 검증
   function validate() {
     const e = {};
     if (!title.trim()) e.title = "제목을 입력하세요.";
     else if (title.trim().length < 4) e.title = "제목은 4자 이상 권장해요.";
     if (!content.trim()) e.content = "내용을 입력하세요.";
     else if (content.trim().length < 10) e.content = "내용은 10자 이상 작성해주세요.";
-    if (youtubeUrl && !toYoutubeId(youtubeUrl)) e.youtubeUrl = "유효한 유튜브 URL 또는 ID를 입력해주세요.";
+    if (youtubeUrl && !youtubeId) e.youtubeUrl = "유효한 유튜브 URL 또는 ID를 입력해주세요.";
     setErrors(e);
     return Object.keys(e).length === 0;
   }
 
-  // 본문 이미지 업로드
+  // 5) 본문 이미지 붙여넣기/드래그 업로드 → 마크다운 삽입
   function insertAtCursor(textarea, text) {
     const start = textarea?.selectionStart ?? content.length;
     const end = textarea?.selectionEnd ?? content.length;
@@ -177,6 +175,7 @@ export default function WritePage() {
       textarea.setSelectionRange(pos, pos);
     });
   }
+
   async function handlePastedFiles(files) {
     for (const f of files) {
       if (!f.type?.startsWith?.("image/")) continue;
@@ -184,18 +183,21 @@ export default function WritePage() {
       insertAtCursor(contentRef.current, `\n![](${url})\n`);
     }
   }
+
   function onPaste(e) {
     const files = Array.from(e.clipboardData?.files || []);
     if (!files.length) return;
     e.preventDefault();
     handlePastedFiles(files).catch((err) => alert(err.message || "이미지 업로드 실패"));
   }
+
   function onDrop(e) {
     e.preventDefault();
     const files = Array.from(e.dataTransfer?.files || []);
     if (!files.length) return;
     handlePastedFiles(files).catch((err) => alert(err.message || "이미지 업로드 실패"));
   }
+
   async function onPickRep(e) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -203,7 +205,7 @@ export default function WritePage() {
     setRepImageUrl(url);
   }
 
-  // 제출
+  // 6) 제출 (작성/수정 공용)
   const onSubmit = useCallback(async (e) => {
     e.preventDefault();
     if (!validate()) {
@@ -213,47 +215,50 @@ export default function WritePage() {
     if (submitting) return;
     setSubmitting(true);
     try {
+      const finalRep = repImageUrl || youtubeCover || "";
       const cleanTags = tags.map((t) => String(t).trim()).filter(Boolean);
-      const vid = toYoutubeId(youtubeUrl);
-      const finalRep = repImageUrl || (vid ? (ytThumb(vid, "maxresdefault") || ytThumb(vid, "hqdefault")) : "") || "";
-
       const payload = {
         title: title.trim(),
         category,
         tags: cleanTags,
         content: content.trim(),
         youtubeUrl: youtubeUrl.trim() || null,
-        youtubeId: vid || null,
+        youtubeId: youtubeId || null,
         repImageUrl: finalRep || null,
       };
 
-      if (isEdit) {
-        await updatePost(editId, payload);
-        try { logActivity("post_update", { postId: Number(editId), title: payload.title }); } catch {}
-        localStorage.removeItem(DRAFT_KEY);
-        navigate(`/community/${editId}`);
+      if (isEdit && Number.isFinite(editIdNum)) {
+        await updatePost(editIdNum, payload);
+        try { logActivity("post_update", { postId: editIdNum, title: payload.title }); } catch {}
+        localStorage.removeItem(draftKey);
+        navigate(`/community/${editIdNum}`);
       } else {
         const { id } = await createPost(payload);
         try { logActivity("post_create", { postId: id, title: payload.title }); } catch {}
-        localStorage.removeItem(DRAFT_KEY);
+        localStorage.removeItem(draftKey);
         navigate(`/community/${id}`);
       }
     } catch (err) {
       console.error(err);
-      if (/401|403/.test(String(err?.message))) {
-        const ok = await ensureLogin(isEdit ? `/community/${editId}/edit` : "/write");
-        if (ok) alert("로그인이 갱신되었습니다. 다시 저장을 눌러주세요.");
+      if (err?.status === 401 || /401/.test(String(err?.message))) {
+        const backTo = location.pathname + location.search;
+        const ok = await ensureLogin(backTo);
+        if (ok) alert("로그인이 갱신되었습니다. 다시 제출해 주세요.");
       } else {
-        alert(err?.message || "저장 중 오류가 발생했어요. 잠시 후 다시 시도해주세요.");
+        alert(err?.message || "처리 중 오류가 발생했어요. 잠시 후 다시 시도해주세요.");
       }
     } finally {
       setSubmitting(false);
     }
-  }, [isEdit, editId, title, category, tags, content, youtubeUrl, repImageUrl, submitting, navigate, DRAFT_KEY, errors.content]);
+  }, [
+    isEdit, editIdNum, draftKey, title, category, tags, content,
+    youtubeUrl, youtubeId, repImageUrl, youtubeCover, submitting, errors.content, navigate, location.pathname, location.search
+  ]);
 
   const tagHint = useMemo(() => (tags.length ? `#${tags.join("  #")}` : "예) 저염, 에어프라이어"), [tags]);
 
-  if (loadingInit) {
+  /* ---------------- 렌더 ---------------- */
+  if (initLoading) {
     return (
       <div className="container-xxl py-3">
         <div className="placeholder-glow">
@@ -268,13 +273,28 @@ export default function WritePage() {
     );
   }
 
+  if (loadErr) {
+    return (
+      <div className="container-xxl py-3">
+        <div className="alert alert-danger">{loadErr}</div>
+        <button className="btn btn-outline-secondary" onClick={() => navigate(-1)}>뒤로가기</button>
+        <BottomNav />
+      </div>
+    );
+  }
+
   return (
     <div className="container-xxl py-3">
-      <header className="mb-3">
-        <h1 className="h4 mb-1">{isEdit ? "글 수정" : "글쓰기"}</h1>
-        <p className="text-secondary small mb-0">
-          {isEdit ? "게시글 내용을 수정합니다." : "커뮤니티 가이드에 맞지 않는 글은 숨김/제한될 수 있어요."}
-        </p>
+      <header className="mb-3 d-flex justify-content-between align-items-center">
+        <div>
+          <h1 className="h4 mb-1">{isEdit ? "글 수정" : "글쓰기"}</h1>
+          <p className="text-secondary small mb-0">커뮤니티 가이드에 맞지 않는 글은 숨김/제한될 수 있어요.</p>
+        </div>
+        {isEdit && (
+          <button className="btn btn-outline-secondary" onClick={() => navigate(`/community/${editIdNum}`)}>
+            ← 글로 돌아가기
+          </button>
+        )}
       </header>
 
       <form className="card shadow-sm" onSubmit={onSubmit}>
@@ -305,6 +325,7 @@ export default function WritePage() {
 
           {/* 대표이미지 + 유튜브 */}
           <div className="row g-3 mb-3">
+            {/* 대표이미지 */}
             <div className="col-12 col-md-6">
               <label className="form-label d-flex align-items-center gap-2">
                 대표이미지 <span className="text-secondary small">(드래그·드롭/선택)</span>
@@ -325,9 +346,7 @@ export default function WritePage() {
                 </div>
                 <div className="flex-grow-1">
                   <input type="file" accept="image/*" className="form-control" onChange={onPickRep} />
-                  {!repImageUrl && youtubeId && (
-                    <div className="form-text">* 미선택 시 유튜브 썸네일이 대표이미지로 사용될 수 있어요.</div>
-                  )}
+                  <div className="form-text">* 미선택 시 유튜브 썸네일을 자동 사용합니다.</div>
                 </div>
                 {repImageUrl && (
                   <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setRepImageUrl("")}>
@@ -349,6 +368,7 @@ export default function WritePage() {
               />
               {errors.youtubeUrl && <div className="invalid-feedback">{errors.youtubeUrl}</div>}
 
+              {/* 썸네일/임베드 미리보기 */}
               {!!youtubeId && (
                 <>
                   <div className="d-flex align-items-center gap-2 mt-2">
@@ -361,9 +381,10 @@ export default function WritePage() {
                     />
                     <div className="small text-secondary">유튜브 썸네일이 대표이미지로 사용될 수 있어요.</div>
                   </div>
+
                   <div className="ratio ratio-16x9 mt-2" style={{ borderRadius: 8, overflow: "hidden" }}>
                     <iframe
-                      src={`https://www.youtube.com/embed/${youtubeId}`}
+                      src={embedUrl}
                       title="YouTube video"
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                       allowFullScreen
@@ -391,7 +412,9 @@ export default function WritePage() {
                   }
                 }}
               />
-              <button type="button" className="btn btn-outline-secondary" onClick={tryCommitTag}>추가</button>
+              <button type="button" className="btn btn-outline-secondary" onClick={tryCommitTag}>
+                추가
+              </button>
             </div>
             <div className="form-text">
               {tags.length ? (
@@ -415,7 +438,7 @@ export default function WritePage() {
             </div>
           </div>
 
-          {/* 내용 */}
+          {/* 내용 (붙여넣기/드롭 업로드 + 미리보기) */}
           <div className="mb-3">
             <label className="form-label d-flex align-items-center gap-2">
               내용 <span className="text-secondary small">(이미지 붙여넣기/드래그 업로드 가능 · Markdown 간단 지원)</span>
@@ -435,6 +458,7 @@ export default function WritePage() {
             </div>
             {errors.content && <div className="invalid-feedback d-block">{errors.content}</div>}
 
+            {/* 미리보기 */}
             <details className="mt-2">
               <summary className="text-secondary">미리보기</summary>
               <div className="border rounded-3 p-3 mt-2" dangerouslySetInnerHTML={{ __html: mdPreview(content) }} />
@@ -448,7 +472,7 @@ export default function WritePage() {
               className="btn btn-outline-secondary"
               onClick={() => {
                 if (confirm("임시저장을 삭제할까요?")) {
-                  try { localStorage.removeItem(DRAFT_KEY); } catch {}
+                  localStorage.removeItem(draftKey);
                   setTitle("");
                   setCategory(CATEGORIES[0]);
                   setTags([]);
@@ -465,13 +489,11 @@ export default function WritePage() {
                 type="button"
                 className="btn btn-outline-primary"
                 onClick={() => {
-                  try {
-                    localStorage.setItem(
-                      DRAFT_KEY,
-                      JSON.stringify({ title, category, tags, content, repImageUrl, youtubeUrl, savedAt: Date.now() })
-                    );
-                    alert("임시저장 완료!");
-                  } catch {}
+                  localStorage.setItem(
+                    draftKey,
+                    JSON.stringify({ title, category, tags, content, repImageUrl, youtubeUrl, savedAt: Date.now() })
+                  );
+                  alert("임시저장 완료!");
                 }}
               >
                 임시저장

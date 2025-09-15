@@ -60,4 +60,32 @@ public class CommunityController {
         if (uid == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
         return service.findLatestByAuthor(uid.longValue(), size);
     }
+
+    // ------------------------------------------------------------
+    // ⬇️⬇️⬇️ 추가: 수정 스텁 (프런트 흐름 확인용, DB 저장은 다음 스텝)
+    // ------------------------------------------------------------
+    /**
+     * 수정 (스텁) — 인증만 확인하고 200 OK 반환.
+     * 프런트가 PUT /api/community/posts/{id}에 성공 응답만 받으면
+     * 상세 페이지로 리다이렉트 흐름이 정상 동작한다.
+     *
+     * 다음 스텝에서 service.update(userId, id, req) 형태로 실제 저장 로직을 연결하자.
+     */
+    @PutMapping("/posts/{id}")
+    public Map<String, Object> updateStub(
+            @PathVariable Long id,
+            @Valid @RequestBody CreatePostReq req, // 임시로 생성 DTO 재사용
+            @AuthenticationPrincipal(expression = "attributes['uid']") Number uid
+    ) {
+        if (uid == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+
+        // TODO: 다음 단계에서 실제 수정 로직 연결
+        // ex) service.update(uid.longValue(), id, req);
+
+        return Map.of(
+                "id", id,
+                "ok", true,
+                "served_by", "stub"  // 디버깅용 마커
+        );
+    }
 }
