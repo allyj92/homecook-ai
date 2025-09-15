@@ -4,6 +4,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import BottomNav from '../compoments/BottomNav';
 import { apiFetch } from '../lib/http';
 import { listFavoritesSimple, removeFavorite } from '../lib/wishlist';
+import { getMyPosts } from '../api/community';
 import { listActivities, subscribeActivity, formatActivityText, logActivity } from '../lib/activity';
 
 /* ─────────────────────────────────────────
@@ -15,7 +16,7 @@ function normalizeCoverUrl(url) {
   if (!url) return null;
   try {
     if (url.startsWith('/')) return url;
-    const u = new URL(url);
+    const u = new URL(url, window.location.origin);
     const here = window.location;
     if (u.host === here.host) {
       return u.pathname + u.search + u.hash; // 상대경로
@@ -24,18 +25,27 @@ function normalizeCoverUrl(url) {
       u.protocol = 'https:';
       return u.toString();
     }
-    return url;
+    return u.toString();
   } catch {
     return url;
   }
 }
 
-/* 정적 파일 캐시버스터 (?v=updatedAt) */
-function withVersion(url, v) {
-  if (!url) return null;
-  const sep = url.includes('?') ? '&' : '?';
-  const ver = v ? String(v) : String(Date.now());
-  return `${url}${sep}v=${encodeURIComponent(ver)}`;
+/* 캐시 버스터: 이미지 URL에 ?v=updatedAt(또는 now) 붙여서 수정 즉시 반영 */
+function withVersion(url, ver) {
+  if (!url) return url;
+  try {
+    const u = new URL(url, window.location.origin);
+    const v = ver != null ? (typeof ver === 'number' ? ver : (Date.parse(ver) || Date.now())) : Date.now();
+    u.searchParams.set('v', String(v));
+    // 같은 호스트면 상대경로로
+    if (u.hostname === window.location.hostname && u.port === window.location.port) {
+      return u.pathname + (u.search || '') + (u.hash || '');
+    }
+    return u.toString();
+  } catch {
+    return url;
+  }
 }
 
 /* ── 광고 슬롯 ───────────────────── */
@@ -72,6 +82,7 @@ function hashCode(str) {
 /* ── 스마트 썸네일 ─────────────────────
    - src가 로드되면 이미지만 보여줌
    - src가 없거나 로드 실패면 파스텔톤 갈색계열 그라데이션 블록
+   - src 변경 시 로딩/오류 상태 리셋 (초진입 미표시 이슈 해결)
 ────────────────────────────────────── */
 function SmartThumb({
   src,
@@ -84,6 +95,12 @@ function SmartThumb({
 }) {
   const [loaded, setLoaded] = useState(false);
   const [broken, setBroken] = useState(false);
+
+  // ★ src가 바뀌면 상태 리셋
+  useEffect(() => {
+    setLoaded(false);
+    setBroken(false);
+  }, [src]);
 
   const [c1, c2] = useMemo(() => {
     const idx = hashCode(String(seed)) % PASTELS.length;
@@ -106,6 +123,7 @@ function SmartThumb({
     >
       {hasImg && (
         <img
+          key={src || 'empty'}               
           src={src}
           alt={alt}
           loading="lazy"
@@ -122,12 +140,18 @@ function SmartThumb({
 /* 유튜브 썸네일 */
 const ytThumb = (id) => (id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : null);
 /* 날짜 포맷 */
-const formatDate = (s) => { try { return new Date(s).toLocaleDateString(); } catch { return ''; } };
+const formatDate = (s) => {
+  try {
+    return new Date(s).toLocaleDateString();
+  } catch {
+    return '';
+  }
+};
 
-/* 단건 글 조회(북마크 최신화 위해 캐시 무력화) */
+/* 단건 글 조회(북마크 최신화를 위해) */
 async function getPostById(id) {
   try {
-    const res = await apiFetch(`/api/community/${encodeURIComponent(id)}?ts=${Date.now()}`, { cache: 'no-store' });
+    const res = await apiFetch(`/api/community/${encodeURIComponent(id)}`);
     if (!res.ok) return null;
     return await res.json();
   } catch {
@@ -135,41 +159,41 @@ async function getPostById(id) {
   }
 }
 
-/* 내가 쓴 글 목록 (캐시 무력화 버전) */
-async function getMyPostsNoCache(limit = 5) {
-  try {
-    const res = await apiFetch(`/api/community/mine?limit=${limit}&ts=${Date.now()}`, { cache: 'no-store' });
-    if (!res.ok) return [];
-    return await res.json();
-  } catch {
-    return [];
-  }
-}
-
-/* 백엔드가 snake_case를 줄 수도 있어 표준화 + 커버 정규화/버전 부여 */
+/* 백엔드가 snake_case를 줄 수도 있어 표준화 + 커버 정규화 + 버전 부여 */
 function normalizePostMeta(p) {
   if (!p) return null;
   const youtubeId = p.youtubeId ?? p.youtube_id ?? null;
   const repImageUrlRaw = p.repImageUrl ?? p.rep_image_url ?? null;
-  const updatedAt = p.updatedAt ?? p.updated_at ?? p.createdAt ?? p.created_at ?? Date.now();
+  const updatedAt = p.updatedAt ?? p.updated_at ?? p.createdAt ?? p.created_at ?? null;
+
+  // 정규화 + 캐시버스터
   const repImageUrl = withVersion(normalizeCoverUrl(repImageUrlRaw), updatedAt);
+  const yt = ytThumb(youtubeId);
+
   return {
     ...p,
     youtubeId,
     repImageUrl,
     title: p.title ?? '',
     category: p.category ?? '',
-    __cover: repImageUrl || ytThumb(youtubeId) || null,
+    __cover: repImageUrl || yt || null,
   };
 }
 
 export default function MyPage() {
   const navigate = useNavigate();
-  useEffect(() => { window.scrollTo(0, 0); }, []);
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
 
   // 프로필/세션
   const [me, setMe] = useState(null);
   const [meLoading, setMeLoading] = useState(true);
+
+  // 환경설정 상태(데모)
+  const [notifOn, setNotifOn] = useState(true);
+  const [adPref, setAdPref] = useState('balanced');
+  const [dietGoal, setDietGoal] = useState('diet');
 
   // 즐겨찾기(레시피)
   const [wishLoading, setWishLoading] = useState(false);
@@ -177,7 +201,7 @@ export default function MyPage() {
   const [wishlist, setWishlist] = useState([]); // [{ id, recipeId, title, summary, image, meta, createdAt }]
 
   // 내가 쓴 글
-  const [myPosts, setMyPosts] = useState([]);   // [{ id, title, category, createdAt, youtubeId, repImageUrl, tags }]
+  const [myPosts, setMyPosts] = useState([]); // [{ id, title, category, createdAt, youtubeId, repImageUrl, tags }]
   const [myLoading, setMyLoading] = useState(false);
   const [myErr, setMyErr] = useState('');
 
@@ -234,7 +258,7 @@ export default function MyPage() {
         setMyLoading(true);
         setMyErr('');
         try {
-          const posts = await getMyPostsNoCache(5);
+          const posts = await getMyPosts(5);
           const fixed = (Array.isArray(posts) ? posts : []).map(normalizePostMeta);
           if (!aborted) setMyPosts(fixed);
         } catch {
@@ -261,7 +285,7 @@ export default function MyPage() {
     try {
       await removeFavorite(rid); // 200 OK
       const removed = prev.find(it => Number(it.recipeId) === rid);
-      logActivity('favorite_remove', { recipeId: rid, title: removed?.title });
+      logActivity("favorite_remove", { recipeId: rid, title: removed?.title });
     } catch {
       alert('삭제에 실패했어요.');
       setWishlist(prev); // 롤백
@@ -271,7 +295,7 @@ export default function MyPage() {
   // ─────────────────────────────────────────
   // 북마크한 글 (localStorage 기반)
   // ─────────────────────────────────────────
-  const [bookmarks, setBookmarks] = useState([]);   // [{ id, title, category, createdAt, repImageUrl, youtubeId, tags, updatedAt }]
+  const [bookmarks, setBookmarks] = useState([]);   // [{ id, title, category, createdAt, repImageUrl, youtubeId, updatedAt, tags }]
   const [bmLoading, setBmLoading] = useState(false);
 
   function loadBookmarksFromLS() {
@@ -311,7 +335,7 @@ export default function MyPage() {
     };
     pull();
 
-    // 북마크 메타 최신화: 서버에서 최신 글 정보를 당겨와 로컬 스냅샷 갱신
+    // 북마크 메타 최신화: 서버에서 최신 글 정보를 당겨와 로컬 스냅샷 갱신 (수정 시 자동 반영)
     (async () => {
       try {
         const raw = loadBookmarksFromLS();
@@ -323,20 +347,17 @@ export default function MyPage() {
           results.forEach((r) => {
             if (r.status !== 'fulfilled' || !r.value) return;
             const p = r.value;
+            const updatedAt = p.updatedAt ?? p.updated_at ?? p.createdAt ?? p.created_at ?? null;
             try {
-              const updated = p.updatedAt ?? p.updated_at ?? Date.now();
               localStorage.setItem(
                 `postBookmarkData:${p.id}`,
                 JSON.stringify({
                   id: p.id,
-                  title: p.title, // ← 제목 최신화
+                  title: p.title,
                   category: p.category,
                   createdAt: p.createdAt ?? p.created_at,
-                  updatedAt: updated,
-                  repImageUrl: withVersion(
-                    normalizeCoverUrl(p.repImageUrl ?? p.rep_image_url ?? null),
-                    updated
-                  ),
+                  updatedAt, // 저장
+                  repImageUrl: withVersion(normalizeCoverUrl(p.repImageUrl ?? p.rep_image_url ?? null), updatedAt),
                   youtubeId: p.youtubeId ?? p.youtube_id ?? null,
                 })
               );
@@ -377,64 +398,6 @@ export default function MyPage() {
     pull();
     const off = subscribeActivity(pull);
     return off;
-  }, []);
-
-  // 포커스/가시성 복귀 시 목록과 북마크 메타 최신화
-  useEffect(() => {
-    let mounted = true;
-
-    const refreshMy = async () => {
-      const posts = await getMyPostsNoCache(5);
-      if (!mounted) return;
-      setMyPosts((Array.isArray(posts) ? posts : []).map(normalizePostMeta));
-    };
-
-    const refreshBookmarks = async () => {
-      setBookmarks(loadBookmarksFromLS());
-      try {
-        const raw = loadBookmarksFromLS();
-        const ids = raw.slice(0, 20).map((b) => b.id);
-        for (let i = 0; i < ids.length; i += 4) {
-          const chunk = ids.slice(i, i + 4);
-          const results = await Promise.allSettled(chunk.map((id) => getPostById(id)));
-          results.forEach((r) => {
-            if (r.status !== 'fulfilled' || !r.value) return;
-            const p = r.value;
-            try {
-              const updated = p.updatedAt ?? p.updated_at ?? Date.now();
-              localStorage.setItem(
-                `postBookmarkData:${p.id}`,
-                JSON.stringify({
-                  id: p.id,
-                  title: p.title,
-                  category: p.category,
-                  createdAt: p.createdAt ?? p.created_at,
-                  updatedAt: updated,
-                  repImageUrl: withVersion(
-                    normalizeCoverUrl(p.repImageUrl ?? p.rep_image_url ?? null),
-                    updated
-                  ),
-                  youtubeId: p.youtubeId ?? p.youtube_id ?? null,
-                })
-              );
-            } catch {}
-          });
-        }
-        if (mounted) setBookmarks(loadBookmarksFromLS());
-      } catch {}
-    };
-
-    const onGain = () => { refreshMy(); refreshBookmarks(); };
-    const onVisibility = () => { if (document.visibilityState === 'visible') onGain(); };
-
-    window.addEventListener('focus', onGain);
-    document.addEventListener('visibilitychange', onVisibility);
-
-    return () => {
-      mounted = false;
-      window.removeEventListener('focus', onGain);
-      document.removeEventListener('visibilitychange', onVisibility);
-    };
   }, []);
 
   // 로딩 스켈레톤 (me)
@@ -584,7 +547,7 @@ export default function MyPage() {
                 {wishlist.slice(0, 3).map((w) => {
                   const key = w.id ?? w.recipeId;
                   const to  = `/result?id=${encodeURIComponent(w.recipeId)}`;
-                  const cover = normalizeCoverUrl(w.image || null);
+                  const cover = normalizeCoverUrl(w.image || null); // 외부 이미지도 정규화
                   return (
                     <Link key={key} to={to} className="list-group-item list-group-item-action">
                       <div className="d-flex align-items-center gap-3">
@@ -645,7 +608,7 @@ export default function MyPage() {
               <div className="p-4 text-center text-secondary">
                 아직 북마크한 글이 없어요.
                 <div className="mt-2">
-                  <Link className="btn btn-sm btn_success" to="/community">커뮤니티로 가기</Link>
+                  <Link className="btn btn-sm btn-success" to="/community">커뮤니티로 가기</Link>
                 </div>
               </div>
             )}
@@ -654,13 +617,11 @@ export default function MyPage() {
               <div className="list-group list-group-flush">
                 {bookmarks.slice(0, 5).map((b) => {
                   const to = `/community/${b.id}`;
-                  const cover =
-                    withVersion(
-                      normalizeCoverUrl(b.repImageUrl || b.rep_image_url),
-                      b.updatedAt ?? b.updated_at
-                    ) ||
+                  const coverBase =
+                    normalizeCoverUrl(b.repImageUrl || b.rep_image_url) ||
                     ytThumb(b.youtubeId || b.youtube_id) ||
                     null;
+                  const cover = withVersion(coverBase, b.updatedAt || b.updated_at || b.createdAt || b.created_at);
                   return (
                     <Link key={b.id} to={to} className="list-group-item list-group-item-action">
                       <div className="d-flex align-items-center gap-3">
