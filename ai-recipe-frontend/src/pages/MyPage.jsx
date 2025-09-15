@@ -484,28 +484,33 @@ export default function MyPage() {
       </div>
 
       <div className="row g-4">
-        {/* 사이드 프로필 */}
-        <aside className="col-12 col-lg-4">
-          <div className="card shadow-sm mb-3">
-            <div className="card-body text-center">
-              <img src={user.avatar} alt="avatar" className="rounded-circle mb-2" width={80} height={80} />
-              <h5 className="fw-bold">{user.name}</h5>
-              <div className="text-secondary small mb-1">{user.handle}</div>
-              <p className="text-secondary small">{user.bio}</p>
-              <div className="row text-center mt-3">
-                <div className="col"><strong>{stats.recipes}</strong><div className="small">작성</div></div>
-                <div className="col"><strong>{stats.saved}</strong><div className="small">저장</div></div>
-                <div className="col"><strong>{stats.comments}</strong><div className="small">댓글</div></div>
-                <div className="col"><strong>{stats.streak}일</strong><div className="small">연속</div></div>
-              </div>
-              <div className="d-grid gap-2 mt-3">
-                <button className="btn btn-outline-success btn-sm" onClick={() => navigate('/saved')}>저장한 레시피</button>
-                <button className="btn btn-outline-secondary btn-sm" onClick={() => navigate('/activity')}>활동 내역</button>
-              </div>
-            </div>
-          </div>
-          <AdSlot id="ad-mypage-side" height={600} label="Skyscraper 300×600" sticky />
-        </aside>
+        {/* 사이드 프로필 (고정) */}
+<aside className="col-12 col-lg-4">
+  {/* ★ wrapper에 sticky 적용 */}
+  <div className="sticky-lg-top" style={{ top: 16, zIndex: 2 }}>
+    <div className="card shadow-sm mb-3">
+      <div className="card-body text-center">
+        <img src={user.avatar} alt="avatar" className="rounded-circle mb-2" width={80} height={80} />
+        <h5 className="fw-bold">{user.name}</h5>
+        <div className="text-secondary small mb-1">{user.handle}</div>
+        <p className="text-secondary small">{user.bio}</p>
+        <div className="row text-center mt-3">
+          <div className="col"><strong>{stats.recipes}</strong><div className="small">작성</div></div>
+          <div className="col"><strong>{stats.saved}</strong><div className="small">저장</div></div>
+          <div className="col"><strong>{stats.comments}</strong><div className="small">댓글</div></div>
+          <div className="col"><strong>{stats.streak}일</strong><div className="small">연속</div></div>
+        </div>
+        <div className="d-grid gap-2 mt-3">
+          <button className="btn btn-outline-success btn-sm" onClick={() => navigate('/saved')}>저장한 레시피</button>
+          <button className="btn btn-outline-secondary btn-sm" onClick={() => navigate('/activity')}>활동 내역</button>
+        </div>
+      </div>
+    </div>
+
+    {/* 광고도 sticky wrapper 안에 포함 (AdSlot의 sticky prop 제거) */}
+    <AdSlot id="ad-mypage-side" height={600} label="Skyscraper 300×600" />
+  </div>
+</aside>
 
         {/* 메인 */}
         <section className="col-12 col-lg-8">
