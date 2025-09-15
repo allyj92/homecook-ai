@@ -26,96 +26,54 @@ function mkError(prefix, res, extra = '') {
   return e;
 }
 
-/* =========================
- * 글 생성
- * ========================= */
+/** 글 생성 */
 export async function createPost(payload) {
   const res = await apiFetch('/api/community/posts', {
     method: 'POST',
-    body: payload, // apiFetch가 JSON 자동 처리
-  });
-
-  // 인증 만료
-  if (res.status === 401) throw err401();
-
-  // 성공이면 JSON 기대
-  if (res.ok) {
-    const data = await safeJson(res);
-    if (data) return data; // { id, ... }
-    // 성공인데 JSON이 아니면(예: HTML 로그인 페이지) 에러로 간주
-    const txt = await readText(res);
-    throw mkError('글 생성 실패(비정상 응답)', res, txt?.slice(0, 200));
-  }
-
-  // 실패 처리
-  const t = await readText(res);
-  throw mkError('글 생성 실패', res, t?.slice(0, 300));
-}
-
-/* =========================
- * 글 수정 (PUT/PATCH 중 백엔드에 맞춰 사용)
- * ========================= */
-export async function updatePost(id, payload, method = 'PUT') {
-  const res = await apiFetch(`/api/community/posts/${encodeURIComponent(id)}`, {
-    method,
     body: payload,
   });
-
-  if (res.status === 401) throw err401();
-
-  if (res.ok) {
-    const data = await safeJson(res);
-    if (data) return data;
-    const txt = await readText(res);
-    throw mkError('글 수정 실패(비정상 응답)', res, txt?.slice(0, 200));
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    throw new Error(`글 생성 실패: ${res.status} ${t}`);
   }
-
-  const t = await readText(res);
-  throw mkError('글 수정 실패', res, t?.slice(0, 300));
+  return res.json(); // { id }
 }
 
-/* =========================
- * 글 단건 조회
- * ========================= */
+/** 글 단건 조회 */
 export async function getCommunityPost(id) {
   const res = await apiFetch(`/api/community/posts/${encodeURIComponent(id)}`);
-  if (!res.ok) {
-    if (res.status === 401) throw err401();
-    const t = await readText(res);
-    throw mkError('글 조회 실패', res, t?.slice(0, 300));
-  }
-  const data = await safeJson(res);
-  if (data) return data;
-  // 조회도 JSON이 아닐 경우 방어
-  const t = await readText(res);
-  throw mkError('글 조회 실패(비정상 응답)', res, t?.slice(0, 200));
+  if (!res.ok) throw new Error('글 조회 실패');
+  return res.json();
 }
 
-/* =========================
- * 내가 쓴 글 (최신 N)
- * ========================= */
+/** 글 수정 */
+export async function updatePost(id, payload) {
+  const res = await apiFetch(`/api/community/posts/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: payload,
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    // 백엔드에서 권한 체크 실패 시 401/403이 떨어질 수 있음
+    throw new Error(`글 수정 실패: ${res.status} ${t}`);
+  }
+  return res.json(); // { id } 또는 { ok:true } 등
+}
+
+/** 내가 쓴 글 (최신 N) */
 export async function getMyPosts(size = 3) {
   const res = await apiFetch(`/api/community/my-posts?size=${encodeURIComponent(size)}`, {
     cache: 'no-store',
   });
-  if (res.status === 401) {
-    // 마이페이지 쪽에서 로그인 처리하므로 401이면 빈 배열 반환
-    return [];
-  }
-  if (!res.ok) {
-    return []; // 실패 시에도 화면 보호
-  }
-  const data = await safeJson(res);
-  return Array.isArray(data) ? data : [];
+  if (!res.ok) return [];
+  return res.json();
 }
 
-/* =========================
- * (선택) API 엔드포인트 확인용 디버그
- * ========================= */
+/* (선택) API 엔드포인트 확인용 디버그 */
 export function communityApiDebug() {
   return {
     createUrl: buildUrl('/api/community/posts'),
     getUrl: (id) => buildUrl(`/api/community/posts/${id}`),
-    myPostsUrl: buildUrl('/api/community/my-posts'),
+    updateUrl: (id) => buildUrl(`/api/community/posts/${id}`),
   };
 }
