@@ -1,11 +1,12 @@
 // src/pages/WritePage.jsx
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import "bootstrap/dist/css/bootstrap.min.css";
 import BottomNav from "../compoments/BottomNav";
-import { ensureLogin } from "../auth/ensureLogin"; // 프로젝트 구조 유지
-import { createCommunityPost } from "../api/community.js";
-import { uploadFile, ytThumb } from "../lib/upload"; // 업로드 유틸
+import { ensureLogin } from "../lib/auth";                 // ✅ 경로 수정
+import { createPost } from "../api/community";             // ✅ 새 API 함수명
+import { uploadFile, ytThumb } from "../lib/upload";
+import { logActivity } from "../lib/activity";             // (선택) 활동 로그
 
 const DRAFT_KEY = "draft:community";
 const CATEGORIES = ["후기", "질문", "레시피", "노하우", "자유"];
@@ -150,34 +151,47 @@ export default function WritePage() {
   }
 
   // 6) 제출
-  async function onSubmit(e) {
+  const onSubmit = useCallback(async (e) => {
     e.preventDefault();
     if (!validate()) {
       if (errors.content && contentRef.current) contentRef.current.focus();
       return;
     }
+    if (submitting) return;
     setSubmitting(true);
     try {
       // 대표이미지가 없고 유튜브가 있으면 썸네일 자동 사용
       const finalRep = repImageUrl || youtubeCover || "";
+      const cleanTags = tags.map((t) => String(t).trim()).filter(Boolean);
+
       const payload = {
         title: title.trim(),
         category,
-        tags,
+        tags: cleanTags,
         content: content.trim(),
         youtubeUrl: youtubeUrl.trim() || null,
+        youtubeId: youtubeId || null,           // ✅ 함께 전송(백엔드가 무엇을 쓰든 커버)
         repImageUrl: finalRep || null,
       };
-      const { id } = await createCommunityPost(payload);
+
+      const { id } = await createPost(payload); // ✅ 새 API 사용
+      try { logActivity("post_create", { postId: id, title: payload.title }); } catch {}
+
       localStorage.removeItem(DRAFT_KEY);
       navigate(`/community/${id}`);
     } catch (err) {
       console.error(err);
-      alert("등록 중 오류가 발생했어요. 잠시 후 다시 시도해주세요.");
+      if (err?.status === 401 || /401/.test(String(err?.message))) {
+        // 세션 만료 → 재로그인 유도
+        const ok = await ensureLogin("/write");
+        if (ok) alert("로그인이 갱신되었습니다. 다시 ‘등록하기’를 눌러주세요.");
+      } else {
+        alert(err?.message || "등록 중 오류가 발생했어요. 잠시 후 다시 시도해주세요.");
+      }
     } finally {
       setSubmitting(false);
     }
-  }
+  }, [title, category, tags, content, youtubeUrl, youtubeId, repImageUrl, youtubeCover, submitting, navigate, errors.content]);
 
   const tagHint = useMemo(() => (tags.length ? `#${tags.join("  #")}` : "예) 저염, 에어프라이어"), [tags]);
 
@@ -209,9 +223,7 @@ export default function WritePage() {
             <label className="form-label">카테고리</label>
             <select className="form-select" value={category} onChange={(e) => setCategory(e.target.value)}>
               {CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
+                <option key={c} value={c}>{c}</option>
               ))}
             </select>
           </div>
