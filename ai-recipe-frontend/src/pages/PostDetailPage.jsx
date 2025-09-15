@@ -26,7 +26,11 @@ function normalizePost(raw) {
     category: d.category ?? d.type ?? "",
     content: d.content ?? d.body ?? "",
     tags: Array.isArray(d.tags) ? d.tags : (Array.isArray(d.tagList) ? d.tagList : []),
-    authorId: d.authorId ?? d.userId ?? null,
+
+    // 🔽 작성자 식별자 후보(백엔드 필드명 다양성 대비)
+    authorId: d.authorId ?? d.userId ?? d.author_id ?? d.user_id ?? null,
+    authorEmail: d.authorEmail ?? d.author_email ?? d.userEmail ?? d.user_email ?? null,
+
     createdAt: d.createdAt ?? d.created_at ?? null,
     updatedAt: d.updatedAt ?? d.updated_at ?? null,
     repImageUrl: d.repImageUrl ?? d.rep_image_url ?? null,
@@ -47,7 +51,7 @@ function Meta({ author, createdAt }) {
 }
 
 export default function PostDetailPage() {
-  console.log("PostDetail LOADED v-2025-09-14-e"); // 새 번들 확인용
+  console.log("PostDetail LOADED v-2025-09-15-a"); // 번들 버전 마커
 
   const { id } = useParams();
   const navigate = useNavigate();
@@ -170,6 +174,14 @@ export default function PostDetailPage() {
       });
     });
 
+  // 🔽 편집 권한: 로그인 & (작성자ID==내UID || 작성자이메일==내이메일)
+  const canEdit =
+    !!auth.user?.authenticated &&
+    (
+      (post?.authorId != null && String(post.authorId) === String(auth.user.uid)) ||
+      (!!post?.authorEmail && post.authorEmail === auth.user.email)
+    );
+
   /** 렌더링 분기 */
   if (loadingPost) {
     return (
@@ -208,9 +220,19 @@ export default function PostDetailPage() {
 
   return (
     <div className="container-xxl py-3">
-      {/* 상단: ← 목록만 (거슬리는 대형 CTA 제거) */}
-      <nav className="mb-3 d-flex gap-2 align-items-center">
+      {/* 상단 바: ← 목록 / (내 글이면) 수정 */}
+      <nav className="mb-3 d-flex gap-2 align-items-center justify-content-between">
         <button className="btn btn-outline-secondary" onClick={() => navigate(-1)}>← 목록</button>
+        {canEdit && (
+          <div className="d-flex gap-2">
+            <button
+              className="btn btn-sm btn-outline-primary"
+              onClick={() => navigate(`/write?id=${post.id}`)}
+            >
+              수정
+            </button>
+          </div>
+        )}
       </nav>
 
       <article className="card shadow-sm">
@@ -297,7 +319,7 @@ export default function PostDetailPage() {
               <div className="mt-4 alert alert-light border d-flex justify-content-between align-items-center">
                 <span className="text-secondary">댓글을 쓰려면 로그인하세요.</span>
                 <button
-                  className="btn btn-success"
+                  className="btn btn.success"
                   onClick={async () => {
                     const ok = await ensureLogin(`/community/${post.id}`);
                     if (ok) location.reload();
@@ -312,7 +334,7 @@ export default function PostDetailPage() {
       </article>
 
       {/* 버전 마커 */}
-      <div className="text-center text-secondary small mt-2">PostDetail v-2025-09-14-e</div>
+      <div className="text-center text-secondary small mt-2">PostDetail v-2025-09-15-a</div>
 
       <footer className="text-center text-secondary mt-4">
         <div className="small">* 커뮤니티 내 일부 링크는 제휴/광고일 수 있으며, 구매 시 수수료를 받을 수 있습니다.</div>
