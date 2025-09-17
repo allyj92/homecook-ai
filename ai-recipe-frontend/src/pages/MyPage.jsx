@@ -123,7 +123,7 @@ function SmartThumb({
     >
       {hasImg && (
         <img
-          key={src || 'empty'}               
+          key={src || 'empty'}
           src={src}
           alt={alt}
           loading="lazy"
@@ -242,11 +242,11 @@ export default function MyPage() {
 
         setMe(meData);
 
-        // favorites
+        // favorites (서버 기준)
         setWishLoading(true);
         setWishErr('');
         try {
-          const items = await listFavoritesSimple(3); // credentials: 'include'
+          const items = await listFavoritesSimple(3); // credentials 포함 가정
           if (!aborted) setWishlist(Array.isArray(items) ? items : []);
         } catch {
           if (!aborted) setWishErr('저장한 레시피를 불러오지 못했어요.');
@@ -293,21 +293,27 @@ export default function MyPage() {
   }
 
   // ─────────────────────────────────────────
-  // 북마크한 글 (localStorage 기반)
+  // 🔖 북마크한 글 (localStorage 기반) — UID 네임스페이스 분리
   // ─────────────────────────────────────────
   const [bookmarks, setBookmarks] = useState([]);   // [{ id, title, category, createdAt, repImageUrl, youtubeId, updatedAt, tags }]
   const [bmLoading, setBmLoading] = useState(false);
 
-  function loadBookmarksFromLS() {
+  // UID 네임스페이스 키 헬퍼
+  const bmKey = (uid, id) => `postBookmark:${uid}:${id}`;
+  const bmDataKey = (uid, id) => `postBookmarkData:${uid}:${id}`;
+
+  function loadBookmarksFromLS(uid) {
+    if (!uid) return [];
     const list = [];
     try {
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (!key || !key.startsWith('postBookmark:')) continue;
-        const id = key.split(':')[1];
+        if (!key || !key.startsWith(`postBookmark:${uid}:`)) continue;
+        const parts = key.split(':'); // ["postBookmark", "<uid>", "<id>"]
+        const id = parts[2];
         if (localStorage.getItem(key) !== '1') continue;
 
-        const dataKey = `postBookmarkData:${id}`;
+        const dataKey = bmDataKey(uid, id);
         let meta = null;
         const raw = localStorage.getItem(dataKey);
         if (raw) {
@@ -325,10 +331,18 @@ export default function MyPage() {
   }
 
   useEffect(() => {
+    // me 로드 전이면 표시/동기화 안 함
+    if (!me?.uid) {
+      setBookmarks([]);
+      return;
+    }
+
+    const uid = String(me.uid);
+
     const pull = () => {
       setBmLoading(true);
       try {
-        setBookmarks(loadBookmarksFromLS());
+        setBookmarks(loadBookmarksFromLS(uid));
       } finally {
         setBmLoading(false);
       }
@@ -338,7 +352,7 @@ export default function MyPage() {
     // 북마크 메타 최신화: 서버에서 최신 글 정보를 당겨와 로컬 스냅샷 갱신 (수정 시 자동 반영)
     (async () => {
       try {
-        const raw = loadBookmarksFromLS();
+        const raw = loadBookmarksFromLS(uid);
         const ids = raw.slice(0, 20).map((b) => b.id); // 과하지 않게 20개까지만
         if (!ids.length) return;
         for (let i = 0; i < ids.length; i += 4) {
@@ -350,7 +364,7 @@ export default function MyPage() {
             const updatedAt = p.updatedAt ?? p.updated_at ?? p.createdAt ?? p.created_at ?? null;
             try {
               localStorage.setItem(
-                `postBookmarkData:${p.id}`,
+                bmDataKey(uid, p.id),
                 JSON.stringify({
                   id: p.id,
                   title: p.title,
@@ -364,21 +378,30 @@ export default function MyPage() {
             } catch {}
           });
         }
-        setBookmarks(loadBookmarksFromLS());
+        setBookmarks(loadBookmarksFromLS(uid));
       } catch {}
     })();
 
     const onStorage = (e) => {
-      if (!e || !e.key || e.key.startsWith('postBookmark')) pull();
+      if (!e || !e.key) return;
+      if (e.key.startsWith(`postBookmark:${uid}:`) || e.key.startsWith(`postBookmarkData:${uid}:`)) {
+        pull();
+      }
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
-  }, []);
+  }, [me?.uid]);
 
   function onUnbookmark(e, postId) {
     if (e) { e.preventDefault(); e.stopPropagation(); }
     const id = String(postId);
     try {
+      if (me?.uid) {
+        const uid = String(me.uid);
+        localStorage.setItem(bmKey(uid, id), '0');
+        localStorage.removeItem(bmDataKey(uid, id));
+      }
+      // 구(무네임스페이스) 키도 함께 정리 (하위 호환)
       localStorage.setItem(`postBookmark:${id}`, '0');
       localStorage.removeItem(`postBookmarkData:${id}`);
     } catch {}
@@ -471,7 +494,6 @@ export default function MyPage() {
 
   return (
     <div className="container-xxl py-3">
-      
       {/* 헤더 */}
       <div className="d-flex align-items-center justify-content-between mb-3">
         <h1 className="h4 fw-bold">마이페이지</h1>
@@ -484,35 +506,34 @@ export default function MyPage() {
       {/* 배너 */}
       <AdSlot id="ad-mypage-top" height={90} label="Top Banner (728×90)" />
 
-
       <div className="row g-4">
         {/* 사이드 프로필 (고정) */}
-<aside className="col-12 col-lg-4">
-  {/* ★ wrapper에 sticky 적용 */}
-  <div className="sticky-lg-top" style={{ top: 0, zIndex: 2 }}>
-    <div className="card shadow-sm mb-3">
-      <div className="card-body text-center">
-        <img src={user.avatar} alt="avatar" className="rounded-circle mb-2" width={80} height={80} />
-        <h5 className="fw-bold">{user.name}</h5>
-        <div className="text-secondary small mb-1">{user.handle}</div>
-        <p className="text-secondary small">{user.bio}</p>
-        <div className="row text-center mt-3">
-          <div className="col"><strong>{stats.recipes}</strong><div className="small">작성</div></div>
-          <div className="col"><strong>{stats.saved}</strong><div className="small">저장</div></div>
-          <div className="col"><strong>{stats.comments}</strong><div className="small">댓글</div></div>
-          <div className="col"><strong>{stats.streak}일</strong><div className="small">연속</div></div>
-        </div>
-        <div className="d-grid gap-2 mt-3">
-          <button className="btn btn-outline-success btn-sm" onClick={() => navigate('/saved')}>저장한 레시피</button>
-          <button className="btn btn-outline-secondary btn-sm" onClick={() => navigate('/activity')}>활동 내역</button>
-        </div>
-      </div>
-    </div>
+        <aside className="col-12 col-lg-4">
+          {/* ★ wrapper에 sticky 적용 */}
+          <div className="sticky-lg-top" style={{ top: 0, zIndex: 2 }}>
+            <div className="card shadow-sm mb-3">
+              <div className="card-body text-center">
+                <img src={user.avatar} alt="avatar" className="rounded-circle mb-2" width={80} height={80} />
+                <h5 className="fw-bold">{user.name}</h5>
+                <div className="text-secondary small mb-1">{user.handle}</div>
+                <p className="text-secondary small">{user.bio}</p>
+                <div className="row text-center mt-3">
+                  <div className="col"><strong>{stats.recipes}</strong><div className="small">작성</div></div>
+                  <div className="col"><strong>{stats.saved}</strong><div className="small">저장</div></div>
+                  <div className="col"><strong>{stats.comments}</strong><div className="small">댓글</div></div>
+                  <div className="col"><strong>{stats.streak}일</strong><div className="small">연속</div></div>
+                </div>
+                <div className="d-grid gap-2 mt-3">
+                  <button className="btn btn-outline-success btn-sm" onClick={() => navigate('/saved')}>저장한 레시피</button>
+                  <button className="btn btn-outline-secondary btn-sm" onClick={() => navigate('/activity')}>활동 내역</button>
+                </div>
+              </div>
+            </div>
 
-    {/* 광고도 sticky wrapper 안에 포함 (AdSlot의 sticky prop 제거) */}
-    <AdSlot id="ad-mypage-side" height={600} label="Skyscraper 300×600" />
-  </div>
-</aside>
+            {/* 광고도 sticky wrapper 안에 포함 (AdSlot의 sticky prop 제거) */}
+            <AdSlot id="ad-mypage-side" height={600} label="Skyscraper 300×600" />
+          </div>
+        </aside>
 
         {/* 메인 */}
         <section className="col-12 col-lg-8">
@@ -594,7 +615,7 @@ export default function MyPage() {
             )}
           </div>
 
-          {/* 🔖 북마크한 글 */}
+          {/* 🔖 북마크한 글 (UID 네임스페이스 적용) */}
           <div className="card shadow-sm mb-3">
             <div className="card-header d-flex justify-content-between align-items-center">
               <h5 className="m-0">북마크한 글</h5>
@@ -647,7 +668,22 @@ export default function MyPage() {
                           <button
                             className="btn btn-sm btn-outline-danger"
                             style={{ minWidth: 72, height: 32, padding: '0 12px' }}
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); localStorage.setItem(`postBookmark:${String(b.id)}`, '0'); localStorage.removeItem(`postBookmarkData:${String(b.id)}`); setBookmarks(arr => arr.filter(x => x.id !== b.id)); }}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              const id = String(b.id);
+                              try {
+                                if (me?.uid) {
+                                  const uid = String(me.uid);
+                                  localStorage.setItem(`postBookmark:${uid}:${id}`, '0');
+                                  localStorage.removeItem(`postBookmarkData:${uid}:${id}`);
+                                }
+                                // 구 키도 함께 정리
+                                localStorage.setItem(`postBookmark:${id}`, '0');
+                                localStorage.removeItem(`postBookmarkData:${id}`);
+                              } catch {}
+                              setBookmarks(arr => arr.filter(x => x.id !== b.id));
+                            }}
                             title="북마크 해제"
                           >
                             해제

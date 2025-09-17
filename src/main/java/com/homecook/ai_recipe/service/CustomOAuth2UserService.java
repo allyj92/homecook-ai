@@ -2,7 +2,6 @@
 package com.homecook.ai_recipe.service;
 
 import com.homecook.ai_recipe.auth.UserAccount;
-import com.homecook.ai_recipe.repo.UserAccountRepository;
 import com.homecook.ai_recipe.service.OAuthAccountService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.GrantedAuthority;
@@ -10,6 +9,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserService;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserRequest;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
+import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Service;
@@ -20,79 +20,144 @@ import java.util.*;
 @RequiredArgsConstructor
 public class CustomOAuth2UserService extends DefaultOAuth2UserService {
 
-    private final UserAccountRepository userRepo;
     private final OAuthAccountService oauthService;
-
-    @SuppressWarnings("unchecked")
-    private static String firstNonNullStr(Object a, Object b) {
-        if (a != null) return String.valueOf(a);
-        if (b != null) return String.valueOf(b);
-        return null;
-    }
 
     @Override
     public OAuth2User loadUser(OAuth2UserRequest req) throws OAuth2AuthenticationException {
-        OAuth2User u = super.loadUser(req);
+        OAuth2User raw = super.loadUser(req);
 
-        String provider = req.getClientRegistration().getRegistrationId(); // google/naver/kakao
-        Map<String, Object> a = new HashMap<>(u.getAttributes());
-        a.put("provider", provider);
+        final String provider = req.getClientRegistration().getRegistrationId(); // google/naver/kakao
+        Map<String, Object> attrs = new LinkedHashMap<>(raw.getAttributes());
+        attrs.put("provider", provider);
 
-        // 공급자별 표준화
-        String pid = null;
-        if ("google".equals(provider)) {
-            pid = String.valueOf(a.get("sub"));
-        } else if ("naver".equals(provider)) {
-            Object resp = a.get("response");
-            if (resp instanceof Map r) a.putAll(r);
-            pid = String.valueOf(a.get("id"));
-        } else if ("kakao".equals(provider)) {
-            pid = String.valueOf(a.get("id"));
-            Object ka = a.get("kakao_account");
-            if (ka instanceof Map acc) {
-                a.putIfAbsent("email", acc.get("email"));
-                Object profile = acc.get("profile");
-                if (profile instanceof Map p) a.putIfAbsent("name", p.get("nickname"));
-            }
-        }
-        a.put("id", pid);
+        // 1) 공급자별 표준화 + pid 추출
+        String pid = normalizeAttributes(provider, attrs);
+        attrs.put("id", pid); // 공통 키로 고정
 
-        String email  = firstNonNullStr(a.get("email"), u.getAttribute("email"));
-        String name   = firstNonNullStr(a.get("name"),  u.getAttribute("name"));
-        String avatar = firstNonNullStr(a.get("picture"), u.getAttribute("picture"));
+        // 표준 키 확보(없으면 최대한 보완)
+        String email   = firstNonBlank(str(attrs.get("email")),   str(raw.getAttribute("email")));
+        String name    = firstNonBlank(str(attrs.get("name")),    str(raw.getAttribute("name")));
+        String picture = firstNonBlank(str(attrs.get("picture")), str(raw.getAttribute("picture")));
+
         boolean emailVerified =
-                Boolean.TRUE.equals(a.get("email_verified")) ||
-                        Boolean.TRUE.equals(u.getAttribute("email_verified"));
+                Boolean.TRUE.equals(attrs.get("email_verified")) ||
+                        Boolean.TRUE.equals(raw.getAttribute("email_verified"));
 
-        // 1) provider+pid 로 기존 연결 시도
+        // 2) provider+pid 로만 연결(이메일 병합 금지)
         var linked = oauthService.findByProvider(provider, pid);
         UserAccount user;
         if (linked.isPresent()) {
             user = linked.get();
         } else {
-            // 2) 연결 없으면 email 기반으로 유저 생성/링크 생성
-            if (email == null || String.valueOf(email).isBlank()) {
-                // 이메일이 없으면 정책상 거절 (필요 시 dummy 이메일 전략 추가 가능)
-                throw new OAuth2AuthenticationException("unauthenticated_no_email");
+            if (isBlank(email)) {
+                throw new OAuth2AuthenticationException(
+                        new OAuth2Error("unauthenticated_no_email"),
+                        "Email not provided by " + provider
+                );
             }
-            user = oauthService.createUserAndLink(String.valueOf(email),
-                    name == null ? null : String.valueOf(name),
-                    avatar == null ? null : String.valueOf(avatar),
-                    provider, pid, emailVerified);
+            // 동일 이메일이어도 다른 provider는 별도 사용자로 생성/링크한다는 정책 전제
+            user = oauthService.createUserAndLink(email, name, picture, provider, pid, emailVerified);
         }
 
-        a.put("uid", user.getId());
+        // 3) 표준 속성 확정
+        attrs.put("uid", user.getId());
+        if (email != null)   attrs.put("email", email);
+        if (name != null)    attrs.put("name", name);
+        if (picture != null) attrs.put("picture", picture);
+        attrs.putIfAbsent("email_verified", emailVerified);
 
-        Set<GrantedAuthority> auths = new HashSet<>(u.getAuthorities());
+        // 4) 권한
+        Set<GrantedAuthority> auths = new HashSet<>(raw.getAuthorities());
         auths.add(new SimpleGrantedAuthority("ROLE_USER"));
 
-        String nameKey = a.containsKey("sub") ? "sub" : "id";
-        return new DefaultOAuth2User(auths, a, nameKey);
+        // 5) nameAttributeKey (프로바이더 설정 우선)
+        String nameAttributeKey = req.getClientRegistration()
+                .getProviderDetails()
+                .getUserInfoEndpoint()
+                .getUserNameAttributeName();
+        if (isBlank(nameAttributeKey)) {
+            nameAttributeKey = attrs.containsKey("sub") ? "sub" : "id";
+        }
+
+        return new DefaultOAuth2User(auths, attrs, nameAttributeKey);
+    }
+
+    /** 공급자별 원본 속성을 표준 키(email, name, picture, id/sub)로 보완/정규화하고 pid를 반환 */
+    @SuppressWarnings("unchecked")
+    private static String normalizeAttributes(String provider, Map<String, Object> a) {
+        String pid = null;
+
+        switch (provider) {
+            case "google" -> {
+                // OIDC 표준: sub/email/name/picture
+                pid = str(a.get("sub"));
+                // 추가 보완은 필요 시 여기에
+            }
+            case "naver" -> {
+                // 네이버는 response에 중첩
+                Object resp = a.get("response");
+                if (resp instanceof Map<?, ?> r) {
+                    a.putAll((Map<String, Object>) r);
+                }
+                pid = str(a.get("id"));
+                // email/name/picture 표준화
+                if (a.get("email") == null)   a.put("email",   a.get("email")); // 이미 복사됨
+                if (a.get("name") == null)    a.put("name",    firstNonBlank(str(a.get("name")), str(a.get("nickname"))));
+                if (a.get("picture") == null) a.put("picture", a.get("profile_image")); // naver: profile_image
+            }
+            case "kakao" -> {
+                // kakao: id 최상위, 상세는 kakao_account.profile.*
+                pid = str(a.get("id"));
+                Object ka = a.get("kakao_account");
+                if (ka instanceof Map<?, ?> acc) {
+                    if (a.get("email") == null) a.put("email", acc.get("email"));
+                    Object profile = acc.get("profile");
+                    if (profile instanceof Map<?, ?> p) {
+                        if (a.get("name") == null) a.put("name", p.get("nickname"));
+                        if (a.get("picture") == null) {
+                            Object pic = ((Map<?, ?>) p).get("profile_image_url");
+                            if (pic == null) pic = ((Map<?, ?>) p).get("thumbnail_image_url");
+                            if (pic != null) a.put("picture", pic);
+                        }
+                    }
+                }
+            }
+            default -> {
+                // 기타 공급자 대비: id 또는 sub 우선
+                if (pid == null) pid = firstNonBlank(str(a.get("id")), str(a.get("sub")));
+            }
+        }
+
+        if (pid == null || pid.isBlank()) {
+            // pid는 필수
+            throw new OAuth2AuthenticationException(new OAuth2Error("invalid_provider_id"),
+                    "Provider id (pid) not found for " + provider);
+        }
+        return pid;
+    }
+
+    /* ---------- utils ---------- */
+    private static String str(Object o) {
+        if (o == null) return null;
+        String s = String.valueOf(o).trim();
+        return s.isEmpty() ? null : s;
+    }
+
+    private static boolean isBlank(String s) {
+        return s == null || s.isBlank();
     }
 
     @SafeVarargs
     private static <T> T firstNonNull(T... vals) {
         for (T v : vals) if (v != null) return v;
+        return null;
+    }
+
+    private static String firstNonBlank(String... xs) {
+        if (xs == null) return null;
+        for (String x : xs) {
+            if (!isBlank(x)) return x;
+        }
         return null;
     }
 }

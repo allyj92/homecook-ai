@@ -2,6 +2,8 @@
 package com.homecook.ai_recipe.config;
 
 import com.homecook.ai_recipe.service.CustomOAuth2UserService; // ← 실제 클래스 패키지에 맞게! (service가 아니라 auth)
+import com.homecook.ai_recipe.service.CustomOidcUserService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -22,13 +24,14 @@ import java.util.List;
 
 @Configuration
 @EnableWebSecurity
+@RequiredArgsConstructor
 public class SecurityConfig {
 
-    private final CustomOAuth2UserService customOAuth2UserService;
+    private final CustomOAuth2UserService customOAuth2UserService; // 네이버/카카오
+    private final CustomOidcUserService customOidcUserService;   // ✅ 구글(OIDC)
+    // ✅ 구글(OIDC)
 
-    public SecurityConfig(CustomOAuth2UserService customOAuth2UserService) {
-        this.customOAuth2UserService = customOAuth2UserService;
-    }
+
 
     @Bean
     public SecurityContextRepository securityContextRepository() {
@@ -75,7 +78,11 @@ public class SecurityConfig {
                 )
 
                 .oauth2Login(oauth -> oauth
-                        .userInfoEndpoint(ui -> ui.userService(customOAuth2UserService))
+                        .userInfoEndpoint(ui -> ui
+                                .userService(customOAuth2UserService)
+                                .oidcUserService(customOidcUserService) // ✅ OIDC
+                        )
+
                         .successHandler((req, res, auth) -> {
                             System.out.println("[OAUTH] success: " + auth.getName());
                             res.sendRedirect(frontBase + "/"); // 프론트가 세션 쿠키로 auth/me 호출

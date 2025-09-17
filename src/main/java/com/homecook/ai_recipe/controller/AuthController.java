@@ -1,9 +1,12 @@
 // src/main/java/com/homecook/ai_recipe/controller/AuthController.java
 package com.homecook.ai_recipe.controller;
 
+import com.homecook.ai_recipe.auth.UserAccount;
+import com.homecook.ai_recipe.service.OAuthAccountService;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -20,6 +23,7 @@ import java.util.*;
 
 @RestController
 @RequestMapping("/api/auth")
+@RequiredArgsConstructor
 public class AuthController {
 
     private static final Logger log = LoggerFactory.getLogger(AuthController.class);
@@ -28,10 +32,7 @@ public class AuthController {
     private static final String SESSION_COOKIE  = "RFSESSIONID"; // application.yml 과 동일
 
     private final SecurityContextRepository securityContextRepository;
-
-    public AuthController(SecurityContextRepository securityContextRepository) {
-        this.securityContextRepository = securityContextRepository;
-    }
+    private final OAuthAccountService oauthService;
 
     /* ---------- 공통 쿠키 유틸 ---------- */
 
@@ -44,7 +45,6 @@ public class AuthController {
         return Optional.empty();
     }
 
-    /** refresh_token 쿠키 생성/삭제 (SameSite=Lax, Secure, HttpOnly) */
     private static ResponseCookie buildRefreshCookie(String value, boolean expireNow) {
         var b = ResponseCookie.from(REFRESH_COOKIE, value == null ? "" : value)
                 .httpOnly(true)
@@ -52,27 +52,20 @@ public class AuthController {
                 .path("/")
                 .sameSite("Lax")
                 .domain("recipfree.com");
-        // 필요시 도메인 고정 (예: 서브도메인 공유)
-        // b.domain(".recipfree.com");
-
         if (expireNow) b.maxAge(0);
         else b.maxAge(Duration.ofDays(30));
         return b.build();
     }
 
-    /** 세션 쿠키 제거용 */
     private static ResponseCookie buildSessionKiller() {
-        var b = ResponseCookie.from(SESSION_COOKIE, "")
+        return ResponseCookie.from(SESSION_COOKIE, "")
                 .httpOnly(true)
                 .secure(true)
                 .path("/")
                 .sameSite("Lax")
                 .domain("recipfree.com")
-                .maxAge(0);
-        // 필요시 도메인 고정
-        // b.domain(".recipfree.com");
-
-        return b.build();
+                .maxAge(0)
+                .build();
     }
 
     private static void setCookie(HttpServletResponse res, ResponseCookie c) {
@@ -101,16 +94,27 @@ public class AuthController {
         OAuth2AuthenticationToken token = (OAuth2AuthenticationToken) authentication;
         String provider = token.getAuthorizedClientRegistrationId(); // "naver", "google", ...
         OAuth2User principal = token.getPrincipal();
-
         Map<String, Object> attrs = principal != null ? principal.getAttributes() : Map.of();
 
-        // 네이버: attrs.response.{id,email,nickname,profile_image}
-        // 구글/카카오 등: attrs에 바로 email/name/picture 등 존재
-        String uid = str(firstNonNull(
-                attrs.get("uid"),
+        // 원본 공급자 ID (pid)
+        String pid = str(firstNonNull(
+                attrs.get("sub"),
                 attrs.get("id"),
                 nested(attrs, "response", "id")
         ));
+        out.put("pid", pid);
+
+        // uid 우선: attributes → 없으면 DB 조회로 보강
+        Long uid = null;
+        Object uidObj = attrs.get("uid");
+        if (uidObj instanceof Number n) uid = n.longValue();
+        else if (uidObj instanceof String s && !s.isBlank()) {
+            try { uid = Long.parseLong(s); } catch (NumberFormatException ignored) {}
+        }
+        if (uid == null && provider != null && pid != null) {
+            uid = oauthService.findByProvider(provider, pid).map(UserAccount::getId).orElse(null);
+        }
+
         String email = str(firstNonNull(
                 attrs.get("email"),
                 nested(attrs, "response", "email")
@@ -127,7 +131,7 @@ public class AuthController {
         ));
 
         out.put("provider", provider);
-        out.put("uid", uid);
+        out.put("uid", uid); // Number 로 반환
         out.put("email", email);
         out.put("name", name);
         out.put("picture", picture);
@@ -143,15 +147,12 @@ public class AuthController {
             @CookieValue(name = "refresh_token", required = false) String refreshToken,
             HttpServletResponse response
     ) {
-        // 세션에 로그인된 유저가 없으면 401
         if (user == null) {
-            // (선택) 쿠키 정리
             response.addHeader(HttpHeaders.SET_COOKIE, buildRefreshCookie("", true).toString());
             response.addHeader(HttpHeaders.SET_COOKIE, buildSessionKiller().toString());
             return ResponseEntity.status(401).body(Map.of("authenticated", false, "reason", "no_session"));
         }
 
-        // (선택) refresh_token 로테이트만 수행 — 세션 principal은 건드리지 않음
         if (refreshToken != null && !refreshToken.isBlank()) {
             response.addHeader(HttpHeaders.SET_COOKIE, buildRefreshCookie(refreshToken, false).toString());
         }
@@ -173,14 +174,12 @@ public class AuthController {
     @PostMapping("/logout")
     public ResponseEntity<?> logout(HttpServletRequest request, HttpServletResponse response) {
         try {
-            // 시큐리티 컨텍스트/세션 무효화
             var context = org.springframework.security.core.context.SecurityContextHolder.getContext();
             context.setAuthentication(null);
             org.springframework.security.core.context.SecurityContextHolder.clearContext();
             var session = request.getSession(false);
             if (session != null) session.invalidate();
         } finally {
-            // 쿠키 제거
             setCookie(response, buildRefreshCookie("", true));
             setCookie(response, buildSessionKiller());
         }
@@ -189,7 +188,6 @@ public class AuthController {
 
     /* ---------- /api/auth/bootstrap-cookie (디버그용) ---------- */
 
-    /** 테스트/디버그: refresh_token 발급 + 세션 생성 (GET/POST 허용) */
     @RequestMapping(value = "/bootstrap-cookie", method = { RequestMethod.POST, RequestMethod.GET })
     public ResponseEntity<?> bootstrapCookie(HttpServletRequest request, HttpServletResponse response) {
         request.getSession(true); // RFSESSIONID 보장

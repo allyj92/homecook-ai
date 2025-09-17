@@ -99,21 +99,6 @@ public class MyPageController {
                 if (linked.isPresent()) return linked.get();
             }
 
-            // 1-b) 이메일 경로 (없으면 생성) + 링크 생성
-            String email = strOrNull(a.get("email"));
-            String name  = strOrNull(a.get("name"));
-            if (email != null) {
-                UserAccount ua = userRepo.findByEmailIgnoreCase(email).orElseGet(() -> {
-                    UserAccount x = new UserAccount();
-                    x.setEmail(email);
-                    x.setName(name != null ? name : "User");
-                    return userRepo.save(x);
-                });
-                if (provider != null && pid != null) {
-                    oauthService.createLinkIfAbsent(provider, pid, ua.getId());
-                }
-                return ua;
-            }
 
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthenticated");
         }
@@ -131,11 +116,7 @@ public class MyPageController {
             var linked = oauthService.findByProvider(su.provider(), su.providerId());
             if (linked.isPresent()) return linked.get();
 
-            String email = su.email();
-            if (email != null && !email.isBlank()) {
-                return userRepo.findByEmailIgnoreCase(email)
-                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthenticated"));
-            }
+
         }
 
         throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthenticated");
