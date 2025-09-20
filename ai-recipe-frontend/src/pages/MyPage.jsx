@@ -435,8 +435,15 @@ export default function MyPage() {
         pull();
       }
     };
+
+    const onBookmarkPing = () => pull();
+    
     window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
+    window.addEventListener('bookmark-changed', onBookmarkPing);
+     return () => {
+     window.removeEventListener('storage', onStorage);
+    window.removeEventListener('bookmark-changed', onBookmarkPing);
+  };
   }, [currentUid]);
 
   function onUnbookmark(e, postId) {
