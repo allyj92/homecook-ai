@@ -7,21 +7,7 @@ import { listFavoritesSimple, removeFavorite } from '../lib/wishlist';
 import { getMyPosts } from '../api/community';
 import { listActivities, subscribeActivity, formatActivityText, logActivity } from '../lib/activity';
 
-/* 레거시 키 제거 유틸: uid 네임스페이스 없는 예전 북마크 키만 제거 */
-function purgeLegacyBookmarkKeys() {
-  try {
-    const del = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (!k) continue;
-      if (k.startsWith('postBookmark:') || k.startsWith('postBookmarkData:')) {
-        const parts = k.split(':'); // ["postBookmark", maybe "<uid>", maybe "<id>"]
-        if (parts.length === 2) del.push(k); // 레거시 형태만 삭제
-      }
-    }
-    del.forEach((k) => localStorage.removeItem(k));
-  } catch {}
-}
+
 
 /* 숫자 ID만 허용(최대 19자리: Long 범위) */
 function isNumericId(id) {
@@ -480,13 +466,6 @@ export default function MyPage() {
     return off;
   }, []);
 
-  // 최초 로드/UID 변경 시 레거시 정리
-  useEffect(() => {
-    purgeLegacyBookmarkKeys();
-  }, []);
-  useEffect(() => {
-    if (currentUid) purgeLegacyBookmarkKeys();
-  }, [currentUid]);
 
   // 로딩 스켈레톤 (me)
   if (meLoading) {

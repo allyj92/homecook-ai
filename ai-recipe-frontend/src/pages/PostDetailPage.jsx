@@ -140,32 +140,48 @@ export default function PostDetailPage() {
     });
 
   const onToggleBookmark = () =>
-    requireAuth(() => {
-      setBookmarked((prev) => {
-        const next = !prev;
-        try {
-          localStorage.setItem(`postBookmark:${post.id}`, next ? "1" : "0");
-          const dataKey = `postBookmarkData:${post.id}`;
-          if (next) {
-            const payload = {
-              id: String(post.id),
-              title: post.title,
-              category: post.category,
-              createdAt: post.createdAt || post.updatedAt || null,
-              repImageUrl: post.repImageUrl || null,
-              youtubeId: post.youtubeId || null,
-              tags: Array.isArray(post.tags) ? post.tags : [],
-            };
-            localStorage.setItem(dataKey, JSON.stringify(payload));
-          } else {
-            localStorage.removeItem(dataKey);
-          }
-          logActivity("post_bookmark", { postId: post.id, title: post.title, on: next });
-        } catch {}
-        return next;
-      });
-    });
+  requireAuth(() => {
+    setBookmarked((prev) => {
+      const next = !prev;
+      try {
+        const id = String(post.id);
+        const uid = String(auth.user?.uid ?? '');
 
+        const payload = {
+          id: post.id,
+          title: post.title,
+          category: post.category,
+          createdAt: post.createdAt || post.updatedAt || null,
+          repImageUrl: post.repImageUrl || null,
+          youtubeId: post.youtubeId || null,
+          tags: Array.isArray(post.tags) ? post.tags : [],
+        };
+
+        if (next) {
+          // 레거시(비네임스페이스)
+          localStorage.setItem(`postBookmark:${id}`, '1');
+          localStorage.setItem(`postBookmarkData:${id}`, JSON.stringify(payload));
+          // 네임스페이스(현재 로그인 uid)
+          if (uid) {
+            localStorage.setItem(`postBookmark:${uid}:${id}`, '1');
+            localStorage.setItem(`postBookmarkData:${uid}:${id}`, JSON.stringify(payload));
+          }
+        } else {
+          // 레거시
+          localStorage.setItem(`postBookmark:${id}`, '0');
+          localStorage.removeItem(`postBookmarkData:${id}`);
+          // 네임스페이스
+          if (uid) {
+            localStorage.setItem(`postBookmark:${uid}:${id}`, '0');
+            localStorage.removeItem(`postBookmarkData:${uid}:${id}`);
+          }
+        }
+
+        logActivity('post_bookmark', { postId: post.id, title: post.title, on: next });
+      } catch {}
+      return next;
+    });
+  });
   const canEdit =
     !!auth.user?.authenticated &&
     ((post?.authorId != null && String(post.authorId) === String(auth.user.uid)) ||
