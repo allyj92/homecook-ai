@@ -191,7 +191,7 @@ export default function PostDetailPage() {
           const uid = resolveUid();
           const pid = String(post.id);
           const meta = {
-            id: Number(pid),
+            id: pid,
             title: post.title ?? "",
             category: post.category ?? "",
             createdAt: post.createdAt ?? post.updatedAt ?? null,

@@ -386,7 +386,7 @@ export default function MyPage() {
             meta = JSON.parse(raw);
           } catch {}
         }
-        list.push({ id: Number(id), ...(meta || {}) });
+        list.push({ id: id, ...(meta || {}) });
       }
       list.sort((a, b) => {
         const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
