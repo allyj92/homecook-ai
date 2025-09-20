@@ -1,5 +1,5 @@
 // src/pages/MyPage.jsx
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import BottomNav from '../components/BottomNav';
 import { apiFetch } from '../lib/http';
@@ -21,6 +21,11 @@ function purgeLegacyBookmarkKeys() {
     }
     del.forEach((k) => localStorage.removeItem(k));
   } catch {}
+}
+
+/* 숫자 ID만 허용(최대 19자리: Long 범위) */
+function isNumericId(id) {
+  return typeof id === 'string' && /^[0-9]{1,19}$/.test(id);
 }
 
 /* ─────────────────────────────────────────
@@ -199,37 +204,10 @@ export default function MyPage() {
   // 프로필/세션
   const [me, setMe] = useState(null);
   const [meLoading, setMeLoading] = useState(true);
-
-  // 공급자+서브젝트로만 UID 산출 (이메일 폴백 제거)
-  const deriveUid = useCallback((u) => {
-    if (!u) return null;
-
-    const provider =
-      u.provider ??
-      u.providerType ??
-      u.identity_provider ??
-      u.oauthProvider ??
-      u.iss ??
-      localStorage.getItem('authProvider') ?? null;
-
-    const subject =
-      u.pid ??   
-      u.sub ??
-      u.providerUserId ??
-      u.provider_id ??
-      u.oauthId ??
-      u.idpUserId ??
-      u.uid ?? u.id ?? u.userId ?? u.user_id ?? null;
-
-    if (!provider || !subject) return null;
-
-    const provKey = String(provider).startsWith('http')
-      ? (() => { try { return new URL(String(provider)).host; } catch { return String(provider); } })()
-      : String(provider);
-
-    return `${provKey}:${subject}`;
-  }, []);
-  const currentUid = useMemo(() => deriveUid(me), [me, deriveUid]);
+  const currentUid = useMemo(
+    () => me?.uid ?? me?.id ?? me?.userId ?? me?.user_id ?? null,
+    [me]
+  );
 
   // 즐겨찾기(레시피)
   const [wishLoading, setWishLoading] = useState(false);
@@ -255,9 +233,7 @@ export default function MyPage() {
         if (aborted) return;
 
         if (res.status === 401) {
-          try {
-            localStorage.removeItem('authUser');
-          } catch {}
+          try { localStorage.removeItem('authUser'); } catch {}
           localStorage.setItem('postLoginRedirect', '/mypage');
           navigate('/login-signup', { replace: true, state: { from: '/mypage' } });
           return;
@@ -270,16 +246,13 @@ export default function MyPage() {
         if (aborted) return;
 
         if (!meData?.authenticated) {
-          try {
-            localStorage.removeItem('authUser');
-          } catch {}
+          try { localStorage.removeItem('authUser'); } catch {}
           localStorage.setItem('postLoginRedirect', '/mypage');
           navigate('/login-signup', { replace: true, state: { from: '/mypage' } });
           return;
         }
 
-        const userObj = meData?.user ?? meData;
-        setMe(userObj);
+        setMe(meData);
 
         // favorites
         setWishLoading(true);
@@ -336,7 +309,7 @@ export default function MyPage() {
   }
 
   // ─────────────────────────────────────────
-  // 🔖 북마크한 글 (localStorage) — UID 네임스페이스 + 레거시 이동 흡수
+  // 🔖 북마크한 글 (localStorage) — UID 네임스페이스 + 레거시 이동 흡수 + 숫자ID 필터
   // ─────────────────────────────────────────
   const [bookmarks, setBookmarks] = useState([]);
   const [bmLoading, setBmLoading] = useState(false);
@@ -360,9 +333,12 @@ export default function MyPage() {
       move.forEach((k) => {
         const v = localStorage.getItem(k);
         const [prefix, id] = k.split(':'); // e.g. postBookmark:123
-        const namespaced = `${prefix}:${uid}:${id}`;
-        if (v != null) localStorage.setItem(namespaced, v);
-        localStorage.removeItem(k); // 복사 아님, 이동!
+        // 숫자 ID만 네임스페이스로 이동
+        if (isNumericId(String(id))) {
+          const namespaced = `${prefix}:${uid}:${id}`;
+          if (v != null) localStorage.setItem(namespaced, v);
+        }
+        localStorage.removeItem(k); // 이동 후 레거시 삭제
       });
     } catch {}
   }
@@ -378,6 +354,9 @@ export default function MyPage() {
         const id = parts[2];
         if (localStorage.getItem(key) !== '1') continue;
 
+        // 숫자 ID만 허용
+        if (!isNumericId(String(id))) continue;
+
         const dataKey = bmDataKey(uid, id);
         let meta = null;
         const raw = localStorage.getItem(dataKey);
@@ -386,7 +365,7 @@ export default function MyPage() {
             meta = JSON.parse(raw);
           } catch {}
         }
-        list.push({ id: id, ...(meta || {}) });
+        list.push({ id: String(id), ...(meta || {}) });
       }
       list.sort((a, b) => {
         const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
@@ -417,7 +396,7 @@ export default function MyPage() {
     };
     pull();
 
-    // 메타 최신화 (일부 항목만 최신 메타 채워넣기)
+    // 메타 최신화
     (async () => {
       try {
         const raw = loadBookmarksFromLS(uid);
@@ -434,7 +413,7 @@ export default function MyPage() {
               localStorage.setItem(
                 bmDataKey(uid, p.id),
                 JSON.stringify({
-                  id: p.id,
+                  id: String(p.id),
                   title: p.title,
                   category: p.category,
                   createdAt: p.createdAt ?? p.created_at,
@@ -458,18 +437,13 @@ export default function MyPage() {
       if (e.key.startsWith(`postBookmark:${uid}:`) || e.key.startsWith(`postBookmarkData:${uid}:`)) {
         pull();
       } else if (e.key.startsWith('postBookmark:') || e.key.startsWith('postBookmarkData:')) {
+        // 다른 페이지가 레거시 포맷으로 쓴 경우 즉시 흡수
         adoptLegacyBookmarks(uid);
         pull();
       }
     };
-    const onBookmarkPing = () => pull();
-
     window.addEventListener('storage', onStorage);
-    window.addEventListener('bookmark-changed', onBookmarkPing);
-    return () => {
-      window.removeEventListener('storage', onStorage);
-      window.removeEventListener('bookmark-changed', onBookmarkPing);
-    };
+    return () => window.removeEventListener('storage', onStorage);
   }, [currentUid]);
 
   function onUnbookmark(e, postId) {
@@ -753,7 +727,7 @@ export default function MyPage() {
               <div className="p-4 text-center text-secondary">
                 아직 북마크한 글이 없어요.
                 <div className="mt-2">
-                  <Link className="btn btn-sm btn.success" to="/community">
+                  <Link className="btn btn-sm btn-success" to="/community">
                     커뮤니티로 가기
                   </Link>
                 </div>
@@ -801,6 +775,7 @@ export default function MyPage() {
                                   localStorage.setItem(bmKey(uid, id), '0');
                                   localStorage.removeItem(bmDataKey(uid, id));
                                 }
+                                // 레거시 키도 정리
                                 localStorage.setItem(`postBookmark:${id}`, '0');
                                 localStorage.removeItem(`postBookmarkData:${id}`);
                               } catch {}
@@ -935,6 +910,7 @@ export default function MyPage() {
         <span className="text-primary fw-semibold">FREE</span>
       </footer>
 
+      {/* 모바일 하단 네비 */}
       <BottomNav />
     </div>
   );

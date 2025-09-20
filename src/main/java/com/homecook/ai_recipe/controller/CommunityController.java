@@ -14,6 +14,7 @@ import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.math.BigInteger;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -32,6 +33,29 @@ public class CommunityController {
 
     /* ---------- helpers ---------- */
     private static String s(Object o) { return o == null ? null : String.valueOf(o).trim(); }
+
+    /** String ID → Long 변환 (Long 범위를 벗어나면 404) */
+    private static Long toLongIdOr404(String idStr) {
+        if (idStr == null || idStr.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid id");
+        }
+        try {
+            // 숫자만 허용
+            if (!idStr.matches("^[0-9]+$")) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid id");
+            }
+            BigInteger bi = new BigInteger(idStr);
+            BigInteger max = BigInteger.valueOf(Long.MAX_VALUE);
+            BigInteger min = BigInteger.ZERO; // 게시글 ID가 음수일 리 없다는 가정(음수 허용 시 변경)
+            if (bi.compareTo(min) < 0 || bi.compareTo(max) > 0) {
+                // DB가 bigint(Long)라면 이 범위를 넘는 ID는 존재할 수 없음 → 404
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "post not found");
+            }
+            return bi.longValueExact();
+        } catch (NumberFormatException | ArithmeticException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid id");
+        }
+    }
 
     /**
      * attributes['uid'](내부 Long ID)가 있으면 그걸 사용.
@@ -67,13 +91,16 @@ public class CommunityController {
         return service.list(category, page, size);
     }
 
-    /** 단건 조회 - 공개 */
+    /** 단건 조회 - 공개
+     *  String으로 받은 뒤 Long으로 안전 변환해서 서비스에 전달
+     */
     @GetMapping("/posts/{id}")
-    public PostRes getOne(@PathVariable Long id) {
-        return service.getOne(id);
+    public PostRes getOne(@PathVariable String id) {
+        Long lid = toLongIdOr404(id);
+        return service.getOne(lid);
     }
 
-    /** 작성 - 인증 필요 */
+    /** 작성 - 인증 필요 (서비스 시그니처가 Long 반환이므로 그대로 유지) */
     @PostMapping("/posts")
     public Map<String, Long> create(
             @Valid @RequestBody CreatePostReq req,
@@ -101,14 +128,15 @@ public class CommunityController {
     /** 수정 (작성자 본인만) - 인증 필요 */
     @PutMapping("/posts/{id}")
     public PostRes update(
-            @PathVariable Long id,
+            @PathVariable String id,
             @Valid @RequestBody CreatePostReq req,
             @AuthenticationPrincipal(expression = "attributes['uid']") Number uid,
             @AuthenticationPrincipal OAuth2User principal,
             OAuth2AuthenticationToken token
     ) {
         long userId = resolveUserId(uid, principal, token);
-        service.update(userId, id, req);
-        return service.getOne(id);
+        Long lid = toLongIdOr404(id);
+        service.update(userId, lid, req);
+        return service.getOne(lid);
     }
 }
