@@ -200,20 +200,33 @@ export default function MyPage() {
   const [me, setMe] = useState(null);
   const [meLoading, setMeLoading] = useState(true);
 
-  // 다양한 공급자 응답을 하나의 UID로 표준화
+  // 공급자+서브젝트로만 UID 산출 (이메일 폴백 제거)
   const deriveUid = useCallback((u) => {
     if (!u) return null;
-    return (
-      u.uid ??
-      u.id ??
-      u.userId ??
-      u.user_id ??
-      u.sub ?? // OIDC
-      (u.provider && (u.providerUserId ?? u.provider_id)
-        ? `${u.provider}:${u.providerUserId ?? u.provider_id}`
-        : null) ??
-      (u.email ? `email:${u.email}` : null)
-    );
+
+    const provider =
+      u.provider ??
+      u.providerType ??
+      u.identity_provider ??
+      u.oauthProvider ??
+      u.iss ??
+      localStorage.getItem('authProvider') ?? null;
+
+    const subject =
+      u.sub ??
+      u.providerUserId ??
+      u.provider_id ??
+      u.oauthId ??
+      u.idpUserId ??
+      u.uid ?? u.id ?? u.userId ?? u.user_id ?? null;
+
+    if (!provider || !subject) return null;
+
+    const provKey = String(provider).startsWith('http')
+      ? (() => { try { return new URL(String(provider)).host; } catch { return String(provider); } })()
+      : String(provider);
+
+    return `${provKey}:${subject}`;
   }, []);
   const currentUid = useMemo(() => deriveUid(me), [me, deriveUid]);
 
@@ -264,7 +277,6 @@ export default function MyPage() {
           return;
         }
 
-        // ✅ 카카오/네이버는 meData.user 래핑인 경우가 있음
         const userObj = meData?.user ?? meData;
         setMe(userObj);
 
@@ -445,12 +457,10 @@ export default function MyPage() {
       if (e.key.startsWith(`postBookmark:${uid}:`) || e.key.startsWith(`postBookmarkData:${uid}:`)) {
         pull();
       } else if (e.key.startsWith('postBookmark:') || e.key.startsWith('postBookmarkData:')) {
-        // 다른 페이지가 레거시 포맷으로 쓴 경우 즉시 흡수
         adoptLegacyBookmarks(uid);
         pull();
       }
     };
-    // ✅ 같은 탭 즉시 반영: 상세페이지에서 dispatch한 커스텀 이벤트 수신
     const onBookmarkPing = () => pull();
 
     window.addEventListener('storage', onStorage);
@@ -742,7 +752,7 @@ export default function MyPage() {
               <div className="p-4 text-center text-secondary">
                 아직 북마크한 글이 없어요.
                 <div className="mt-2">
-                  <Link className="btn btn-sm btn-success" to="/community">
+                  <Link className="btn btn-sm btn.success" to="/community">
                     커뮤니티로 가기
                   </Link>
                 </div>
@@ -790,7 +800,6 @@ export default function MyPage() {
                                   localStorage.setItem(bmKey(uid, id), '0');
                                   localStorage.removeItem(bmDataKey(uid, id));
                                 }
-                                // 레거시 키도 정리
                                 localStorage.setItem(`postBookmark:${id}`, '0');
                                 localStorage.removeItem(`postBookmarkData:${id}`);
                               } catch {}
@@ -925,7 +934,6 @@ export default function MyPage() {
         <span className="text-primary fw-semibold">FREE</span>
       </footer>
 
-      {/* 모바일 하단 네비 */}
       <BottomNav />
     </div>
   );

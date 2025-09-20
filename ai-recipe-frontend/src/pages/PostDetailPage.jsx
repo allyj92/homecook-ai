@@ -27,7 +27,6 @@ function normalizePost(raw) {
     content: d.content ?? d.body ?? "",
     tags: Array.isArray(d.tags) ? d.tags : (Array.isArray(d.tagList) ? d.tagList : []),
 
-    // 작성자 식별자 후보(백엔드 필드명 다양성 대비)
     authorId: d.authorId ?? d.userId ?? d.author_id ?? d.user_id ?? null,
     authorEmail: d.authorEmail ?? d.author_email ?? d.userEmail ?? d.user_email ?? null,
 
@@ -51,7 +50,7 @@ function Meta({ author, createdAt }) {
 }
 
 export default function PostDetailPage() {
-  console.log("PostDetail LOADED v-2025-09-15-c"); // 번들 버전 마커
+  console.log("PostDetail LOADED v-2025-09-15-d"); // 번들 버전 마커
 
   const { id } = useParams();
   const navigate = useNavigate();
@@ -115,21 +114,34 @@ export default function PostDetailPage() {
   const [liked, setLiked] = useState(false);
   const [bookmarked, setBookmarked] = useState(false);
 
-  // uid 보조 유틸 (공급자별 필드 표준화, 래핑도 처리)
+  // 공급자+서브젝트로만 UID를 만든다 (이메일 폴백 제거)
   const resolveUid = useCallback(() => {
-    const u = auth.user?.user ?? auth.user; // 카카오/네이버는 래핑된 형태 가능
+    const u = auth.user?.user ?? auth.user; // 일부 공급자는 user 래핑
     if (!u) return null;
-    return (
-      u.uid ??
-      u.id ??
-      u.userId ??
-      u.user_id ??
-      u.sub ?? // OIDC
-      (u.provider && (u.providerUserId ?? u.provider_id)
-        ? `${u.provider}:${u.providerUserId ?? u.provider_id}`
-        : null) ??
-      (u.email ? `email:${u.email}` : null)
-    );
+
+    const provider =
+      u.provider ??
+      u.providerType ??
+      u.identity_provider ??
+      u.oauthProvider ??
+      u.iss ??
+      localStorage.getItem('authProvider') ?? null;
+
+    const subject =
+      u.sub ??
+      u.providerUserId ??
+      u.provider_id ??
+      u.oauthId ??
+      u.idpUserId ??
+      u.uid ?? u.id ?? u.userId ?? u.user_id ?? null;
+
+    if (!provider || !subject) return null;
+
+    const provKey = String(provider).startsWith('http')
+      ? (() => { try { return new URL(String(provider)).host; } catch { return String(provider); } })()
+      : String(provider);
+
+    return `${provKey}:${subject}`;
   }, [auth.user]);
 
   // 계정 네임스페이스 & 레거시 동시 확인
@@ -165,9 +177,7 @@ export default function PostDetailPage() {
       setLiked((prev) => {
         const next = !prev;
         try { localStorage.setItem(`postLike:${post.id}`, next ? "1" : "0"); } catch {}
-        // 활동 로그
         logActivity("post_like", { postId: post.id, title: post.title, on: next });
-        // TODO: 서버 좋아요 API 연동
         return next;
       });
     });
@@ -202,13 +212,10 @@ export default function PostDetailPage() {
           if (next) localStorage.setItem(legacyDataKey, JSON.stringify(meta));
           else localStorage.removeItem(legacyDataKey);
 
-          // 같은 탭 즉시 반영 (MyPage에서 이 이벤트를 들으면 pull 가능)
           try { window.dispatchEvent(new Event("bookmark-changed")); } catch {}
 
-          // 활동 로그
           logActivity("post_bookmark", { postId: post.id, title: post.title, on: next });
         } catch {}
-        // TODO: 서버 북마크 API 연동
         return next;
       });
     });
@@ -221,7 +228,6 @@ export default function PostDetailPage() {
       (!!post?.authorEmail && post.authorEmail === (auth.user?.user ?? auth.user)?.email)
     );
 
-  /** 렌더링 분기 */
   if (loadingPost) {
     return (
       <div className="container-xxl py-3">
@@ -259,7 +265,6 @@ export default function PostDetailPage() {
 
   return (
     <div className="container-xxl py-3">
-      {/* 상단 바: ← 목록 / (내 글이면) 수정 */}
       <nav className="mb-3 d-flex gap-2 align-items-center justify-content-between">
         <button className="btn btn-outline-secondary" onClick={() => navigate(-1)}>← 목록</button>
         {canEdit && (
@@ -290,7 +295,6 @@ export default function PostDetailPage() {
           <h1 className="h4 mb-1">{post.title || "제목 없음"}</h1>
           <Meta author={post.authorId} createdAt={post.createdAt || post.updatedAt} />
 
-          {/* 액션 바 (로그인 시만 노출) */}
           {!auth.loading && (
             (auth.user?.user ?? auth.user) ? (
               <div className="mt-3 d-flex gap-2">
@@ -330,12 +334,10 @@ export default function PostDetailPage() {
 
           <hr />
 
-          {/* 내용 */}
           <div className="mt-2" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
             {post.content ? post.content : <span className="text-secondary">내용이 비어 있습니다.</span>}
           </div>
 
-          {/* 댓글 영역 */}
           {!auth.loading && (
             (auth.user?.user ?? auth.user) ? (
               <div className="mt-4" id="comment-editor">
@@ -345,7 +347,6 @@ export default function PostDetailPage() {
                   <button
                     className="btn btn-success"
                     onClick={() => {
-                      // TODO: 댓글 등록 API
                       logActivity("comment_create", { postId: post.id, title: post.title });
                       alert("댓글 등록(예시)");
                     }}
@@ -372,8 +373,7 @@ export default function PostDetailPage() {
         </div>
       </article>
 
-      {/* 버전 마커 */}
-      <div className="text-center text-secondary small mt-2">PostDetail v-2025-09-15-c</div>
+      <div className="text-center text-secondary small mt-2">PostDetail v-2025-09-15-d</div>
 
       <footer className="text-center text-secondary mt-4">
         <div className="small">* 커뮤니티 내 일부 링크는 제휴/광고일 수 있으며, 구매 시 수수료를 받을 수 있습니다.</div>
