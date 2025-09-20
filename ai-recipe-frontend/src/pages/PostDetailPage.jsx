@@ -51,7 +51,7 @@ function Meta({ author, createdAt }) {
 }
 
 export default function PostDetailPage() {
-  console.log("PostDetail LOADED v-2025-09-15-b"); // 번들 버전 마커
+  console.log("PostDetail LOADED v-2025-09-15-c"); // 번들 버전 마커
 
   const { id } = useParams();
   const navigate = useNavigate();
@@ -115,10 +115,21 @@ export default function PostDetailPage() {
   const [liked, setLiked] = useState(false);
   const [bookmarked, setBookmarked] = useState(false);
 
-  // uid 보조 유틸
+  // uid 보조 유틸 (공급자별 필드 표준화, 래핑도 처리)
   const resolveUid = useCallback(() => {
-    const u = auth.user;
-    return u?.uid ?? u?.id ?? u?.userId ?? u?.user_id ?? null;
+    const u = auth.user?.user ?? auth.user; // 카카오/네이버는 래핑된 형태 가능
+    if (!u) return null;
+    return (
+      u.uid ??
+      u.id ??
+      u.userId ??
+      u.user_id ??
+      u.sub ?? // OIDC
+      (u.provider && (u.providerUserId ?? u.provider_id)
+        ? `${u.provider}:${u.providerUserId ?? u.provider_id}`
+        : null) ??
+      (u.email ? `email:${u.email}` : null)
+    );
   }, [auth.user]);
 
   // 계정 네임스페이스 & 레거시 동시 확인
@@ -206,8 +217,8 @@ export default function PostDetailPage() {
   const canEdit =
     !!auth.user?.authenticated &&
     (
-      (post?.authorId != null && String(post.authorId) === String(auth.user.uid)) ||
-      (!!post?.authorEmail && post.authorEmail === auth.user.email)
+      (post?.authorId != null && String(post.authorId) === String((auth.user?.user ?? auth.user)?.uid)) ||
+      (!!post?.authorEmail && post.authorEmail === (auth.user?.user ?? auth.user)?.email)
     );
 
   /** 렌더링 분기 */
@@ -281,7 +292,7 @@ export default function PostDetailPage() {
 
           {/* 액션 바 (로그인 시만 노출) */}
           {!auth.loading && (
-            auth.user ? (
+            (auth.user?.user ?? auth.user) ? (
               <div className="mt-3 d-flex gap-2">
                 <button
                   className={`btn btn-sm ${liked ? "btn-danger" : "btn-outline-danger"}`}
@@ -326,7 +337,7 @@ export default function PostDetailPage() {
 
           {/* 댓글 영역 */}
           {!auth.loading && (
-            auth.user ? (
+            (auth.user?.user ?? auth.user) ? (
               <div className="mt-4" id="comment-editor">
                 <label className="form-label">댓글</label>
                 <textarea className="form-control" rows="4" placeholder="댓글을 입력하세요..." />
@@ -362,7 +373,7 @@ export default function PostDetailPage() {
       </article>
 
       {/* 버전 마커 */}
-      <div className="text-center text-secondary small mt-2">PostDetail v-2025-09-15-b</div>
+      <div className="text-center text-secondary small mt-2">PostDetail v-2025-09-15-c</div>
 
       <footer className="text-center text-secondary mt-4">
         <div className="small">* 커뮤니티 내 일부 링크는 제휴/광고일 수 있으며, 구매 시 수수료를 받을 수 있습니다.</div>

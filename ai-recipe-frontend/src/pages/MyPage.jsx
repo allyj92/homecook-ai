@@ -1,5 +1,5 @@
 // src/pages/MyPage.jsx
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import BottomNav from '../components/BottomNav';
 import { apiFetch } from '../lib/http';
@@ -199,10 +199,23 @@ export default function MyPage() {
   // 프로필/세션
   const [me, setMe] = useState(null);
   const [meLoading, setMeLoading] = useState(true);
-  const currentUid = useMemo(
-    () => me?.uid ?? me?.id ?? me?.userId ?? me?.user_id ?? null,
-    [me]
-  );
+
+  // 다양한 공급자 응답을 하나의 UID로 표준화
+  const deriveUid = useCallback((u) => {
+    if (!u) return null;
+    return (
+      u.uid ??
+      u.id ??
+      u.userId ??
+      u.user_id ??
+      u.sub ?? // OIDC
+      (u.provider && (u.providerUserId ?? u.provider_id)
+        ? `${u.provider}:${u.providerUserId ?? u.provider_id}`
+        : null) ??
+      (u.email ? `email:${u.email}` : null)
+    );
+  }, []);
+  const currentUid = useMemo(() => deriveUid(me), [me, deriveUid]);
 
   // 즐겨찾기(레시피)
   const [wishLoading, setWishLoading] = useState(false);
@@ -251,7 +264,9 @@ export default function MyPage() {
           return;
         }
 
-        setMe(meData);
+        // ✅ 카카오/네이버는 meData.user 래핑인 경우가 있음
+        const userObj = meData?.user ?? meData;
+        setMe(userObj);
 
         // favorites
         setWishLoading(true);
@@ -389,7 +404,7 @@ export default function MyPage() {
     };
     pull();
 
-    // 메타 최신화
+    // 메타 최신화 (일부 항목만 최신 메타 채워넣기)
     (async () => {
       try {
         const raw = loadBookmarksFromLS(uid);
@@ -435,15 +450,15 @@ export default function MyPage() {
         pull();
       }
     };
-
+    // ✅ 같은 탭 즉시 반영: 상세페이지에서 dispatch한 커스텀 이벤트 수신
     const onBookmarkPing = () => pull();
-    
+
     window.addEventListener('storage', onStorage);
     window.addEventListener('bookmark-changed', onBookmarkPing);
-     return () => {
-     window.removeEventListener('storage', onStorage);
-    window.removeEventListener('bookmark-changed', onBookmarkPing);
-  };
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('bookmark-changed', onBookmarkPing);
+    };
   }, [currentUid]);
 
   function onUnbookmark(e, postId) {
