@@ -2,8 +2,8 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import '../index.css';
-import BottomNav from '../compoments/BottomNav';
-import AdCarousel from '../compoments/AdCarousel';
+import BottomNav from '../components/BottomNav';
+import AdCarousel from '../components/AdCarousel';
 import { ensureLogin } from '../auth/ensureLogin';
 
 

@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { requestRecommend } from '../api'; // 백엔드 연동. 아직이면 주석의 mock 참고
 import 'bootstrap/dist/css/bootstrap.min.css';
-import BottomNav from '../compoments/BottomNav';
+import BottomNav from '../components/BottomNav';
 
 export default function InputPage() {
   const [heightCm, setHeightCm] = useState('');

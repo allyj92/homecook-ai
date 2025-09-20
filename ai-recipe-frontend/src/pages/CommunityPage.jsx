@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ensureLogin } from '../lib/auth'; // ✅ 경로 수정
 import 'bootstrap/dist/css/bootstrap.min.css';
-import BottomNav from '../compoments/BottomNav';
+import BottomNav from '../components/BottomNav';
 import '../index.css';
 
 function AdSlot({ id, height = 250, label = 'AD', sticky = false }) {

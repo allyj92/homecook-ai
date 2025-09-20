@@ -2,7 +2,7 @@
 import { useNavigate } from 'react-router-dom';
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import '../index.css';
-import BottomNav from '../compoments/BottomNav';
+import BottomNav from '../components/BottomNav';
 import { ensureLogin } from '../auth/ensureLogin';
 
 const BRAND = {

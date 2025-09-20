@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import "bootstrap/dist/css/bootstrap.min.css";
-import BottomNav from "../compoments/BottomNav";
+import BottomNav from "../components/BottomNav";
 import { ensureLogin, fetchMe } from "../lib/auth";
 import { createPost, updatePost, getCommunityPost } from "../api/community";
 import { uploadFile, ytThumb } from "../lib/upload";

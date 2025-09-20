@@ -1,6 +1,6 @@
 // src/layouts/Layout.jsx
 import { Outlet, Link } from 'react-router-dom';
-import Header from '../compoments/Header';
+import Header from '../components/Header';
 import { apiFetch, buildUrl } from '../lib/http';
 import { useState, useEffect } from 'react';
 

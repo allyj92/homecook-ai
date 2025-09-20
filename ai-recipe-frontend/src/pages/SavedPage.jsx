@@ -1,7 +1,7 @@
 // src/pages/SavedPage.jsx
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import BottomNav from '../compoments/BottomNav';
+import BottomNav from '../components/BottomNav';
 import { listFavoritesPage, removeFavorite } from '../lib/wishlist';
 
 const PAGE_SIZE = 12; // 1페이지 아이템 수
