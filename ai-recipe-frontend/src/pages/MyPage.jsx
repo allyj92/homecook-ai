@@ -7,6 +7,24 @@ import { listFavoritesSimple, removeFavorite } from '../lib/wishlist';
 import { getMyPosts } from '../api/community';
 import { listActivities, subscribeActivity, formatActivityText, logActivity } from '../lib/activity';
 
+// 레거시 키 제거 유틸 추가
+function purgeLegacyBookmarkKeys() {
+  try {
+    const del = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k) continue;
+      if (k.startsWith('postBookmark:') || k.startsWith('postBookmarkData:')) {
+        // uid 네임스페이스 없는 레거시 키만 제거
+        const parts = k.split(':'); // ["postBookmark", maybe "<uid>", maybe "<id>"]
+        if (parts.length === 2) del.push(k); // 레거시 형태만 삭제
+      }
+    }
+    del.forEach(k => localStorage.removeItem(k));
+  } catch {}
+}
+
+
 /* ─────────────────────────────────────────
    URL 정규화 (혼합콘텐츠/포트 이슈 방지)
 ────────────────────────────────────────── */
@@ -435,6 +453,10 @@ export default function MyPage() {
     const off = subscribeActivity(pull);
     return off;
   }, []);
+
+  useEffect(() => {
+  purgeLegacyBookmarkKeys();  // ✅ 레거시 키 싹 정리
+}, []);
 
   // 로딩 스켈레톤 (me)
   if (meLoading) {
