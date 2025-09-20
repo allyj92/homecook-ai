@@ -128,6 +128,7 @@ export default function PostDetailPage() {
       localStorage.getItem('authProvider') ?? null;
 
     const subject =
+      u.pid ??
       u.sub ??
       u.providerUserId ??
       u.provider_id ??
