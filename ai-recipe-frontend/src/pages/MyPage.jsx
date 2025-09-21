@@ -529,7 +529,7 @@ export default function MyPage() {
             {!wishLoading && !wishErr && wishlist.length === 0 && (
               <div className="p-4 text-center text-secondary">
                 아직 저장한 레시피가 없어요.
-                <div className="mt-2"><Link className="btn btn-sm btn成功" to="/input">레시피 받으러 가기</Link></div>
+                <div className="mt-2"><Link className="btn btn-sm btn-success" to="/input">레시피 받으러 가기</Link></div>
               </div>
             )}
 
