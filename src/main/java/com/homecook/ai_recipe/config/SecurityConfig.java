@@ -1,7 +1,7 @@
 // src/main/java/com/homecook/ai_recipe/config/SecurityConfig.java
 package com.homecook.ai_recipe.config;
 
-import com.homecook.ai_recipe.service.CustomOAuth2UserService; // ← 실제 클래스 패키지에 맞게! (service가 아니라 auth)
+import com.homecook.ai_recipe.service.CustomOAuth2UserService; // 실제 패키지에 맞추세요 (예: com.homecook.ai_recipe.auth.*)
 import com.homecook.ai_recipe.service.CustomOidcUserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -13,12 +13,19 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.client.endpoint.DefaultAuthorizationCodeTokenResponseClient;
+import org.springframework.security.oauth2.client.endpoint.OAuth2AccessTokenResponseClient;
+import org.springframework.security.oauth2.client.endpoint.OAuth2AuthorizationCodeGrantRequest;
+import org.springframework.security.oauth2.core.OAuth2AuthorizationException;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
-import org.springframework.web.cors.*;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
 
@@ -28,10 +35,7 @@ import java.util.List;
 public class SecurityConfig {
 
     private final CustomOAuth2UserService customOAuth2UserService; // 네이버/카카오
-    private final CustomOidcUserService customOidcUserService;   // ✅ 구글(OIDC)
-    // ✅ 구글(OIDC)
-
-
+    private final CustomOidcUserService customOidcUserService;     // 구글(OIDC)
 
     @Bean
     public SecurityContextRepository securityContextRepository() {
@@ -43,6 +47,30 @@ public class SecurityConfig {
     @Value("${app.front-base:https://recipfree.com}")
     private String frontBase;
 
+    /** 429(레이트리밋)일 때만 짧게 재시도하는 토큰 클라이언트 */
+    @Bean
+    public OAuth2AccessTokenResponseClient<OAuth2AuthorizationCodeGrantRequest> retryingTokenClient() {
+        DefaultAuthorizationCodeTokenResponseClient delegate = new DefaultAuthorizationCodeTokenResponseClient();
+        return request -> {
+            int attempts = 0;
+            while (true) {
+                try {
+                    return delegate.getTokenResponse(request);
+                } catch (OAuth2AuthorizationException ex) {
+                    boolean is429 =
+                            ex.getCause() instanceof HttpClientErrorException.TooManyRequests ||
+                                    (ex.getError() != null &&
+                                            String.valueOf(ex.getError().getDescription()).toLowerCase().contains("rate limit"));
+                    if (is429 && ++attempts < 3) {
+                        try { Thread.sleep(250L * attempts); } catch (InterruptedException ignored) {}
+                        continue; // 재시도
+                    }
+                    throw ex;
+                }
+            }
+        };
+    }
+
     @Bean
     SecurityFilterChain security(HttpSecurity http) throws Exception {
         http
@@ -52,24 +80,28 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
-                        .requestMatchers("/", "/favicon.ico",
-                                "/assets/**", "/static/**", "/css/**", "/js/**", "/images/**").permitAll()
+                        .requestMatchers(
+                                "/", "/favicon.ico",
+                                "/assets/**", "/static/**", "/css/**", "/js/**", "/images/**"
+                        ).permitAll()
 
                         .requestMatchers("/oauth2/**", "/login/oauth2/code/**").permitAll()
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/api/me/**").authenticated()
+
                         .requestMatchers(HttpMethod.GET,
-                                "/api/community/posts", "/api/community/posts/*").permitAll()
+                                "/api/community/posts", "/api/community/posts/*"
+                        ).permitAll()
 
                         .requestMatchers("/api/community/**").authenticated()
 
-                        .requestMatchers("/files/**").permitAll()     // 저장된 이미지 접근 허용
-                        .requestMatchers("/api/upload").authenticated()// 업로드는 로그인만
+                        .requestMatchers("/files/**").permitAll()
+                        .requestMatchers("/api/upload").authenticated()
 
                         .anyRequest().permitAll()
                 )
 
-                // ★ /api/** 에서는 로그인 페이지 리다이렉트 금지하고 401만 내려주기
+                // /api/** 에서는 로그인 리다이렉트 대신 401만 반환
                 .exceptionHandling(ex -> ex
                         .defaultAuthenticationEntryPointFor(
                                 new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
@@ -80,12 +112,13 @@ public class SecurityConfig {
                 .oauth2Login(oauth -> oauth
                         .userInfoEndpoint(ui -> ui
                                 .userService(customOAuth2UserService)
-                                .oidcUserService(customOidcUserService) // ✅ OIDC
+                                .oidcUserService(customOidcUserService)
                         )
-
+                        // ★ 토큰 교환 단계에 재시도 클라이언트 적용
+                        .tokenEndpoint(t -> t.accessTokenResponseClient(retryingTokenClient()))
                         .successHandler((req, res, auth) -> {
                             System.out.println("[OAUTH] success: " + auth.getName());
-                            res.sendRedirect(frontBase + "/"); // 프론트가 세션 쿠키로 auth/me 호출
+                            res.sendRedirect(frontBase + "/"); // 프론트가 /api/auth/me 호출
                         })
                         .failureHandler((req, res, ex) -> {
                             ex.printStackTrace();
@@ -106,7 +139,6 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         var cfg = new CorsConfiguration();
-        // 와일드카드 & 명시 오리진 병행
         cfg.setAllowedOriginPatterns(List.of("https://*.recipfree.com"));
         cfg.setAllowedOrigins(List.of(
                 "http://localhost:5173", "http://127.0.0.1:5173",

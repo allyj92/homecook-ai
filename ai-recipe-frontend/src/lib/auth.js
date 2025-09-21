@@ -13,6 +13,22 @@ export const AUTH_BASE = import.meta.env?.VITE_AUTH_BASE || window.location.orig
 
 const LS_KEY = 'authUser';
 
+
+let loginInFlight = false;
+
+export function startKakaoLogin(backTo = "/") {
+  if (loginInFlight) return;
+  loginInFlight = true;
+  try {
+    // 로그인 시작은 “리다이렉트 한 번”으로 끝나야 함
+    const url = `/oauth2/authorization/kakao?backTo=${encodeURIComponent(backTo)}`;
+    window.location.assign(url);
+  } finally {
+    // 혹시 실패/취소 대비 안전타임아웃
+    setTimeout(() => { loginInFlight = false; }, 8000);
+  }
+}
+
 /* ───────── localStorage 헬퍼 ───────── */
 function readCache() {
   try {
