@@ -1,5 +1,5 @@
 // src/pages/PostDetailPage.jsx
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import "bootstrap/dist/css/bootstrap.min.css";
 import BottomNav from "../components/BottomNav";
@@ -23,10 +23,8 @@ function normalizePost(raw) {
     category: d.category ?? d.type ?? "",
     content: d.content ?? d.body ?? "",
     tags: Array.isArray(d.tags) ? d.tags : (Array.isArray(d.tagList) ? d.tagList : []),
-
     authorId: d.authorId ?? d.userId ?? d.author_id ?? d.user_id ?? null,
     authorEmail: d.authorEmail ?? d.author_email ?? d.userEmail ?? d.user_email ?? null,
-
     createdAt: d.createdAt ?? d.created_at ?? null,
     updatedAt: d.updatedAt ?? d.updated_at ?? null,
     repImageUrl: d.repImageUrl ?? d.rep_image_url ?? null,
@@ -46,32 +44,57 @@ function Meta({ author, createdAt }) {
   );
 }
 
-/* ─────────────── 키 헬퍼 ─────────────── */
-const bmKey = (uid, id) => `postBookmark:${uid}:${id}`;
-const bmDataKey = (uid, id) => `postBookmarkData:${uid}:${id}`;
-const likeKey = (uid, id) => `postLike:${uid}:${id}`;
+/* ─────────────── 키 헬퍼 (provider까지 포함) ─────────────── */
+const likeKey = (uid, provider, id) => `postLike:${uid}:${provider}:${id}`;
+const bmKey = (uid, provider, id) => `postBookmark:${uid}:${provider}:${id}`;
+const bmDataKey = (uid, provider, id) => `postBookmarkData:${uid}:${provider}:${id}`;
 
-/* 레거시 키: postBookmark:<id>, postBookmarkData:<id>  */
-function migrateLegacyForThisPost(uid, post) {
-  if (!uid || !post?.id) return;
-  const legacyK = `postBookmark:${post.id}`;
-  const legacyDK = `postBookmarkData:${post.id}`;
+/* 레거시 키 흡수
+   - postBookmark:<id>, postBookmarkData:<id>
+   - postBookmark:<uid>:<id>, postBookmarkData:<uid>:<id>
+   - postLike:<uid>:<id>
+   을 모두 post*:<uid>:<provider>:<id> 로 이전 */
+function migrateLegacyForThisPost(uid, provider, postId) {
+  if (!uid || !provider || !postId) return;
   try {
-    const v = localStorage.getItem(legacyK);
-    const data = localStorage.getItem(legacyDK);
-    if (v !== null) {
-      localStorage.setItem(bmKey(uid, post.id), v);
-      localStorage.removeItem(legacyK);
+    // 1) 완전 레거시(아이디만)
+    const legacyBM = `postBookmark:${postId}`;
+    const legacyBMD = `postBookmarkData:${postId}`;
+    const v1 = localStorage.getItem(legacyBM);
+    const d1 = localStorage.getItem(legacyBMD);
+    if (v1 !== null) {
+      localStorage.setItem(bmKey(uid, provider, postId), v1);
+      localStorage.removeItem(legacyBM);
     }
-    if (data) {
-      localStorage.setItem(bmDataKey(uid, post.id), data);
-      localStorage.removeItem(legacyDK);
+    if (d1) {
+      localStorage.setItem(bmDataKey(uid, provider, postId), d1);
+      localStorage.removeItem(legacyBMD);
+    }
+
+    // 2) uid만 있는 중간 버전
+    const midBM = `postBookmark:${uid}:${postId}`;
+    const midBMD = `postBookmarkData:${uid}:${postId}`;
+    const midLike = `postLike:${uid}:${postId}`;
+    const v2 = localStorage.getItem(midBM);
+    const d2 = localStorage.getItem(midBMD);
+    const l2 = localStorage.getItem(midLike);
+    if (v2 !== null) {
+      localStorage.setItem(bmKey(uid, provider, postId), v2);
+      localStorage.removeItem(midBM);
+    }
+    if (d2) {
+      localStorage.setItem(bmDataKey(uid, provider, postId), d2);
+      localStorage.removeItem(midBMD);
+    }
+    if (l2 !== null) {
+      localStorage.setItem(likeKey(uid, provider, postId), l2);
+      localStorage.removeItem(midLike);
     }
   } catch {}
 }
 
 export default function PostDetailPage() {
-  console.log("PostDetail LOADED v-2025-09-21-ns"); // namespaced
+  console.log("PostDetail LOADED v-2025-09-21-ns2");
 
   const { id } = useParams();
   const navigate = useNavigate();
@@ -79,15 +102,25 @@ export default function PostDetailPage() {
 
   /** 로그인 상태 */
   const [auth, setAuth] = useState({ loading: true, user: null });
+  const [uid, setUid] = useState(null);
+  const [provider, setProvider] = useState(null);
+
   const syncAuth = useCallback(async () => {
     const u = await fetchMe();
     setAuth({ loading: false, user: u ?? null });
+    setUid(u?.uid ?? null);
+    setProvider(u?.provider ?? null);
   }, []);
+
   useEffect(() => {
     let mounted = true;
     (async () => {
       const u = await fetchMe();
-      if (mounted) setAuth({ loading: false, user: u ?? null });
+      if (mounted) {
+        setAuth({ loading: false, user: u ?? null });
+        setUid(u?.uid ?? null);
+        setProvider(u?.provider ?? null);
+      }
     })();
 
     const onFocus = () => syncAuth();
@@ -107,8 +140,6 @@ export default function PostDetailPage() {
       window.removeEventListener("auth:changed", onAuthChanged);
     };
   }, [syncAuth]);
-
-  const uid = useMemo(() => auth.user?.uid ?? null, [auth.user]);
 
   /** 게시글 */
   const [post, setPost] = useState(null);
@@ -133,19 +164,18 @@ export default function PostDetailPage() {
     return () => { alive = false; };
   }, [id]);
 
-  /** 좋아요/북마크 (UI 토글 + localStorage 보존: uid 네임스페이스) */
+  /** 좋아요/북마크 (provider까지 포함한 키로 저장) */
   const [liked, setLiked] = useState(false);
   const [bookmarked, setBookmarked] = useState(false);
 
-  // uid/post 준비되면 현재 상태 반영 + 레거시가 있으면 현재 uid로 이동
   useEffect(() => {
-    if (!post?.id || !uid) return;
+    if (!post?.id || !uid || !provider) return;
     try {
-      migrateLegacyForThisPost(uid, post);
-      setLiked(localStorage.getItem(likeKey(uid, post.id)) === "1");
-      setBookmarked(localStorage.getItem(bmKey(uid, post.id)) === "1");
+      migrateLegacyForThisPost(uid, provider, post.id);
+      setLiked(localStorage.getItem(likeKey(uid, provider, post.id)) === "1");
+      setBookmarked(localStorage.getItem(bmKey(uid, provider, post.id)) === "1");
     } catch {}
-  }, [post?.id, uid]);
+  }, [post?.id, uid, provider]);
 
   const requireAuth = useCallback(async (fn) => {
     if (auth.user) return fn?.();
@@ -159,10 +189,10 @@ export default function PostDetailPage() {
 
   const onToggleLike = () =>
     requireAuth(() => {
-      if (!uid || !post?.id) return;
+      if (!uid || !provider || !post?.id) return;
       setLiked((prev) => {
         const next = !prev;
-        try { localStorage.setItem(likeKey(uid, post.id), next ? "1" : "0"); } catch {}
+        try { localStorage.setItem(likeKey(uid, provider, post.id), next ? "1" : "0"); } catch {}
         logActivity("post_like", { postId: post.id, title: post.title, on: next });
         return next;
       });
@@ -170,12 +200,12 @@ export default function PostDetailPage() {
 
   const onToggleBookmark = () =>
     requireAuth(() => {
-      if (!uid || !post?.id) return;
+      if (!uid || !provider || !post?.id) return;
       setBookmarked((prev) => {
         const next = !prev;
         try {
-          localStorage.setItem(bmKey(uid, post.id), next ? "1" : "0");
-          const dataK = bmDataKey(uid, post.id);
+          localStorage.setItem(bmKey(uid, provider, post.id), next ? "1" : "0");
+          const dataK = bmDataKey(uid, provider, post.id);
           if (next) {
             const payload = {
               id: post.id,
@@ -349,7 +379,7 @@ export default function PostDetailPage() {
         </div>
       </article>
 
-      <div className="text-center text-secondary small mt-2">PostDetail v-2025-09-21-ns</div>
+      <div className="text-center text-secondary small mt-2">PostDetail v-2025-09-21-ns2</div>
 
       <footer className="text-center text-secondary mt-4">
         <div className="small">* 커뮤니티 내 일부 링크는 제휴/광고일 수 있으며, 구매 시 수수료를 받을 수 있습니다.</div>

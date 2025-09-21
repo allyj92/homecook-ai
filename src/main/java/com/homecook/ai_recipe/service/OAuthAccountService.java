@@ -28,38 +28,31 @@ public class OAuthAccountService {
 
     private final SecureRandom rnd = new SecureRandom();
 
-    /** provider+providerId로 바로 로그인 가능한 기존 연결 찾기 */
+    /** provider + providerId 로 기존 연결 조회 */
     @Transactional(readOnly = true)
     public Optional<UserAccount> findByProvider(String provider, String providerId) {
         return uapRepo.findByProviderAndProviderId(provider, providerId)
                 .map(UserAuthProvider::getUser);
     }
 
-    /** (필요 시) JIT 가입: 사용자 + provider 연결 생성 */
+    /**
+     * JIT 가입/연결: (provider, providerId) 기준으로만 매핑
+     * - 같은 이메일이어도 다른 provider면 절대 병합하지 않음
+     */
     @Transactional
-    public UserAccount createUserAndLink(String email, String name, String avatar,
-                                         String provider, String providerId,
+    public UserAccount createUserAndLink(String email,
+                                         String name,
+                                         String avatar,
+                                         String provider,
+                                         String providerId,
                                          boolean emailVerifiedFromIdP) {
-        // 1. 이메일 중복 체크
-        Optional<UserAccount> existing = (email == null || email.isBlank())
-                ? Optional.empty()
-                : userRepo.findByEmail(email);
 
-        if (existing.isPresent()) {
-            UserAccount u = existing.get();
-            // provider 연결이 이미 없으면 추가
-            if (!uapRepo.existsByUserIdAndProvider(u.getId(), provider)) {
-                UserAuthProvider link = UserAuthProvider.builder()
-                        .user(u)
-                        .provider(provider)
-                        .providerId(providerId)
-                        .build();
-                uapRepo.save(link);
-            }
-            return u; // 기존 유저 반환
-        }
+        // 0) 이미 같은 (provider, providerId)로 연결되어 있으면 그 사용자 반환
+        var mapped = uapRepo.findByProviderAndProviderId(provider, providerId)
+                .map(UserAuthProvider::getUser);
+        if (mapped.isPresent()) return mapped.get();
 
-        // 2. 없으면 새 계정 생성
+        // 1) 새 사용자 생성 (이메일 동일해도 '분리 계정' 원칙)
         String dummyHash = BCrypt.hashpw(
                 Base64.getUrlEncoder().withoutPadding()
                         .encodeToString(rnd.generateSeed(24)),
@@ -71,11 +64,12 @@ public class OAuthAccountService {
         u.setName((name != null && !name.isBlank()) ? name : (email != null ? email : "User"));
         u.setAvatar(avatar);
         u.setEmailVerified(emailVerifiedFromIdP);
-        u.setPasswordHash(dummyHash); // null 방지용 임시 패스워드
+        u.setPasswordHash(dummyHash);
         u.setCreatedAt(LocalDateTime.now());
         u.setUpdatedAt(LocalDateTime.now());
         userRepo.save(u);
 
+        // 2) (provider, providerId) 연결 생성
         UserAuthProvider link = UserAuthProvider.builder()
                 .user(u)
                 .provider(provider)
@@ -104,7 +98,7 @@ public class OAuthAccountService {
         return token;
     }
 
-    /** 토큰 소비: 실제로 연결 생성 */
+    /** 토큰 소비: 실제 연결 생성 (중복 안전) */
     @Transactional
     public Optional<UserAccount> consumeLinkToken(String token) {
         var opt = linkRepo.findByToken(token);
@@ -120,8 +114,8 @@ public class OAuthAccountService {
             linkRepo.delete(t);
             return Optional.empty();
         }
-        // 이미 동일 provider로 연결돼 있지 않다면 생성
-        if (!uapRepo.existsByUserIdAndProvider(user.getId(), t.getProvider())) {
+        // 이미 정확히 같은 (provider, providerId)로 있으면 스킵
+        if (uapRepo.findByProviderAndProviderId(t.getProvider(), t.getProviderId()).isEmpty()) {
             UserAuthProvider link = UserAuthProvider.builder()
                     .user(user)
                     .provider(t.getProvider())
@@ -133,15 +127,12 @@ public class OAuthAccountService {
         return Optional.of(user);
     }
 
-    /** ★ 컨트롤러에서 호출: 없으면 링크 생성 (중복 안전) */
+    /** 컨트롤러 등에서 안전하게 링크만 추가하고 싶을 때 */
     @Transactional
     public void createLinkIfAbsent(String provider, String providerId, Long userId) {
         if (provider == null || providerId == null || userId == null) return;
 
-        // 동일 provider로 이미 연결돼 있으면 스킵
-        if (uapRepo.existsByUserIdAndProvider(userId, provider)) return;
-
-        // provider+providerId 쌍으로도 이미 존재하면 스킵
+        // 같은 (provider, providerId)존재하면 끝
         if (uapRepo.findByProviderAndProviderId(provider, providerId).isPresent()) return;
 
         var user = userRepo.findById(userId).orElse(null);
