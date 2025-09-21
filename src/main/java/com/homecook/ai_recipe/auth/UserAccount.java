@@ -20,7 +20,7 @@ public class UserAccount {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true)   // 이메일 유니크
+    @Column(name="email")  // 이메일 유니크
     private String email;
 
     @Column(name = "email_verified", nullable = false)

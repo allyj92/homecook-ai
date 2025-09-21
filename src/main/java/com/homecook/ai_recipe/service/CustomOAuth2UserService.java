@@ -1,8 +1,7 @@
-// src/main/java/com/homecook/ai_recipe/auth/CustomOAuth2UserService.java
+// src/main/java/com/homecook/ai_recipe/service/CustomOAuth2UserService.java
 package com.homecook.ai_recipe.service;
 
 import com.homecook.ai_recipe.auth.UserAccount;
-import com.homecook.ai_recipe.service.OAuthAccountService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -38,7 +37,6 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         String email   = firstNonBlank(str(attrs.get("email")),   str(raw.getAttribute("email")));
         String name    = firstNonBlank(str(attrs.get("name")),    str(raw.getAttribute("name")));
         String picture = firstNonBlank(str(attrs.get("picture")), str(raw.getAttribute("picture")));
-
         boolean emailVerified =
                 Boolean.TRUE.equals(attrs.get("email_verified")) ||
                         Boolean.TRUE.equals(raw.getAttribute("email_verified"));
@@ -49,13 +47,13 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         if (linked.isPresent()) {
             user = linked.get();
         } else {
+            // 일부 공급자는 email 미제공 가능 → 정책상 이메일 필수면 여기서 에러
             if (isBlank(email)) {
                 throw new OAuth2AuthenticationException(
                         new OAuth2Error("unauthenticated_no_email"),
                         "Email not provided by " + provider
                 );
             }
-            // 동일 이메일이어도 다른 provider는 별도 사용자로 생성/링크한다는 정책 전제
             user = oauthService.createUserAndLink(email, name, picture, provider, pid, emailVerified);
         }
 
@@ -70,7 +68,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         Set<GrantedAuthority> auths = new HashSet<>(raw.getAuthorities());
         auths.add(new SimpleGrantedAuthority("ROLE_USER"));
 
-        // 5) nameAttributeKey (프로바이더 설정 우선)
+        // 5) nameAttributeKey
         String nameAttributeKey = req.getClientRegistration()
                 .getProviderDetails()
                 .getUserInfoEndpoint()
@@ -91,7 +89,6 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             case "google" -> {
                 // OIDC 표준: sub/email/name/picture
                 pid = str(a.get("sub"));
-                // 추가 보완은 필요 시 여기에
             }
             case "naver" -> {
                 // 네이버는 response에 중첩
@@ -100,10 +97,9 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                     a.putAll((Map<String, Object>) r);
                 }
                 pid = str(a.get("id"));
-                // email/name/picture 표준화
-                if (a.get("email") == null)   a.put("email",   a.get("email")); // 이미 복사됨
-                if (a.get("name") == null)    a.put("name",    firstNonBlank(str(a.get("name")), str(a.get("nickname"))));
-                if (a.get("picture") == null) a.put("picture", a.get("profile_image")); // naver: profile_image
+                if (a.get("email") == null)   a.put("email", a.get("email")); // 이미 위 putAll로 평탄화됨
+                if (a.get("name") == null)    a.put("name", firstNonBlank(str(a.get("name")), str(a.get("nickname"))));
+                if (a.get("picture") == null) a.put("picture", a.get("profile_image"));
             }
             case "kakao" -> {
                 // kakao: id 최상위, 상세는 kakao_account.profile.*
@@ -123,13 +119,11 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                 }
             }
             default -> {
-                // 기타 공급자 대비: id 또는 sub 우선
                 if (pid == null) pid = firstNonBlank(str(a.get("id")), str(a.get("sub")));
             }
         }
 
         if (pid == null || pid.isBlank()) {
-            // pid는 필수
             throw new OAuth2AuthenticationException(new OAuth2Error("invalid_provider_id"),
                     "Provider id (pid) not found for " + provider);
         }
@@ -142,22 +136,10 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         String s = String.valueOf(o).trim();
         return s.isEmpty() ? null : s;
     }
-
-    private static boolean isBlank(String s) {
-        return s == null || s.isBlank();
-    }
-
-    @SafeVarargs
-    private static <T> T firstNonNull(T... vals) {
-        for (T v : vals) if (v != null) return v;
-        return null;
-    }
-
+    private static boolean isBlank(String s) { return s == null || s.isBlank(); }
     private static String firstNonBlank(String... xs) {
         if (xs == null) return null;
-        for (String x : xs) {
-            if (!isBlank(x)) return x;
-        }
+        for (String x : xs) if (!isBlank(x)) return x;
         return null;
     }
 }
