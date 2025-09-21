@@ -131,6 +131,7 @@ public class MyPageController {
     /** 즐겨찾기 목록 */
     @GetMapping("/favorites")
     public ResponseEntity<List<FavoriteDto>> favorites(
+            @RequestParam(required = false) String provider,   // ★ 추가
             HttpSession session,
             @AuthenticationPrincipal OAuth2User ou,
             OAuth2AuthenticationToken authToken
@@ -138,16 +139,16 @@ public class MyPageController {
         log.debug("[FAV] /favorites enter; principal? {}", (ou != null));
         try {
             var me = requireUser(session, ou, authToken);
-            log.debug("[FAV] /favorites me.id={}", me.getId());
+            log.debug("[FAV] /favorites me.id={} providerParam={}", me.getId(), provider);
 
-            var rows = favoriteService.list(me.getId());
-            log.debug("[FAV] /favorites service returned {} rows", rows != null ? rows.size() : -1);
+            var rows = (provider == null || provider.isBlank())
+                    ? favoriteService.list(me.getId())               // 현재 로그인 provider 자동 사용
+                    : favoriteService.list(me.getId(), provider);    // 명시적 provider 사용
 
             var dto = rows.stream()
                     .map(f -> new FavoriteDto(
                             f.getId(), f.getRecipeId(), f.getTitle(), f.getSummary(),
-                            f.getImage(), f.getMeta(),
-                            toIso(f.getCreatedAt())
+                            f.getImage(), f.getMeta(), toIso(f.getCreatedAt())
                     ))
                     .toList();
 

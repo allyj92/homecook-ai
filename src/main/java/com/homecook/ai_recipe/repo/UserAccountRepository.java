@@ -1,21 +1,30 @@
+// src/main/java/com/homecook/ai_recipe/repo/UserAccountRepository.java
 package com.homecook.ai_recipe.repo;
 
 import com.homecook.ai_recipe.auth.UserAccount;
-import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.*;
+import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
 
 public interface UserAccountRepository extends JpaRepository<UserAccount, Long> {
-
-    // === 기존/호환 메서드들 ===
-    Optional<UserAccount> findByEmail(String email);
-
-    // 대소문자 무시 검색 (소셜 이메일 매칭 폴백용)
     Optional<UserAccount> findByEmailIgnoreCase(String email);
-
-    // LocalAuthService에서 호출 (정확히 이 시그니처 필요)
-    boolean existsByEmail(String email);
-
-    // 선택: 대소문자 무시 존재여부(다른 곳에서 쓸 수도 있어 같이 둡니다)
     boolean existsByEmailIgnoreCase(String email);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+        INSERT INTO user_account (email, name, avatar, email_verified, created_at, updated_at)
+        VALUES (:email, :name, :avatar, :emailVerified, now(), now())
+        ON CONFLICT ((lower(email)))
+        DO UPDATE SET
+          name = COALESCE(EXCLUDED.name, user_account.name),
+          avatar = COALESCE(EXCLUDED.avatar, user_account.avatar),
+          email_verified = user_account.email_verified OR EXCLUDED.email_verified,
+          updated_at = now()
+        RETURNING id;
+        """, nativeQuery = true)
+    Long upsertUserAndReturnId(@Param("email") String email,
+                               @Param("name") String name,
+                               @Param("avatar") String avatar,
+                               @Param("emailVerified") boolean emailVerified);
 }

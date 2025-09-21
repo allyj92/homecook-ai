@@ -1,3 +1,4 @@
+// src/main/java/com/homecook/ai_recipe/service/PasswordResetService.java
 package com.homecook.ai_recipe.service;
 
 import com.homecook.ai_recipe.auth.PasswordResetToken;
@@ -14,6 +15,7 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Base64;
+import java.util.Locale;
 import java.util.Optional;
 
 @Service
@@ -33,9 +35,14 @@ public class PasswordResetService {
     @Value("${app.reset-token.min-request-interval-seconds:60}")
     private long minIntervalSeconds;
 
+    private static String norm(String email) {
+        return email == null ? "" : email.trim().toLowerCase(Locale.ROOT);
+    }
+
     /** 컨트롤러에서 사용 가능한 헬퍼(요청자 확인용) */
     public Optional<UserAccount> findUserByEmail(String email) {
-        return userRepo.findByEmail(email);
+        String e = norm(email);
+        return userRepo.findByEmailIgnoreCase(e); // <-- 변경
     }
 
     /** 직전 요청 이후 일정 시간 지나야 재요청 허용 */
@@ -49,9 +56,9 @@ public class PasswordResetService {
     /** 토큰 발급 + 저장 (문자열 반환) */
     @Transactional
     public String issueToken(String email) {
-        UserAccount user = userRepo.findByEmail(email).orElseThrow(() ->
-                new IllegalArgumentException("해당 이메일의 사용자가 없습니다.")
-        );
+        String e = norm(email);
+        UserAccount user = userRepo.findByEmailIgnoreCase(e) // <-- 변경
+                .orElseThrow(() -> new IllegalArgumentException("해당 이메일의 사용자가 없습니다."));
 
         if (!canRequestNow(user.getId())) {
             throw new IllegalStateException("요청이 너무 자주 이루어집니다. 잠시 후 다시 시도하세요.");
@@ -87,7 +94,8 @@ public class PasswordResetService {
         // 비밀번호 해시 저장
         String hash = BCrypt.hashpw(newPlainPassword, BCrypt.gensalt(12));
         user.setPasswordHash(hash);
-        userRepo.save(user);
+        // 트랜잭션 내 Dirty Checking으로 업데이트 반영됨 (save 생략 가능)
+        // userRepo.save(user);
 
         // 토큰 사용 처리
         prt.setUsed(true);

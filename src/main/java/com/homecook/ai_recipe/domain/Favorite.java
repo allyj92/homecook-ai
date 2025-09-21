@@ -35,6 +35,9 @@ public class Favorite {
     @Column(name = "meta", length = 4000)
     private String meta;
 
+    @Column(name = "provider", length = 20)   // ★ 추가
+    private String provider;                  // "naver" | "kakao" | "google" | "common"
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
