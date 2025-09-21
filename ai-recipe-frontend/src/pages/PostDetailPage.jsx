@@ -1,5 +1,5 @@
 // src/pages/PostDetailPage.jsx
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import "bootstrap/dist/css/bootstrap.min.css";
 import BottomNav from "../components/BottomNav";
@@ -7,19 +7,26 @@ import { ensureLogin, fetchMe } from "../lib/auth";
 import { getCommunityPost } from "../api/community";
 import { logActivity } from "../lib/activity";
 
+/** API 응답을 화면용으로 정규화 */
 function normalizePost(raw) {
   if (!raw) return null;
   let d = raw;
-  if (typeof d === "string") { try { d = JSON.parse(d); } catch {} }
-  if (d && d.bodyPreview && !d.id) { try { d = JSON.parse(d.bodyPreview); } catch {} }
+  if (typeof d === "string") {
+    try { d = JSON.parse(d); } catch {}
+  }
+  if (d && d.bodyPreview && !d.id) {
+    try { d = JSON.parse(d.bodyPreview); } catch {}
+  }
   return {
     id: d.id ?? d.postId ?? null,
     title: d.title ?? d.subject ?? "",
     category: d.category ?? d.type ?? "",
     content: d.content ?? d.body ?? "",
     tags: Array.isArray(d.tags) ? d.tags : (Array.isArray(d.tagList) ? d.tagList : []),
+
     authorId: d.authorId ?? d.userId ?? d.author_id ?? d.user_id ?? null,
     authorEmail: d.authorEmail ?? d.author_email ?? d.userEmail ?? d.user_email ?? null,
+
     createdAt: d.createdAt ?? d.created_at ?? null,
     updatedAt: d.updatedAt ?? d.updated_at ?? null,
     repImageUrl: d.repImageUrl ?? d.rep_image_url ?? null,
@@ -39,16 +46,38 @@ function Meta({ author, createdAt }) {
   );
 }
 
-function isNumericId(id) {
-  return typeof id === "string" && /^[0-9]{1,19}$/.test(id);
+/* ─────────────── 키 헬퍼 ─────────────── */
+const bmKey = (uid, id) => `postBookmark:${uid}:${id}`;
+const bmDataKey = (uid, id) => `postBookmarkData:${uid}:${id}`;
+const likeKey = (uid, id) => `postLike:${uid}:${id}`;
+
+/* 레거시 키: postBookmark:<id>, postBookmarkData:<id>  */
+function migrateLegacyForThisPost(uid, post) {
+  if (!uid || !post?.id) return;
+  const legacyK = `postBookmark:${post.id}`;
+  const legacyDK = `postBookmarkData:${post.id}`;
+  try {
+    const v = localStorage.getItem(legacyK);
+    const data = localStorage.getItem(legacyDK);
+    if (v !== null) {
+      localStorage.setItem(bmKey(uid, post.id), v);
+      localStorage.removeItem(legacyK);
+    }
+    if (data) {
+      localStorage.setItem(bmDataKey(uid, post.id), data);
+      localStorage.removeItem(legacyDK);
+    }
+  } catch {}
 }
 
 export default function PostDetailPage() {
-  console.log("PostDetail LOADED v-2025-09-21");
+  console.log("PostDetail LOADED v-2025-09-21-ns"); // namespaced
+
   const { id } = useParams();
   const navigate = useNavigate();
   const loc = useLocation();
 
+  /** 로그인 상태 */
   const [auth, setAuth] = useState({ loading: true, user: null });
   const syncAuth = useCallback(async () => {
     const u = await fetchMe();
@@ -60,6 +89,7 @@ export default function PostDetailPage() {
       const u = await fetchMe();
       if (mounted) setAuth({ loading: false, user: u ?? null });
     })();
+
     const onFocus = () => syncAuth();
     const onVisible = () => { if (document.visibilityState === "visible") syncAuth(); };
     const onStorage = (e) => { if (!e || !e.key || e.key.startsWith("auth")) syncAuth(); };
@@ -78,24 +108,19 @@ export default function PostDetailPage() {
     };
   }, [syncAuth]);
 
+  const uid = useMemo(() => auth.user?.uid ?? null, [auth.user]);
+
+  /** 게시글 */
   const [post, setPost] = useState(null);
   const [loadingPost, setLoadingPost] = useState(true);
   const [err, setErr] = useState(null);
 
   useEffect(() => {
     let alive = true;
-
-    // 숫자 ID가 아니면 API 호출하지 않고 404 UX
-    if (!isNumericId(String(id))) {
-      setErr({ code: 404, message: "INVALID_ID" });
-      setLoadingPost(false);
-      return () => { alive = false; };
-    }
-
     (async () => {
       try {
         setLoadingPost(true);
-        const raw = await getCommunityPost(String(id));
+        const raw = await getCommunityPost(id);
         const norm = normalizePost(raw);
         if (alive) setPost(norm);
       } catch (e) {
@@ -108,16 +133,19 @@ export default function PostDetailPage() {
     return () => { alive = false; };
   }, [id]);
 
+  /** 좋아요/북마크 (UI 토글 + localStorage 보존: uid 네임스페이스) */
   const [liked, setLiked] = useState(false);
   const [bookmarked, setBookmarked] = useState(false);
 
+  // uid/post 준비되면 현재 상태 반영 + 레거시가 있으면 현재 uid로 이동
   useEffect(() => {
-    if (!post?.id) return;
+    if (!post?.id || !uid) return;
     try {
-      setLiked(localStorage.getItem(`postLike:${post.id}`) === "1");
-      setBookmarked(localStorage.getItem(`postBookmark:${post.id}`) === "1");
+      migrateLegacyForThisPost(uid, post);
+      setLiked(localStorage.getItem(likeKey(uid, post.id)) === "1");
+      setBookmarked(localStorage.getItem(bmKey(uid, post.id)) === "1");
     } catch {}
-  }, [post?.id]);
+  }, [post?.id, uid]);
 
   const requireAuth = useCallback(async (fn) => {
     if (auth.user) return fn?.();
@@ -131,61 +159,50 @@ export default function PostDetailPage() {
 
   const onToggleLike = () =>
     requireAuth(() => {
+      if (!uid || !post?.id) return;
       setLiked((prev) => {
         const next = !prev;
-        try { localStorage.setItem(`postLike:${post.id}`, next ? "1" : "0"); } catch {}
+        try { localStorage.setItem(likeKey(uid, post.id), next ? "1" : "0"); } catch {}
         logActivity("post_like", { postId: post.id, title: post.title, on: next });
         return next;
       });
     });
 
   const onToggleBookmark = () =>
-  requireAuth(() => {
-    setBookmarked((prev) => {
-      const next = !prev;
-      try {
-        const id = String(post.id);
-        const uid = String(auth.user?.uid ?? '');
-
-        const payload = {
-          id: post.id,
-          title: post.title,
-          category: post.category,
-          createdAt: post.createdAt || post.updatedAt || null,
-          repImageUrl: post.repImageUrl || null,
-          youtubeId: post.youtubeId || null,
-          tags: Array.isArray(post.tags) ? post.tags : [],
-        };
-
-        if (next) {
-          // 레거시(비네임스페이스)
-          localStorage.setItem(`postBookmark:${id}`, '1');
-          localStorage.setItem(`postBookmarkData:${id}`, JSON.stringify(payload));
-          // 네임스페이스(현재 로그인 uid)
-          if (uid) {
-            localStorage.setItem(`postBookmark:${uid}:${id}`, '1');
-            localStorage.setItem(`postBookmarkData:${uid}:${id}`, JSON.stringify(payload));
+    requireAuth(() => {
+      if (!uid || !post?.id) return;
+      setBookmarked((prev) => {
+        const next = !prev;
+        try {
+          localStorage.setItem(bmKey(uid, post.id), next ? "1" : "0");
+          const dataK = bmDataKey(uid, post.id);
+          if (next) {
+            const payload = {
+              id: post.id,
+              title: post.title,
+              category: post.category,
+              createdAt: post.createdAt || post.updatedAt || null,
+              repImageUrl: post.repImageUrl || null,
+              youtubeId: post.youtubeId || null,
+              tags: Array.isArray(post.tags) ? post.tags : [],
+            };
+            localStorage.setItem(dataK, JSON.stringify(payload));
+          } else {
+            localStorage.removeItem(dataK);
           }
-        } else {
-          // 레거시
-          localStorage.setItem(`postBookmark:${id}`, '0');
-          localStorage.removeItem(`postBookmarkData:${id}`);
-          // 네임스페이스
-          if (uid) {
-            localStorage.setItem(`postBookmark:${uid}:${id}`, '0');
-            localStorage.removeItem(`postBookmarkData:${uid}:${id}`);
-          }
-        }
-
-        logActivity('post_bookmark', { postId: post.id, title: post.title, on: next });
-      } catch {}
-      return next;
+          logActivity("post_bookmark", { postId: post.id, title: post.title, on: next });
+        } catch {}
+        return next;
+      });
     });
-  });
+
+  // 편집 권한
   const canEdit =
     !!auth.user?.authenticated &&
-    ((post?.authorId != null && String(post.authorId) === String(auth.user.uid)) ||
-     (!!post?.authorEmail && post.authorEmail === auth.user.email));
+    (
+      (post?.authorId != null && String(post.authorId) === String(auth.user.uid)) ||
+      (!!post?.authorEmail && post.authorEmail === auth.user.email)
+    );
 
   if (loadingPost) {
     return (
@@ -197,17 +214,6 @@ export default function PostDetailPage() {
           <p className="placeholder col-10"></p>
           <p className="placeholder col-8"></p>
         </div>
-        <BottomNav />
-      </div>
-    );
-  }
-
-  // 404/잘못된 ID UX
-  if (err && (err.code === 404 || String(err.message).includes('INVALID_ID'))) {
-    return (
-      <div className="container-xxl py-3">
-        <div className="alert alert-secondary">게시글을 찾을 수 없어요.</div>
-        <button className="btn btn-outline-secondary" onClick={() => navigate(-1)}>뒤로가기</button>
         <BottomNav />
       </div>
     );
@@ -343,7 +349,7 @@ export default function PostDetailPage() {
         </div>
       </article>
 
-      <div className="text-center text-secondary small mt-2">PostDetail v-2025-09-21</div>
+      <div className="text-center text-secondary small mt-2">PostDetail v-2025-09-21-ns</div>
 
       <footer className="text-center text-secondary mt-4">
         <div className="small">* 커뮤니티 내 일부 링크는 제휴/광고일 수 있으며, 구매 시 수수료를 받을 수 있습니다.</div>
