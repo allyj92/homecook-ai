@@ -4,15 +4,17 @@ package com.homecook.ai_recipe.controller;
 import com.homecook.ai_recipe.auth.SessionUser;
 import com.homecook.ai_recipe.auth.UserAccount;
 import com.homecook.ai_recipe.dto.FavoriteDto;
-import com.homecook.ai_recipe.service.FavoriteService;
 import com.homecook.ai_recipe.repo.UserAccountRepository;
+import com.homecook.ai_recipe.service.FavoriteService;
 import com.homecook.ai_recipe.service.OAuthAccountService;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.*;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.web.bind.annotation.*;
@@ -64,46 +66,42 @@ public class MyPageController {
         return String.valueOf(t);
     }
 
-    /** 토큰까지 받아 provider fallback을 보장하는 사용자 해석 */
-    private UserAccount requireUser(
-            HttpSession session,
-            OAuth2User ou,
-            OAuth2AuthenticationToken authToken
-    ) {
-        // 0) attributes에 uid 있으면 최우선
-        if (ou != null) {
-            Long uidAttr = toLong(ou.getAttributes().get("uid"));
-            if (uidAttr != null) {
-                return userRepo.findById(uidAttr)
+    @SuppressWarnings("unchecked")
+    private static Object nested(Map<String,Object> map, String k1, String k2) {
+        if (map == null) return null;
+        Object a = map.get(k1);
+        if (!(a instanceof Map)) return null;
+        return ((Map<String,Object>) a).get(k2);
+    }
+
+    /** 로컬/소셜 공통으로 현재 사용자 해석 */
+    private UserAccount requireUser(Authentication auth, HttpSession session) {
+        // 1) OAuth2 로그인 (google/naver/kakao)
+        if (auth instanceof OAuth2AuthenticationToken token) {
+            String provider = token.getAuthorizedClientRegistrationId(); // "google"/"naver"/"kakao"
+            Map<String, Object> a = token.getPrincipal() != null ? token.getPrincipal().getAttributes() : Map.of();
+            String pid = strOrNull(a.get("id"));
+            if (pid == null) pid = strOrNull(a.get("sub"));
+            if (pid == null) pid = strOrNull(nested(a, "response", "id"));
+
+            if (provider != null && pid != null) {
+                return oauthService.findByProvider(provider, pid)
+                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthenticated"));
+            }
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthenticated");
+        }
+
+        // 2) 로컬 로그인 (UsernamePasswordAuthenticationToken 등 principal=Map 형태)
+        Object p = auth != null ? auth.getPrincipal() : null;
+        if (p instanceof Map<?,?> m) {
+            Long uid = toLong(m.get("uid"));
+            if (uid != null) {
+                return userRepo.findById(uid)
                         .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthenticated"));
             }
         }
 
-        // 1) provider: 토큰에서 가장 안정적으로 확보
-        String provider = null;
-        if (authToken != null) {
-            provider = authToken.getAuthorizedClientRegistrationId(); // "google", "naver", ...
-        } else if (ou != null) {
-            provider = strOrNull(ou.getAttributes().get("provider"));
-        }
-
-        if (ou != null) {
-            var a = ou.getAttributes();
-            // pid: OIDC(구글)는 sub, OAuth2(네이버/카카오)는 id
-            String pid = strOrNull(a.get("id"));
-            if (pid == null) pid = strOrNull(a.get("sub"));
-
-            // 1-a) provider+pid로 링크 조회
-            if (provider != null && pid != null) {
-                Optional<UserAccount> linked = oauthService.findByProvider(provider, pid);
-                if (linked.isPresent()) return linked.get();
-            }
-
-
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthenticated");
-        }
-
-        // 2) 구 세션 방식
+        // 3) 구 세션 fallback (있으면)
         SessionUser su = (SessionUser) session.getAttribute("LOGIN_USER");
         if (su != null) {
             if ("local".equalsIgnoreCase(su.provider()) || "local-or-linked".equalsIgnoreCase(su.provider())) {
@@ -115,15 +113,9 @@ public class MyPageController {
             }
             var linked = oauthService.findByProvider(su.provider(), su.providerId());
             if (linked.isPresent()) return linked.get();
-
-
         }
 
         throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "unauthenticated");
-    }
-
-    private Long requireUserId(HttpSession session, OAuth2User ou, OAuth2AuthenticationToken token) {
-        return requireUser(session, ou, token).getId();
     }
 
     /* ======== API ======== */
@@ -131,18 +123,17 @@ public class MyPageController {
     /** 즐겨찾기 목록 */
     @GetMapping("/favorites")
     public ResponseEntity<List<FavoriteDto>> favorites(
-            @RequestParam(required = false) String provider,   // ★ 추가
+            @RequestParam(required = false) String provider,   // 명시 provider가 필요하면 사용
             HttpSession session,
-            @AuthenticationPrincipal OAuth2User ou,
-            OAuth2AuthenticationToken authToken
+            Authentication auth
     ) {
-        log.debug("[FAV] /favorites enter; principal? {}", (ou != null));
+        log.debug("[FAV] /favorites enter; auth? {}", (auth != null));
         try {
-            var me = requireUser(session, ou, authToken);
+            var me = requireUser(auth, session);
             log.debug("[FAV] /favorites me.id={} providerParam={}", me.getId(), provider);
 
             var rows = (provider == null || provider.isBlank())
-                    ? favoriteService.list(me.getId())               // 현재 로그인 provider 자동 사용
+                    ? favoriteService.list(me.getId())               // 현재 컨텍스트 provider 자동 사용
                     : favoriteService.list(me.getId(), provider);    // 명시적 provider 사용
 
             var dto = rows.stream()
@@ -167,15 +158,14 @@ public class MyPageController {
     public FavoriteDto addFavoriteByPath(@PathVariable Long recipeId,
                                          @RequestBody(required = false) Map<String, Object> body,
                                          HttpSession session,
-                                         @AuthenticationPrincipal OAuth2User ou,
-                                         OAuth2AuthenticationToken authToken) {
-        Long uid = requireUserId(session, ou, authToken);
+                                         Authentication auth) {
+        var me = requireUser(auth, session);
         String title   = body != null ? strOrNull(body.get("title"))   : null;
         String summary = body != null ? strOrNull(body.get("summary")) : null;
         String image   = body != null ? strOrNull(body.get("image"))   : null;
         String meta    = body != null ? strOrNull(body.get("meta"))    : null;
 
-        var f = favoriteService.add(uid, recipeId, title, summary, image, meta);
+        var f = favoriteService.add(me.getId(), recipeId, title, summary, image, meta);
         return new FavoriteDto(f.getId(), f.getRecipeId(), f.getTitle(), f.getSummary(),
                 f.getImage(), f.getMeta(), toIso(f.getCreatedAt()));
     }
@@ -184,8 +174,7 @@ public class MyPageController {
     @PostMapping(path = "/favorites", consumes = MediaType.APPLICATION_JSON_VALUE)
     public FavoriteDto addFavoriteByBody(@RequestBody Map<String, Object> body,
                                          HttpSession session,
-                                         @AuthenticationPrincipal OAuth2User ou,
-                                         OAuth2AuthenticationToken authToken) {
+                                         Authentication auth) {
         if (body == null || body.get("recipeId") == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "recipeId is required");
         }
@@ -193,14 +182,14 @@ public class MyPageController {
         if (recipeId == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "recipeId must be number");
         }
-        Long uid = requireUserId(session, ou, authToken);
+        var me = requireUser(auth, session);
 
         String title   = strOrNull(body.get("title"));
         String summary = strOrNull(body.get("summary"));
         String image   = strOrNull(body.get("image"));
         String meta    = strOrNull(body.get("meta"));
 
-        var f = favoriteService.add(uid, recipeId, title, summary, image, meta);
+        var f = favoriteService.add(me.getId(), recipeId, title, summary, image, meta);
         return new FavoriteDto(f.getId(), f.getRecipeId(), f.getTitle(), f.getSummary(),
                 f.getImage(), f.getMeta(), toIso(f.getCreatedAt()));
     }
@@ -209,9 +198,8 @@ public class MyPageController {
     @DeleteMapping("/favorites/{recipeId}")
     public ResponseEntity<Map<String, Object>> removeFavorite(@PathVariable Long recipeId,
                                                               HttpSession session,
-                                                              @AuthenticationPrincipal OAuth2User ou,
-                                                              OAuth2AuthenticationToken authToken) {
-        var me = requireUser(session, ou, authToken);
+                                                              Authentication auth) {
+        var me = requireUser(auth, session);
         favoriteService.remove(me.getId(), recipeId);
         return ResponseEntity.ok(Map.of("removed", true));
     }

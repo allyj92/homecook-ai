@@ -8,7 +8,7 @@ import com.homecook.ai_recipe.service.CommunityService;
 import com.homecook.ai_recipe.service.OAuthAccountService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.web.bind.annotation.*;
@@ -17,7 +17,6 @@ import org.springframework.web.server.ResponseStatusException;
 import java.math.BigInteger;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/community")
@@ -40,15 +39,13 @@ public class CommunityController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid id");
         }
         try {
-            // 숫자만 허용
             if (!idStr.matches("^[0-9]+$")) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid id");
             }
             BigInteger bi = new BigInteger(idStr);
             BigInteger max = BigInteger.valueOf(Long.MAX_VALUE);
-            BigInteger min = BigInteger.ZERO; // 게시글 ID가 음수일 리 없다는 가정(음수 허용 시 변경)
+            BigInteger min = BigInteger.ZERO;
             if (bi.compareTo(min) < 0 || bi.compareTo(max) > 0) {
-                // DB가 bigint(Long)라면 이 범위를 넘는 ID는 존재할 수 없음 → 404
                 throw new ResponseStatusException(HttpStatus.NOT_FOUND, "post not found");
             }
             return bi.longValueExact();
@@ -57,26 +54,50 @@ public class CommunityController {
         }
     }
 
-    /**
-     * attributes['uid'](내부 Long ID)가 있으면 그걸 사용.
-     * 없으면 provider + pid(sub|id)로 DB의 내부 사용자(UserAccount) 조회해서 Long ID 반환.
-     */
-    private Long resolveUserId(Number uidMaybe, OAuth2User principal, OAuth2AuthenticationToken token) {
-        if (uidMaybe != null) return uidMaybe.longValue();
-        if (principal == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+    /** 현재 로그인 사용자의 내부 uid(Long) 구하기 — 로컬/소셜 공통 처리 */
+    private Long resolveUserId(Authentication authentication) {
+        if (authentication == null || !authentication.isAuthenticated()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+        }
 
-        String provider = (token != null)
-                ? token.getAuthorizedClientRegistrationId()
-                : s(principal.getAttributes().get("provider"));
+        // 1) 소셜 로그인(OAuth2)
+        if (authentication instanceof OAuth2AuthenticationToken token) {
+            String provider = token.getAuthorizedClientRegistrationId();
+            OAuth2User principal = token.getPrincipal();
+            Map<String, Object> attrs = principal != null ? principal.getAttributes() : Map.of();
 
-        String pid = Optional.ofNullable(s(principal.getAttributes().get("sub")))
-                .orElse(s(principal.getAttributes().get("id")));
+            // 우선 attributes['uid']에 내부 uid가 들어온 경우 사용
+            Object uidObj = attrs.get("uid");
+            if (uidObj instanceof Number n) return n.longValue();
+            if (uidObj instanceof String s && !s.isBlank()) {
+                try { return Long.parseLong(s); } catch (NumberFormatException ignored) {}
+            }
 
-        if (provider == null || pid == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+            // 없으면 provider+pid로 DB 조회
+            String pid = s(attrs.get("sub"));
+            if (pid == null) pid = s(attrs.get("id"));
+            if (pid == null) {
+                Object resp = attrs.get("response");
+                if (resp instanceof Map<?,?> m) pid = s(m.get("id"));
+            }
+            if (provider == null || pid == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
 
-        return oauthService.findByProvider(provider, pid)
-                .map(UserAccount::getId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED));
+            return oauthService.findByProvider(provider, pid)
+                    .map(UserAccount::getId)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED));
+        }
+
+        // 2) 로컬 로그인(UsernamePasswordAuthenticationToken 등, principal=Map 형태로 저장해둠)
+        Object p = authentication.getPrincipal();
+        if (p instanceof Map<?,?> m) {
+            Object uidObj = m.get("uid");
+            if (uidObj instanceof Number n) return n.longValue();
+            if (uidObj instanceof String s && !s.isBlank()) {
+                try { return Long.parseLong(s); } catch (NumberFormatException ignored) {}
+            }
+        }
+
+        throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
     }
 
     /* ---------- APIs ---------- */
@@ -91,24 +112,20 @@ public class CommunityController {
         return service.list(category, page, size);
     }
 
-    /** 단건 조회 - 공개
-     *  String으로 받은 뒤 Long으로 안전 변환해서 서비스에 전달
-     */
+    /** 단건 조회 - 공개 */
     @GetMapping("/posts/{id}")
     public PostRes getOne(@PathVariable String id) {
         Long lid = toLongIdOr404(id);
         return service.getOne(lid);
     }
 
-    /** 작성 - 인증 필요 (서비스 시그니처가 Long 반환이므로 그대로 유지) */
+    /** 작성 - 인증 필요 */
     @PostMapping("/posts")
     public Map<String, Long> create(
             @Valid @RequestBody CreatePostReq req,
-            @AuthenticationPrincipal(expression = "attributes['uid']") Number uid,
-            @AuthenticationPrincipal OAuth2User principal,
-            OAuth2AuthenticationToken token
+            Authentication authentication
     ) {
-        long userId = resolveUserId(uid, principal, token);
+        long userId = resolveUserId(authentication);
         Long id = service.create(userId, req);
         return Map.of("id", id);
     }
@@ -116,12 +133,10 @@ public class CommunityController {
     /** 내가 쓴 글 최근 N개 - 인증 필요 */
     @GetMapping("/my-posts")
     public List<PostRes> myPosts(
-            @AuthenticationPrincipal(expression = "attributes['uid']") Number uid,
-            @AuthenticationPrincipal OAuth2User principal,
-            OAuth2AuthenticationToken token,
-            @RequestParam(defaultValue = "3") int size
+            @RequestParam(defaultValue = "3") int size,
+            Authentication authentication
     ) {
-        long userId = resolveUserId(uid, principal, token);
+        long userId = resolveUserId(authentication);
         return service.findLatestByAuthor(userId, size);
     }
 
@@ -130,11 +145,9 @@ public class CommunityController {
     public PostRes update(
             @PathVariable String id,
             @Valid @RequestBody CreatePostReq req,
-            @AuthenticationPrincipal(expression = "attributes['uid']") Number uid,
-            @AuthenticationPrincipal OAuth2User principal,
-            OAuth2AuthenticationToken token
+            Authentication authentication
     ) {
-        long userId = resolveUserId(uid, principal, token);
+        long userId = resolveUserId(authentication);
         Long lid = toLongIdOr404(id);
         service.update(userId, lid, req);
         return service.getOne(lid);

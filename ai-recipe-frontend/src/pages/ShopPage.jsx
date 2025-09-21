@@ -291,7 +291,7 @@ export default function ShopPage() {
       <header className="shop-header py-3">
         <div className="row g-3 align-items-center">
           <div className="col-12 col-xl-3">
-            <h1 className="h3 fw-bold m-0">건강식 스토어</h1>
+            <h1 className="h3 fw-bold m-0">스토어</h1>
           </div>
 
           <div className="col-12 col-xl-9">

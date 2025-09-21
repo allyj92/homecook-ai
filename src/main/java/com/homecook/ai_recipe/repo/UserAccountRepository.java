@@ -11,6 +11,9 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, Long> 
     Optional<UserAccount> findByEmailIgnoreCase(String email);
     boolean existsByEmailIgnoreCase(String email);
 
+    // 대소문자 무시(로컬/소셜 모두 여기로 통일해서 사용)
+
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query(value = """
         INSERT INTO user_account (email, name, avatar, email_verified, created_at, updated_at)
