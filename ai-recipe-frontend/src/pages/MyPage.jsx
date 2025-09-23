@@ -117,7 +117,14 @@ async function getPostById(id) {
 
 /* 🔥 글 삭제 API */
 async function deleteCommunityPost(id) {
-  const res = await apiFetch(`/api/community/posts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  // 1) DELETE 먼저 시도
+  let res = await apiFetch(`/api/community/posts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+
+  // 405(Method Not Allowed)나 일부 400/501이면 폴백
+  if (res.status === 405 || res.status === 400 || res.status === 501) {
+    res = await apiFetch(`/api/community/posts/${encodeURIComponent(id)}/delete`, { method: 'POST' });
+  }
+
   if (!res.ok) {
     let msg = '삭제에 실패했어요.';
     try { msg = (await res.text()) || msg; } catch {}
