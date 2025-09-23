@@ -115,6 +115,17 @@ async function getPostById(id) {
   }
 }
 
+/* 🔥 글 삭제 API */
+async function deleteCommunityPost(id) {
+  const res = await apiFetch(`/api/community/posts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!res.ok) {
+    let msg = '삭제에 실패했어요.';
+    try { msg = (await res.text()) || msg; } catch {}
+    throw new Error(msg);
+  }
+  return true;
+}
+
 /* snake_case → 표준화 */
 function normalizePostMeta(p) {
   if (!p) return null;
@@ -130,12 +141,7 @@ function normalizePostMeta(p) {
 const bmKey = (uid, provider, id) => `postBookmark:${uid}:${provider}:${id}`;
 const bmDataKey = (uid, provider, id) => `postBookmarkData:${uid}:${provider}:${id}`;
 
-/* 레거시 마이그레이션
-   - postBookmark:<id>
-   - postBookmark:<uid>:<id>
-   - postBookmarkData:<id>
-   - postBookmarkData:<uid>:<id>
-   를 postBookmark:<uid>:<provider>:<id> 포맷으로 이동 */
+/* 레거시 마이그레이션 */
 function adoptLegacyBookmarks(uid, provider) {
   if (!uid || !provider) return;
   try {
@@ -144,14 +150,14 @@ function adoptLegacyBookmarks(uid, provider) {
       const k = localStorage.key(i);
       if (!k) continue;
       if (k.startsWith('postBookmark:') || k.startsWith('postBookmarkData:')) {
-        const parts = k.split(':'); // 2, 3, 또는 4 파트 가능
-        if (parts.length === 2 || parts.length === 3) toMove.push(k); // 레거시만 이동
+        const parts = k.split(':');
+        if (parts.length === 2 || parts.length === 3) toMove.push(k);
       }
     }
     toMove.forEach((k) => {
       const v = localStorage.getItem(k);
-      const parts = k.split(':'); // ex) ['postBookmark','123'] or ['postBookmark','<uid>','123']
-      const prefix = parts[0]; // postBookmark or postBookmarkData
+      const parts = k.split(':');
+      const prefix = parts[0];
       let id = null;
 
       if (parts.length === 2) {
@@ -180,7 +186,7 @@ function loadBookmarksFromLS(uid, provider) {
       if (!key || !key.startsWith(ns)) continue;
       if (localStorage.getItem(key) !== '1') continue;
 
-      const parts = key.split(':'); // ["postBookmark", uid, provider, id]
+      const parts = key.split(':');
       if (parts.length !== 4) continue;
       const id = parts[3];
       if (!isNumericId(String(id))) continue;
@@ -221,6 +227,7 @@ export default function MyPage() {
   const [myPosts, setMyPosts] = useState([]);
   const [myLoading, setMyLoading] = useState(false);
   const [myErr, setMyErr] = useState('');
+  const [deletingId, setDeletingId] = useState(null); // ✅ 삭제 중인 글 ID
 
   /* 최근 활동 */
   const [activities, setActivities] = useState([]);
@@ -309,6 +316,27 @@ export default function MyPage() {
       setWishlist(prev);
     }
   }
+
+  /* ✅ 내가 쓴 글 삭제 */
+  const onDeletePost = async (e, post) => {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    if (!post?.id) return;
+    const id = String(post.id);
+    const title = post.title || `게시글 #${id}`;
+
+    if (!window.confirm(`정말 삭제할까요?\n\n"${title}"`)) return;
+
+    setDeletingId(id);
+    try {
+      await deleteCommunityPost(id);
+      setMyPosts((arr) => arr.filter((p) => String(p.id) !== id));
+      try { logActivity('post_delete', { postId: id, title }); } catch {}
+    } catch (err) {
+      alert((err && err.message) ? err.message : '삭제에 실패했어요.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   /* 북마크 로드/동기화 */
   useEffect(() => {
@@ -656,6 +684,7 @@ export default function MyPage() {
               <div className="list-group list-group-flush">
                 {myPosts.map((p) => {
                   const to = `/community/${p.id}`;
+                  const isDeleting = String(deletingId) === String(p.id);
                   return (
                     <Link key={p.id} to={to} className="list-group-item list-group-item-action">
                       <div className="d-flex align-items-center gap-3">
@@ -666,10 +695,17 @@ export default function MyPage() {
                             {p.category}{p.createdAt ? ` · ${formatDate(p.createdAt)}` : ''}
                           </div>
                         </div>
-                        <div className="text-secondary small d-none d-md-block">
-                          {p.tags?.slice(0, 3).map((t) => (
-                            <span key={t} className="badge bg-light text-dark border ms-1">#{t}</span>
-                          ))}
+                        <div className="d-flex gap-2 flex-shrink-0">
+                          {/* 필요하면 수정 버튼도 추가 가능: onClick={() => navigate(`/write?id=${p.id}`)} */}
+                          <button
+                            className="btn btn-sm btn-outline-danger"
+                            style={{ minWidth: 72, height: 32, padding: '0 12px' }}
+                            onClick={(e) => onDeletePost(e, p)}
+                            disabled={isDeleting}
+                            title="삭제"
+                          >
+                            {isDeleting ? '삭제 중…' : '삭제'}
+                          </button>
                         </div>
                       </div>
                     </Link>
