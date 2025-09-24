@@ -25,6 +25,18 @@ public class CommunityService {
         this.repo = repo;
     }
 
+//    마이페이지 - 내가쓴글 - 삭제
+    @Transactional
+    public void delete(long userId, long postId) {
+        var post = repo.findById(postId)  // repo/필드명은 프로젝트 구조에 맞게
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "post_not_found"));
+        // 작성자 확인 (authorId ↔ userId 등 실제 필드명에 맞추세요)
+        if (!Objects.equals(post.getAuthorId(), userId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "not_author");
+        }
+        repo.delete(post);
+    }
+
     /* ---------------- 목록 ---------------- */
     @Transactional(readOnly = true)
     public List<PostRes> list(String category, int page, int size) {

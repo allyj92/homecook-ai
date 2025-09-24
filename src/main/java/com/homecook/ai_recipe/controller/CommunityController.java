@@ -119,6 +119,28 @@ public class CommunityController {
         return service.getOne(lid);
     }
 
+    @DeleteMapping("/posts/{id}")
+    public Map<String, Object> delete(
+            @PathVariable String id,
+            Authentication authentication
+    ) {
+        long userId = resolveUserId(authentication);
+        Long lid = toLongIdOr404(id);
+        service.delete(userId, lid);
+        return Map.of("deleted", true);
+    }
+
+    @PostMapping("/posts/{id}/delete")
+    public Map<String, Object> deleteCompat(
+            @PathVariable String id,
+            Authentication authentication
+    ) {
+        long userId = resolveUserId(authentication);
+        Long lid = toLongIdOr404(id);
+        service.delete(userId, lid);
+        return Map.of("deleted", true);
+    }
+
     /** 작성 - 인증 필요 */
     @PostMapping("/posts")
     public Map<String, Long> create(

@@ -3,8 +3,13 @@ package com.homecook.ai_recipe.config;
 
 import com.homecook.ai_recipe.service.CustomOAuth2UserService; // 실제 패키지에 맞추세요 (예: com.homecook.ai_recipe.auth.*)
 import com.homecook.ai_recipe.service.CustomOidcUserService;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -26,6 +31,7 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.util.List;
 
@@ -36,6 +42,24 @@ public class SecurityConfig {
 
     private final CustomOAuth2UserService customOAuth2UserService; // 네이버/카카오
     private final CustomOidcUserService customOidcUserService;     // 구글(OIDC)
+
+    public FilterRegistrationBean<OncePerRequestFilter> apiNoCacheFilter() {
+        var frb = new FilterRegistrationBean<OncePerRequestFilter>();
+        frb.setOrder(Integer.MIN_VALUE + 10); // 매우 이르게
+        frb.addUrlPatterns("/api/*");         // API만 대상
+        frb.setFilter(new OncePerRequestFilter() {
+            @Override
+            protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
+                    throws ServletException, java.io.IOException {
+                chain.doFilter(req, res);
+                // API 응답은 항상 최신만
+                res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0, private");
+                res.setHeader("Pragma", "no-cache");
+                res.setDateHeader("Expires", 0L);
+            }
+        });
+        return frb;
+    }
 
     @Bean
     public SecurityContextRepository securityContextRepository() {

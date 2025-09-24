@@ -334,6 +334,8 @@ export default function MyPage() {
     if (!window.confirm(`정말 삭제할까요?\n\n"${title}"`)) return;
 
     setDeletingId(id);
+    // 같은 아이디의 북마크도 즉시 해제
+    onUnbookmark(undefined, id);
     try {
       await deleteCommunityPost(id);
       setMyPosts((arr) => arr.filter((p) => String(p.id) !== id));
