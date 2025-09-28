@@ -1,10 +1,7 @@
-// src/main/java/com/homecook/ai_recipe/service/CustomOAuth2UserService.java
 package com.homecook.ai_recipe.service;
 
 import com.homecook.ai_recipe.auth.UserAccount;
-import com.homecook.ai_recipe.repo.UserAccountRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserService;
@@ -16,14 +13,12 @@ import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
-import java.util.Locale;
 
 @Service
 @RequiredArgsConstructor
 public class CustomOAuth2UserService extends DefaultOAuth2UserService {
 
     private final OAuthAccountService oauthService;
-    private final UserAccountRepository userRepo; // ★ 이메일 기준 기존 유저 조회용
 
     @Override
     public OAuth2User loadUser(OAuth2UserRequest req) throws OAuth2AuthenticationException {
@@ -45,40 +40,16 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                 Boolean.TRUE.equals(attrs.get("email_verified")) ||
                         Boolean.TRUE.equals(raw.getAttribute("email_verified"));
 
-        // 2) provider+pid 로 기존 연결 확인
+        // 2) provider+pid 로만 연결 (이메일 병합 금지)
         Optional<UserAccount> linked = oauthService.findByProvider(provider, pid);
         UserAccount user;
-
         if (linked.isPresent()) {
             user = linked.get();
+            // 로그인 시 프로필 보강
+            oauthService.refreshProfileIfNeeded(user, name, picture, emailVerified);
         } else {
-            // 이메일 필요 정책
-            if (isBlank(email)) {
-                throw new OAuth2AuthenticationException(
-                        new OAuth2Error("unauthenticated_no_email"),
-                        "Email not provided by " + provider
-                );
-            }
-
-            // ★ 중복 방지 핵심: 이메일로 기존 유저 탐색 (정규화!)
-            String emailNorm = email.trim().toLowerCase(Locale.ROOT);
-            Optional<UserAccount> existing = userRepo.findByEmailIgnoreCase(emailNorm);
-
-            if (existing.isPresent()) {
-                // 새 INSERT 금지: 기존 유저에 OAuth 계정만 링크
-                user = existing.get();
-                oauthService.linkToExisting(user.getId(), provider, pid, picture, emailVerified);
-            } else {
-                // 없을 때만 새로 만들고 링크 (내부에서 user_account INSERT)
-                try {
-                    user = oauthService.createUserAndLink(emailNorm, name, picture, provider, pid, emailVerified);
-                } catch (DataIntegrityViolationException e) {
-                    // 경합으로 누군가 먼저 만들었다면: 재조회 후 링크
-                    user = userRepo.findByEmailIgnoreCase(emailNorm)
-                            .orElseThrow(() -> e);
-                    oauthService.linkToExisting(user.getId(), provider, pid, picture, emailVerified);
-                }
-            }
+            // 이메일이 없어도 생성 허용 (OAuthAccountService가 중복 이메일 충돌을 자체 처리)
+            user = oauthService.createUserAndLink(email, name, picture, provider, pid, emailVerified);
         }
 
         // 3) 표준 속성 확정
@@ -113,14 +84,14 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             case "google" -> {
                 // OIDC 표준: sub/email/name/picture
                 pid = str(a.get("sub"));
+                // 나머지는 구글이 기본 제공
             }
             case "naver" -> {
                 // 네이버는 response에 중첩
                 Object resp = a.get("response");
                 if (resp instanceof Map<?, ?> r) a.putAll((Map<String, Object>) r);
                 pid = str(a.get("id"));
-                // 평탄화된 키들에서 채워넣기
-                if (a.get("email") == null)   a.put("email", a.get("email")); // 이미 response에서 채워짐
+                // name/nickname, profile_image 보완
                 if (a.get("name") == null)    a.put("name", firstNonBlank(str(a.get("name")), str(a.get("nickname"))));
                 if (a.get("picture") == null) a.put("picture", a.get("profile_image"));
             }

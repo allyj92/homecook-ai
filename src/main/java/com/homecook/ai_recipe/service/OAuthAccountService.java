@@ -30,14 +30,27 @@ public class OAuthAccountService {
 
     private final SecureRandom rnd = new SecureRandom();
 
-    /** provider + providerId 로 기존 연결 조회 */
+    /** provider + providerId 로 기존 연결 조회 (실제 UserAccount 엔티티로 반환; LAZY 프록시 반환 금지) */
     @Transactional(readOnly = true)
     public Optional<UserAccount> findByProvider(String provider, String providerId) {
         return uapRepo.findByProviderAndProviderId(provider, providerId)
-                .map(UserAuthProvider::getUser);
+                .map(UserAuthProvider::getUser)
+                .map(UserAccount::getId)         // 프록시에서 안전한 값만 추출
+                .flatMap(userRepo::findById);    // 같은 트랜잭션에서 실체 로드
     }
 
-    /** 기존 유저에 소셜 계정만 링크(중복 안전) */
+    /** 보기 좋은 기본 표시명 생성 */
+    private static String displayNameOrFallback(String name, String email) {
+        if (name != null && !name.isBlank()) return name.trim();
+        if (email != null && !email.isBlank()) {
+            String local = email.trim();
+            int at = local.indexOf('@');
+            return (at > 0 ? local.substring(0, at) : local);
+        }
+        return "사용자";
+    }
+
+    /** 기존 유저에 소셜 계정만 링크(중복 안전) — 명시적 링크 플로우에서 사용 */
     @Transactional
     public void linkToExisting(Long userId, String provider, String providerId, String avatar, boolean emailVerifiedFromIdP) {
         if (userId == null || provider == null || providerId == null) return;
@@ -45,29 +58,24 @@ public class OAuthAccountService {
         // 이미 같은 링크가 있으면 스킵
         if (uapRepo.findByProviderAndProviderId(provider, providerId).isPresent()) return;
 
-        // 유저 존재 확인
-        userRepo.findById(userId).orElseThrow(() -> new IllegalArgumentException("user not found: " + userId));
-
-        // 링크 생성
-        // 링크 생성
-        UserAccount proxy = new UserAccount();
-        proxy.setId(userId); // 프록시로 id만 세팅
+        // SELECT 없이 영속 레퍼런스 확보(세션 안에서 안전)
+        UserAccount ref = userRepo.getReferenceById(userId);
 
         UserAuthProvider link = UserAuthProvider.builder()
-                .user(proxy)
+                .user(ref)
                 .provider(provider)
                 .providerId(providerId)
                 .build();
-
         uapRepo.save(link);
 
-        // 필요 시 유저 필드 보정 (예: provider 쪽에서 이메일 인증했다면 email_verified 올리기, avatar 업데이트 등)
-        // Optional: userRepo.findById(userId).ifPresent(u -> { ... });
+        // 필요 시 프로필 보정
+        refreshProfileIfNeeded(ref, null, avatar, emailVerifiedFromIdP);
     }
 
     /**
-     * JIT 가입/연결: 이메일이 있으면 기존 유저 재사용 + 링크만 추가.
-     * 없을 때에만 새 사용자 생성.
+     * JIT 가입/연결: (provider, providerId) 기준으로만 매핑
+     * - 같은 이메일이어도 절대 병합하지 않음
+     * - 이메일이 없어도 생성 허용
      */
     @Transactional
     public UserAccount createUserAndLink(String email,
@@ -77,57 +85,93 @@ public class OAuthAccountService {
                                          String providerId,
                                          boolean emailVerifiedFromIdP) {
 
-        // 0) 이미 같은 (provider, providerId)로 연결되어 있으면 그 사용자 반환
+        // 이미 같은 (provider, providerId)로 연결되어 있으면 그 사용자 반환(+프로필 보강)
         var mapped = uapRepo.findByProviderAndProviderId(provider, providerId)
                 .map(UserAuthProvider::getUser);
-        if (mapped.isPresent()) return mapped.get();
-
-        // 1) 이메일 정규화
-        String emailNorm = (email == null) ? null : email.trim().toLowerCase(Locale.ROOT);
-        if (emailNorm == null || emailNorm.isBlank()) {
-            throw new IllegalArgumentException("Email required to create user");
-        }
-
-        // 2) 이메일로 기존 유저 찾기 → 있으면 링크만 추가
-        var existing = userRepo.findByEmailIgnoreCase(emailNorm);
-        if (existing.isPresent()) {
-            var user = existing.get();
-            linkToExisting(user.getId(), provider, providerId, avatar, emailVerifiedFromIdP);
-            return user;
-        }
-
-        // 3) 없을 때만 새 사용자 생성 (경합 대비 try-catch)
-        try {
-            String dummyHash = BCrypt.hashpw(
-                    Base64.getUrlEncoder().withoutPadding()
-                            .encodeToString(rnd.generateSeed(24)),
-                    BCrypt.gensalt(12)
-            );
-
-            UserAccount u = new UserAccount();
-            u.setEmail(emailNorm);
-            u.setName((name != null && !name.isBlank()) ? name.trim() : emailNorm);
-            u.setAvatar(avatar);
-            u.setEmailVerified(emailVerifiedFromIdP);
-            u.setPasswordHash(dummyHash);
-            // createdAt/updatedAt은 @PrePersist/@PreUpdate에서 처리됨
-            userRepo.save(u);
-
-            // 4) (provider, providerId) 연결 생성
-            UserAuthProvider link = UserAuthProvider.builder()
-                    .user(u)
-                    .provider(provider)
-                    .providerId(providerId)
-                    .build();
-            uapRepo.save(link);
-
+        if (mapped.isPresent()) {
+            var u = mapped.get();
+            refreshProfileIfNeeded(u, name, avatar, emailVerifiedFromIdP);
             return u;
-        } catch (DataIntegrityViolationException e) {
-            // 동시성: 누군가 먼저 같은 이메일로 생성했을 수 있으니 재조회 후 링크
-            var user = userRepo.findByEmailIgnoreCase(emailNorm)
-                    .orElseThrow(() -> e);
-            linkToExisting(user.getId(), provider, providerId, avatar, emailVerifiedFromIdP);
-            return user;
+        }
+
+        // 이메일 정규화 (있으면 lower), 없어도 생성 가능
+        String emailNorm = (email == null) ? null : email.trim().toLowerCase(Locale.ROOT);
+
+        // 무조건 새 사용자 생성(동일 이메일이어도 새 계정)
+        UserAccount u = buildNewUser(emailNorm, name, avatar, emailVerifiedFromIdP);
+
+        try {
+            userRepo.save(u);
+        } catch (DataIntegrityViolationException dup) {
+            // 이메일 UNIQUE 제약 충돌 시 이메일을 null 로 바꿔 재시도 (DB가 NULL 중복 허용 시 안전)
+            u.setEmail(null);
+            userRepo.save(u);
+        }
+
+        // (provider, providerId) 링크 생성
+        UserAuthProvider link = UserAuthProvider.builder()
+                .user(u)
+                .provider(provider)
+                .providerId(providerId)
+                .build();
+        uapRepo.save(link);
+
+        return u;
+    }
+
+    private UserAccount buildNewUser(String emailNorm, String name, String avatar, boolean emailVerifiedFromIdP) {
+        String dummyHash = BCrypt.hashpw(
+                Base64.getUrlEncoder().withoutPadding()
+                        .encodeToString(rnd.generateSeed(24)),
+                BCrypt.gensalt(12)
+        );
+
+        UserAccount u = new UserAccount();
+        u.setEmail(emailNorm); // 중복이면 위에서 null로 재시도
+        u.setName(displayNameOrFallback(name, emailNorm));
+        u.setAvatar(avatar);
+        u.setEmailVerified(emailVerifiedFromIdP);
+        u.setPasswordHash(dummyHash);
+        u.setCreatedAt(LocalDateTime.now());
+        u.setUpdatedAt(LocalDateTime.now());
+        return u;
+    }
+
+    /** 로그인 시 프로필 보강: 빈약하면 IdP 정보로 덮어쓰기 */
+    @Transactional
+    public void refreshProfileIfNeeded(UserAccount u,
+                                       String idpName,
+                                       String idpAvatar,
+                                       boolean emailVerifiedFromIdP) {
+        boolean changed = false;
+
+        // 이름이 비었거나 'user'/이메일 그대로라면 IdP 이름으로 보강
+        String currName = u.getName();
+        boolean nameBad = (currName == null || currName.isBlank()
+                || "user".equalsIgnoreCase(currName)
+                || (u.getEmail() != null && currName.equalsIgnoreCase(u.getEmail()))
+                || (u.getEmail() != null && currName.equalsIgnoreCase(u.getEmail().split("@")[0]))
+        );
+        if (nameBad && idpName != null && !idpName.isBlank()) {
+            u.setName(idpName.trim());
+            changed = true;
+        }
+
+        // 아바타가 비어있으면 보강
+        if ((u.getAvatar() == null || u.getAvatar().isBlank()) && idpAvatar != null && !idpAvatar.isBlank()) {
+            u.setAvatar(idpAvatar.trim());
+            changed = true;
+        }
+
+        // boolean 필드는 Lombok 게터가 isEmailVerified()
+        if (emailVerifiedFromIdP && !u.isEmailVerified()) {
+            u.setEmailVerified(true);
+            changed = true;
+        }
+
+        if (changed) {
+            u.setUpdatedAt(LocalDateTime.now());
+            userRepo.save(u);
         }
     }
 
@@ -160,34 +204,43 @@ public class OAuthAccountService {
             linkRepo.delete(t);
             return Optional.empty();
         }
-        var user = userRepo.findById(t.getUserId()).orElse(null);
-        if (user == null) {
+
+        // getReferenceById로 영속 레퍼런스 확보
+        final UserAccount ref;
+        try {
+            ref = userRepo.getReferenceById(t.getUserId());
+        } catch (Exception e) {
             linkRepo.delete(t);
             return Optional.empty();
         }
+
         if (uapRepo.findByProviderAndProviderId(t.getProvider(), t.getProviderId()).isEmpty()) {
             UserAuthProvider link = UserAuthProvider.builder()
-                    .user(user)
+                    .user(ref)
                     .provider(t.getProvider())
                     .providerId(t.getProviderId())
                     .build();
             uapRepo.save(link);
         }
         linkRepo.delete(t);
-        return Optional.of(user);
+        return Optional.of(ref);
     }
 
-    /** 컨트롤러 등에서 안전하게 링크만 추가하고 싶을 때 */
+    /** 컨트롤러 등에서 안전하게 링크만 추가하고 싶을 때 (자동 병합 금지 정책 유지) */
     @Transactional
     public void createLinkIfAbsent(String provider, String providerId, Long userId) {
         if (provider == null || providerId == null || userId == null) return;
         if (uapRepo.findByProviderAndProviderId(provider, providerId).isPresent()) return;
 
-        var user = userRepo.findById(userId).orElse(null);
-        if (user == null) return;
+        final UserAccount ref;
+        try {
+            ref = userRepo.getReferenceById(userId);
+        } catch (Exception e) {
+            return;
+        }
 
         UserAuthProvider link = UserAuthProvider.builder()
-                .user(user)
+                .user(ref)
                 .provider(provider)
                 .providerId(providerId)
                 .build();

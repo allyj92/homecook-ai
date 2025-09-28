@@ -11,6 +11,8 @@ public record PostRes(
         String content,
         List<String> tags,
         Long authorId,
+
+
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
         String youtubeId,     // ✅ DB에 저장된 videoId
