@@ -10,6 +10,9 @@ public record PostRes(
         String content,
         List<String> tags,
         Long authorId,
+        String authorName,    // ✅ 추가
+        String authorAvatar,  // ✅ 추가
+        String authorHandle,  // ✅ 추가 (@아이디 형태)
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
         String youtubeId,     // ✅ DB에 저장된 videoId

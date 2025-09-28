@@ -7,6 +7,10 @@ import { ensureLogin, fetchMe } from "../lib/auth";
 import { getCommunityPost } from "../api/community";
 import { logActivity } from "../lib/activity";
 
+/* ---- 유틸 ---- */
+const handleFromEmail = (email) => (email ? "@" + String(email).split("@")[0] : null);
+const nameFromEmail = (email) => (email ? String(email).split("@")[0] : null);
+
 /** API 응답을 화면용으로 정규화 */
 function normalizePost(raw) {
   if (!raw) return null;
@@ -17,14 +21,28 @@ function normalizePost(raw) {
   if (d && d.bodyPreview && !d.id) {
     try { d = JSON.parse(d.bodyPreview); } catch {}
   }
+
+  const id = d.id ?? d.postId ?? null;
+  const email = d.authorEmail ?? d.author_email ?? d.userEmail ?? d.user_email ?? null;
+
+  // ✅ 서버가 내려주는 작성자 표시용 필드 사용 (없으면 이메일/ID로 폴백)
+  const authorName   = d.authorName   ?? d.author_name   ?? nameFromEmail(email) ?? (id ? `작성자#${d.authorId ?? d.userId ?? ""}` : "");
+  const authorAvatar = d.authorAvatar ?? d.author_avatar ?? null;
+  const authorHandle = d.authorHandle ?? d.author_handle ?? handleFromEmail(email);
+
   return {
-    id: d.id ?? d.postId ?? null,
+    id,
     title: d.title ?? d.subject ?? "",
     category: d.category ?? d.type ?? "",
     content: d.content ?? d.body ?? "",
     tags: Array.isArray(d.tags) ? d.tags : (Array.isArray(d.tagList) ? d.tagList : []),
+
     authorId: d.authorId ?? d.userId ?? d.author_id ?? d.user_id ?? null,
-    authorEmail: d.authorEmail ?? d.author_email ?? d.userEmail ?? d.user_email ?? null,
+    authorEmail: email,
+    authorName,
+    authorAvatar,
+    authorHandle,
+
     createdAt: d.createdAt ?? d.created_at ?? null,
     updatedAt: d.updatedAt ?? d.updated_at ?? null,
     repImageUrl: d.repImageUrl ?? d.rep_image_url ?? null,
@@ -32,13 +50,27 @@ function normalizePost(raw) {
   };
 }
 
-function Meta({ author, createdAt }) {
+/** 작성자/시간 메타 */
+function Meta({ authorId, authorName, authorHandle, authorAvatar, createdAt }) {
   const dt = createdAt ? new Date(createdAt) : null;
   const fmt = dt ? dt.toLocaleString() : "";
+
   return (
-    <div className="text-secondary small d-flex gap-2 flex-wrap">
-      {author != null && <span>작성자 #{author}</span>}
-      {author != null && <span>·</span>}
+    <div className="text-secondary small d-flex gap-2 flex-wrap align-items-center">
+      {authorAvatar && (
+        <img
+          src={authorAvatar}
+          alt={authorName || (authorId ? `작성자#${authorId}` : "작성자")}
+          width={20}
+          height={20}
+          className="rounded-circle border"
+          style={{ objectFit: "cover" }}
+        />
+      )}
+      {authorName && <span className="text-dark fw-semibold">{authorName}</span>}
+      {authorHandle && <span className="text-secondary">{authorHandle}</span>}
+      {!authorName && !authorHandle && authorId != null && <span>작성자 #{authorId}</span>}
+      {(authorName || authorHandle || authorId != null) && <span>·</span>}
       <span>{fmt}</span>
     </div>
   );
@@ -49,11 +81,7 @@ const likeKey = (uid, provider, id) => `postLike:${uid}:${provider}:${id}`;
 const bmKey = (uid, provider, id) => `postBookmark:${uid}:${provider}:${id}`;
 const bmDataKey = (uid, provider, id) => `postBookmarkData:${uid}:${provider}:${id}`;
 
-/* 레거시 키 흡수
-   - postBookmark:<id>, postBookmarkData:<id>
-   - postBookmark:<uid>:<id>, postBookmarkData:<uid>:<id>
-   - postLike:<uid>:<id>
-   을 모두 post*:<uid>:<provider>:<id> 로 이전 */
+/* 레거시 키 흡수 → post*:<uid>:<provider>:<id> */
 function migrateLegacyForThisPost(uid, provider, postId) {
   if (!uid || !provider || !postId) return;
   try {
@@ -94,7 +122,7 @@ function migrateLegacyForThisPost(uid, provider, postId) {
 }
 
 export default function PostDetailPage() {
-  console.log("PostDetail LOADED v-2025-09-21-ns2");
+  console.log("PostDetail LOADED v-2025-09-23-authorMeta");
 
   const { id } = useParams();
   const navigate = useNavigate();
@@ -299,7 +327,15 @@ export default function PostDetailPage() {
           )}
 
           <h1 className="h4 mb-1">{post.title || "제목 없음"}</h1>
-          <Meta author={post.authorId} createdAt={post.createdAt || post.updatedAt} />
+
+          {/* ✅ 작성자 메타 제대로 표시 */}
+          <Meta
+            authorId={post.authorId}
+            authorName={post.authorName}
+            authorHandle={post.authorHandle || handleFromEmail(post.authorEmail)}
+            authorAvatar={post.authorAvatar}
+            createdAt={post.createdAt || post.updatedAt}
+          />
 
           {!auth.loading && (
             auth.user ? (
@@ -379,7 +415,7 @@ export default function PostDetailPage() {
         </div>
       </article>
 
-      <div className="text-center text-secondary small mt-2">PostDetail v-2025-09-21-ns2</div>
+      <div className="text-center text-secondary small mt-2">PostDetail v-2025-09-23-authorMeta</div>
 
       <footer className="text-center text-secondary mt-4">
         <div className="small">* 커뮤니티 내 일부 링크는 제휴/광고일 수 있으며, 구매 시 수수료를 받을 수 있습니다.</div>

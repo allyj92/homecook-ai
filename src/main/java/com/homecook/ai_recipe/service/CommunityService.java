@@ -1,10 +1,11 @@
-// src/main/java/com/homecook/ai_recipe/service/CommunityService.java
 package com.homecook.ai_recipe.service;
 
+import com.homecook.ai_recipe.auth.UserAccount;
 import com.homecook.ai_recipe.domain.CommunityPost;
 import com.homecook.ai_recipe.domain.CreatePostReq;
 import com.homecook.ai_recipe.domain.PostRes;
 import com.homecook.ai_recipe.repo.CommunityPostRepository;
+import com.homecook.ai_recipe.repo.UserAccountRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -13,24 +14,26 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 public class CommunityService {
 
     private final CommunityPostRepository repo;
+    private final UserAccountRepository userRepo;
 
-    public CommunityService(CommunityPostRepository repo) {
+    public CommunityService(CommunityPostRepository repo,
+                            UserAccountRepository userRepo) {
         this.repo = repo;
+        this.userRepo = userRepo;
     }
 
-//    마이페이지 - 내가쓴글 - 삭제
+    // 마이페이지 - 내가쓴글 - 삭제
     @Transactional
     public void delete(long userId, long postId) {
-        var post = repo.findById(postId)  // repo/필드명은 프로젝트 구조에 맞게
+        var post = repo.findById(postId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "post_not_found"));
-        // 작성자 확인 (authorId ↔ userId 등 실제 필드명에 맞추세요)
         if (!Objects.equals(post.getAuthorId(), userId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "not_author");
         }
@@ -47,24 +50,30 @@ public class CommunityService {
                 ? repo.findAll(pr)
                 : repo.findByCategory(category, pr);
 
-        return result.map(p -> new PostRes(
-                p.getId(), p.getTitle(), p.getCategory(), p.getContent(),
-                p.getTags(), p.getAuthorId(), p.getCreatedAt(), p.getUpdatedAt(),
-                p.getYoutubeId(), p.getRepImageUrl()
-        )).getContent();
+        var posts = result.getContent();
+
+        // ✅ 작성자 배치 조회(N+1 회피)
+        var authorIds = posts.stream()
+                .map(CommunityPost::getAuthorId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        Map<Long, UserAccount> userById = userRepo.findAllById(authorIds).stream()
+                .collect(Collectors.toMap(UserAccount::getId, u -> u));
+
+        return posts.stream().map(p -> toRes(p, userById.get(p.getAuthorId()))).toList();
     }
 
     /* ---------------- 내가 쓴 글 최근 N개 ---------------- */
     @Transactional(readOnly = true)
     public List<PostRes> findLatestByAuthor(Long authorId, int size) {
         var pr = PageRequest.of(0, Math.max(1, size), Sort.by(Sort.Direction.DESC, "createdAt"));
-        return repo.findByAuthorId(authorId, pr)
-                .map(p -> new PostRes(
-                        p.getId(), p.getTitle(), p.getCategory(), p.getContent(),
-                        p.getTags(), p.getAuthorId(), p.getCreatedAt(), p.getUpdatedAt(),
-                        p.getYoutubeId(), p.getRepImageUrl()
-                ))
-                .getContent();
+        var page = repo.findByAuthorId(authorId, pr);
+
+        // 동일 작성자라 한 번만 조회
+        UserAccount u = userRepo.findById(authorId).orElse(null);
+
+        return page.map(p -> toRes(p, u)).getContent();
     }
 
     /* ---------------- 작성 ---------------- */
@@ -78,7 +87,6 @@ public class CommunityService {
         p.setAuthorId(authorId);
         p.setYoutubeId(toYoutubeId(req.youtubeUrl()));
         p.setRepImageUrl(req.repImageUrl());
-        // createdAt/updatedAt 은 엔티티의 @CreationTimestamp / @PrePersist / @PreUpdate / Auditing 에 맡김
         repo.save(p);
         return p.getId();
     }
@@ -89,22 +97,17 @@ public class CommunityService {
         CommunityPost p = repo.findById(postId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "post_not_found"));
 
-        // 작성자 본인만 수정 가능
         if (p.getAuthorId() == null || !Objects.equals(p.getAuthorId(), authorId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "not_owner");
         }
 
-        // 필드 반영
         p.setTitle((req.title() == null ? "" : req.title()).trim());
         p.setCategory((req.category() == null ? "" : req.category()).trim());
         p.setContent((req.content() == null ? "" : req.content()).trim());
         p.setTags(req.tags() == null ? List.of() : req.tags());
-
-        // 유튜브/대표이미지 업데이트(비우면 제거)
-        p.setYoutubeId(toYoutubeId(req.youtubeUrl())); // url/ID → ID or null
+        p.setYoutubeId(toYoutubeId(req.youtubeUrl()));
         p.setRepImageUrl((req.repImageUrl() == null || req.repImageUrl().isBlank()) ? null : req.repImageUrl());
 
-        // updatedAt 역시 엔티티의 @PreUpdate/Auditing이 있으면 자동 반영됨
         repo.save(p);
         return p.getId();
     }
@@ -114,14 +117,35 @@ public class CommunityService {
     public PostRes getOne(Long id) {
         CommunityPost p = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "post_not_found"));
+
+        UserAccount u = (p.getAuthorId() != null) ? userRepo.findById(p.getAuthorId()).orElse(null) : null;
+
+        return toRes(p, u);
+    }
+
+    /* ---- 매핑/유틸 ---- */
+    private PostRes toRes(CommunityPost p, UserAccount u) {
+        String authorName   = displayName(u, p.getAuthorId());
+        String authorAvatar = (u != null && notBlank(u.getAvatar())) ? u.getAvatar() : null;
+        String authorHandle = handleOf(u);
+
         return new PostRes(
-                p.getId(), p.getTitle(), p.getCategory(), p.getContent(),
-                p.getTags(), p.getAuthorId(), p.getCreatedAt(), p.getUpdatedAt(),
-                p.getYoutubeId(), p.getRepImageUrl()
+                p.getId(),
+                p.getTitle(),
+                p.getCategory(),
+                p.getContent(),
+                p.getTags(),
+                p.getAuthorId(),
+                authorName,
+                authorAvatar,
+                authorHandle,
+                p.getCreatedAt(),
+                p.getUpdatedAt(),
+                p.getYoutubeId(),
+                p.getRepImageUrl()
         );
     }
 
-    /* 유튜브 ID 파싱 유틸 */
     private static String toYoutubeId(String url) {
         if (url == null) return null;
         String u = url.trim();
@@ -146,5 +170,21 @@ public class CommunityService {
         }
         if (u.length() >= 8 && u.length() <= 32 && !u.contains("/") && !u.contains(" ")) return u;
         return null;
+    }
+
+    private static boolean notBlank(String s) { return s != null && !s.isBlank(); }
+
+    private static String displayName(UserAccount u, Long fallbackId) {
+        if (u == null) return "작성자#" + fallbackId;
+        String name = notBlank(u.getName()) ? u.getName() : null;
+        if (name == null && notBlank(u.getEmail())) {
+            name = u.getEmail().split("@")[0];
+        }
+        return (name == null) ? ("작성자#" + fallbackId) : name;
+    }
+
+    private static String handleOf(UserAccount u) {
+        if (u == null || !notBlank(u.getEmail())) return null;
+        return "@" + u.getEmail().split("@")[0];
     }
 }
