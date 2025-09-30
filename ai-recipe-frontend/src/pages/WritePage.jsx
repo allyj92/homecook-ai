@@ -367,12 +367,17 @@ export default function WritePage() {
             </div>
           </div>
 
-          {/* 태그 (Tagify) */}
-          <div className="mb-3">
-            <label className="form-label">태그</label>
-            <TagInput value={tags} onChange={setTags} />
-            <div className="form-text">Enter로 태그 추가 · 최대 8개</div>
-          </div>
+          {/* 태그 */}
+<div className="mb-3">
+  <label className="form-label">태그</label>
+  <TagInput
+    value={tags}
+    onChange={setTags}
+    placeholder="태그 입력 후 Enter"
+    maxTags={10}
+  />
+  <div className="form-text">최대 10개 · Enter 로 추가/Backspace 로 삭제</div>
+</div>
 
           {/* 내용 (Toast UI Editor) */}
           <div className="mb-3">
