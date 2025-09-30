@@ -16,6 +16,7 @@ import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import SavedPage from './pages/SavedPage';
 import PostDetailPage from "./pages/PostDetailPage.jsx";
+import "./styles/post-content.css";
 
 // ⚠️ Header는 Layout 내부에서만 렌더되므로 여기서 import 불필요
 // import Header from './compoments/Header'

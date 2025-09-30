@@ -1,11 +1,26 @@
 // src/pages/PostDetailPage.jsx
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import "bootstrap/dist/css/bootstrap.min.css";
 import BottomNav from "../components/BottomNav";
 import { ensureLogin, fetchMe } from "../lib/auth";
 import { getCommunityPost } from "../api/community";
 import { logActivity } from "../lib/activity";
+
+/* ✅ 마크다운 렌더링 */
+import MarkdownIt from "markdown-it";
+import DOMPurify from "dompurify";
+
+const md = new MarkdownIt({
+  html: false,   // 생 HTML 금지
+  linkify: true, // URL 자동 링크
+  breaks: true,  // 줄바꿈 -> <br>
+});
+const ALLOWED_TAGS = [
+  "p","br","blockquote","pre","code","span","strong","em","ul","ol","li",
+  "a","img","h1","h2","h3","h4","h5","h6","hr","table","thead","tbody","tr","th","td"
+];
+const ALLOWED_ATTR = ["href","target","rel","src","alt","title"];
 
 /* ---- 유틸 ---- */
 const handleFromEmail = (email) => (email ? "@" + String(email).split("@")[0] : null);
@@ -262,6 +277,16 @@ export default function PostDetailPage() {
       (!!post?.authorEmail && post.authorEmail === auth.user.email)
     );
 
+  // ✅ 마크다운 → HTML (이미지/링크 허용, 나머지 정화)
+  const renderedHtml = useMemo(() => {
+    const raw = md.render(post?.content || "");
+    return DOMPurify.sanitize(raw, {
+      ALLOWED_TAGS,
+      ALLOWED_ATTR,
+      USE_PROFILES: { html: true },
+    });
+  }, [post?.content]);
+
   if (loadingPost) {
     return (
       <div className="container-xxl py-3">
@@ -328,7 +353,7 @@ export default function PostDetailPage() {
 
           <h1 className="h4 mb-1">{post.title || "제목 없음"}</h1>
 
-          {/* ✅ 작성자 메타 제대로 표시 */}
+          {/* ✅ 작성자 메타 */}
           <Meta
             authorId={post.authorId}
             authorName={post.authorName}
@@ -376,9 +401,12 @@ export default function PostDetailPage() {
 
           <hr />
 
-          <div className="mt-2" style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-            {post.content ? post.content : <span className="text-secondary">내용이 비어 있습니다.</span>}
-          </div>
+          {/* ✅ 마크다운을 이미지 포함 HTML로 렌더링 */}
+          <div
+            className="mt-2 post-content"
+            dangerouslySetInnerHTML={{ __html: renderedHtml }}
+          />
+          {!post.content && <span className="text-secondary">내용이 비어 있습니다.</span>}
 
           {!auth.loading && (
             auth.user ? (

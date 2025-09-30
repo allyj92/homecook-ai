@@ -1,0 +1,9 @@
+.post-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  display: block;
+  margin: 8px 0;
+}
+.post-content pre { background:#f7f7f7; padding:12px; border-radius:8px; overflow:auto; }
+.post-content a { text-decoration: underline; }
