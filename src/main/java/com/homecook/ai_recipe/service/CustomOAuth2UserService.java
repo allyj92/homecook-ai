@@ -1,3 +1,4 @@
+// src/main/java/com/homecook/ai_recipe/service/CustomOAuth2UserService.java
 package com.homecook.ai_recipe.service;
 
 import com.homecook.ai_recipe.auth.UserAccount;
@@ -32,38 +33,39 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         String pid = normalizeAttributes(provider, attrs);
         attrs.put("id", pid); // 공통 키
 
-        // 표준 키 확보(없으면 보완)
+        // 2) 표준 키 확보(없으면 보완)
         String email   = firstNonBlank(str(attrs.get("email")),   str(raw.getAttribute("email")));
         String name    = firstNonBlank(str(attrs.get("name")),    str(raw.getAttribute("name")));
         String picture = firstNonBlank(str(attrs.get("picture")), str(raw.getAttribute("picture")));
+        // ✅ '==' 대신 truthy()로 안전 파싱
         boolean emailVerified =
-                Boolean.TRUE.equals(attrs.get("email_verified")) ||
-                        Boolean.TRUE.equals(raw.getAttribute("email_verified"));
+                truthy(attrs.get("email_verified")) ||
+                        truthy(raw.getAttribute("email_verified"));
 
-        // 2) provider+pid 로만 연결 (이메일 병합 금지)
+        // 3) provider+pid 로만 연결 (이메일 병합 금지)
         Optional<UserAccount> linked = oauthService.findByProvider(provider, pid);
         UserAccount user;
         if (linked.isPresent()) {
             user = linked.get();
-            // 로그인 시 프로필 보강
+            // 로그인 시 프로필 보강(비어있던 name/avatar/emailVerified를 IdP 정보로 채움)
             oauthService.refreshProfileIfNeeded(user, name, picture, emailVerified);
         } else {
-            // 이메일이 없어도 생성 허용 (OAuthAccountService가 중복 이메일 충돌을 자체 처리)
+            // 이메일이 없어도 생성 허용 (중복/NOT NULL 제약은 OAuthAccountService에서 처리)
             user = oauthService.createUserAndLink(email, name, picture, provider, pid, emailVerified);
         }
 
-        // 3) 표준 속성 확정
+        // 4) 최종 속성
         attrs.put("uid", user.getId());
         if (email != null)   attrs.put("email", email);
         if (name != null)    attrs.put("name", name);
         if (picture != null) attrs.put("picture", picture);
         attrs.putIfAbsent("email_verified", emailVerified);
 
-        // 4) 권한
+        // 5) 권한
         Set<GrantedAuthority> auths = new HashSet<>(raw.getAuthorities());
         auths.add(new SimpleGrantedAuthority("ROLE_USER"));
 
-        // 5) nameAttributeKey
+        // 6) nameAttributeKey
         String nameAttributeKey = req.getClientRegistration()
                 .getProviderDetails()
                 .getUserInfoEndpoint()
@@ -75,16 +77,16 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         return new DefaultOAuth2User(auths, attrs, nameAttributeKey);
     }
 
-    /** 공급자별 원본 속성을 표준 키(email, name, picture, id/sub)로 보완/정규화하고 pid를 반환 */
+    /** 공급자별 원본 속성을 표준 키(email, name, picture, email_verified, id/sub)로 보완/정규화하고 pid를 반환 */
     @SuppressWarnings("unchecked")
     private static String normalizeAttributes(String provider, Map<String, Object> a) {
         String pid = null;
 
         switch (provider) {
             case "google" -> {
-                // OIDC 표준: sub/email/name/picture
+                // OIDC 표준: sub/email/name/picture/email_verified
                 pid = str(a.get("sub"));
-                // 나머지는 구글이 기본 제공
+                // 구글은 대체로 email_verified도 옴
             }
             case "naver" -> {
                 // 네이버는 response에 중첩
@@ -92,8 +94,9 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                 if (resp instanceof Map<?, ?> r) a.putAll((Map<String, Object>) r);
                 pid = str(a.get("id"));
                 // name/nickname, profile_image 보완
-                if (a.get("name") == null)    a.put("name", firstNonBlank(str(a.get("name")), str(a.get("nickname"))));
+                a.putIfAbsent("name", firstNonBlank(str(a.get("name")), str(a.get("nickname"))));
                 if (a.get("picture") == null) a.put("picture", a.get("profile_image"));
+                // 네이버는 email_verified 개념이 명시적으로 안 옴
             }
             case "kakao" -> {
                 // kakao: id 최상위, 상세는 kakao_account.profile.*
@@ -101,14 +104,16 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                 Object ka = a.get("kakao_account");
                 if (ka instanceof Map<?, ?> acc) {
                     if (a.get("email") == null) a.put("email", acc.get("email"));
+                    // 이메일 검증 여부 흡수
+                    Object verified = ((Map<?, ?>) acc).get("is_email_verified");
+                    if (verified != null) a.putIfAbsent("email_verified", verified);
+
                     Object profile = acc.get("profile");
                     if (profile instanceof Map<?, ?> p) {
-                        if (a.get("name") == null) a.put("name", p.get("nickname"));
-                        if (a.get("picture") == null) {
-                            Object pic = ((Map<?, ?>) p).get("profile_image_url");
-                            if (pic == null) pic = ((Map<?, ?>) p).get("thumbnail_image_url");
-                            if (pic != null) a.put("picture", pic);
-                        }
+                        a.putIfAbsent("name", str(p.get("nickname")));
+                        Object pic = p.get("profile_image_url");
+                        if (pic == null) pic = p.get("thumbnail_image_url");
+                        if (pic != null) a.putIfAbsent("picture", pic);
                     }
                 }
             }
@@ -117,14 +122,27 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
             }
         }
 
-        if (pid == null || pid.isBlank()) {
-            throw new OAuth2AuthenticationException(new OAuth2Error("invalid_provider_id"),
-                    "Provider id (pid) not found for " + provider);
+        if (isBlank(pid)) {
+            throw new OAuth2AuthenticationException(
+                    new OAuth2Error("invalid_provider_id"),
+                    "Provider id (pid) not found for " + provider
+            );
         }
         return pid;
     }
 
     /* ---------- utils ---------- */
+    private static boolean truthy(Object v) {
+        if (v == null) return false;
+        if (v instanceof Boolean b) return b;
+        if (v instanceof Number n) return n.intValue() != 0;
+        if (v instanceof String s) {
+            String t = s.trim().toLowerCase(Locale.ROOT);
+            return t.equals("true") || t.equals("1") || t.equals("y") || t.equals("yes");
+        }
+        return false;
+    }
+
     private static String str(Object o) {
         if (o == null) return null;
         String s = String.valueOf(o).trim();
