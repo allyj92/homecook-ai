@@ -5,6 +5,30 @@ import 'bootstrap/dist/css/bootstrap.min.css';
 import BottomNav from '../components/BottomNav';
 import '../index.css';
 
+/* ---------------- 목록 프리뷰 전용 텍스트 정리 ---------------- */
+function makePreviewText(input, maxLen = 120) {
+  if (!input) return '';
+  let s = String(input);
+
+  // 1) 마크다운/HTML 이미지/링크 제거
+  s = s.replace(/!\[[^\]]*\]\([^)]+\)/g, '');                 // md 이미지
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, t) => t);    // md 링크 → 텍스트
+  s = s.replace(/<img[^>]*>/gi, '');                          // html 이미지
+  s = s.replace(/<a[^>]*>(.*?)<\/a>/gi, (_m, t) => t);        // html a → 텍스트
+
+  // 2) URL 자체 제거
+  s = s.replace(/\bhttps?:\/\/[^\s)]+/gi, '');
+  s = s.replace(/\bwww\.[^\s)]+/gi, '');
+
+  // 3) 잔여 태그/마크다운 기호 정리
+  s = s.replace(/<\/?[^>]+>/g, ' ');
+  s = s.replace(/[#>*`_~\-]{1,}/g, ' ');
+  s = s.replace(/\s+/g, ' ').trim();
+
+  if (s.length > maxLen) s = s.slice(0, maxLen) + '…';
+  return s;
+}
+
 function AdSlot({ id, height = 250, label = 'AD', sticky = false }) {
   return (
     <div
@@ -30,6 +54,11 @@ function Badge({ children, tone = 'gray' }) {
 }
 
 function PostCard({ post, onOpen }) {
+  // 서버가 preview/bodyPreview를 주면 우선 사용, 없으면 content/body 사용
+  const rawForPreview = post.preview || post.bodyPreview || post.content || post.body || '';
+  const preview = makePreviewText(rawForPreview, 100);
+  const when = new Date(post.createdAt || post.updatedAt || Date.now()).toLocaleString();
+
   return (
     <article className="card shadow-sm mb-3">
       <div className="card-body position-relative">
@@ -46,17 +75,14 @@ function PostCard({ post, onOpen }) {
             </a>
           </div>
           <div className="text-secondary small d-inline-flex gap-2">
-            {/* 백엔드에 author 표시 필드 없으면 숨겨짐 */}
             {post.author && <span>{post.author}</span>}
             {post.author && <span>·</span>}
-            <span>{new Date(post.createdAt).toLocaleString()}</span>
+            <span>{when}</span>
           </div>
         </div>
 
-        {post.content && (
-          <p className="text-body-secondary small mb-2 mt-2">
-            {post.content.length > 80 ? post.content.slice(0, 80) + '…' : post.content}
-          </p>
+        {preview && (
+          <p className="text-body-secondary small mb-2 mt-2">{preview}</p>
         )}
 
         <div className="d-flex align-items-center justify-content-between gap-2 mt-2">
@@ -146,13 +172,11 @@ export default function CommunityPage() {
       );
     }
 
-    // 정렬: 서버는 최신순. 다른 정렬은 클라에서 임시 처리(필드가 없으면 no-op)
     if (sort === 'new') {
       arr = [...arr].sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        (a, b) => new Date(b.createdAt || b.updatedAt || 0).getTime() - new Date(a.createdAt || a.updatedAt || 0).getTime()
       );
     }
-    // 'views', 'hot'은 백엔드에 필드가 없으므로 생략/유지
     return arr;
   }, [posts, q, sort]);
 
@@ -196,8 +220,6 @@ export default function CommunityPage() {
               aria-label="정렬"
             >
               <option value="new">최신순</option>
-              {/* <option value="views">조회순</option> */}
-              {/* <option value="hot">인기순</option> */}
             </select>
           </div>
 
@@ -209,7 +231,7 @@ export default function CommunityPage() {
               aria-label="탭"
             >
               <option value="all">전체</option>
-              {/* <option value="popular">인기</option>  // 백엔드 지표 없으면 비활성 */}
+              {/* <option value="popular">인기</option> */}
               <option value="question">질문</option>
               <option value="review">후기</option>
               <option value="recipe">레시피</option>
@@ -218,7 +240,7 @@ export default function CommunityPage() {
 
           <div className="col-12 col-lg-4 text-lg-end">
             <button
-              className="btn btn-success"
+              className="btn btn.success btn-success"
               onClick={async () => {
                 const user = await ensureLogin('/write');
                 if (user) navigate('/write');
@@ -267,7 +289,6 @@ export default function CommunityPage() {
                 post={p}
                 onOpen={async () => {
                   const backTo = `/community/${p.id}`;
-                  // 상세보기도 로그인 필요로 둘거면 유지, 아니면 navigate(backTo)만
                   const user = await ensureLogin(backTo);
                   if (user) navigate(backTo);
                 }}
