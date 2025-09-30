@@ -1,5 +1,5 @@
 // src/pages/WritePage.jsx
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import "bootstrap/dist/css/bootstrap.min.css";
 import BottomNav from "../components/BottomNav";
@@ -59,7 +59,7 @@ export default function WritePage() {
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState(CATEGORIES[0]);
   const [tags, setTags] = useState([]);
-  const [content, setContent] = useState(""); // 초기값 주입/로드용 (실제 편집은 TUI가 관리)
+  const [content, setContent] = useState(""); // TUI 에디터와 양방향으로 동기화
   const [repImageUrl, setRepImageUrl] = useState("");
   const [youtubeUrl, setYoutubeUrl] = useState("");
 
@@ -68,9 +68,6 @@ export default function WritePage() {
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
   const [repUploading, setRepUploading] = useState(false); // 대표이미지 업로드 표시
-
-  // 에디터 인스턴스 ref (TUI 래퍼가 getMarkdown/setMarkdown/insertText 지원)
-  const editorRef = useRef(null);
 
   // 초기화
   useEffect(() => {
@@ -117,24 +114,15 @@ export default function WritePage() {
     })();
   }, [isEdit, editId, navigate]);
 
-  // 에디터가 생성된 뒤, content가 바뀌면 에디터에 반영 (초기 로드/임시저장 복구용)
-  useEffect(() => {
-    if (editorRef.current?.setMarkdown) {
-      editorRef.current.setMarkdown(content || "");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [content]);
-
-  // 새 글일 때 5초마다 자동 임시저장 (에디터에서 직접 마크다운 읽어옴)
+  // 새 글일 때 5초마다 자동 임시저장
   useEffect(() => {
     if (isEdit) return;
     const timer = setInterval(() => {
-      const md = editorRef.current?.getMarkdown?.() || content || "";
-      const payload = { title, category, tags, content: md, repImageUrl, youtubeUrl, savedAt: Date.now() };
+      const payload = { title, category, tags, content, repImageUrl, youtubeUrl, savedAt: Date.now() };
       localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
     }, 5000);
     return () => clearInterval(timer);
-  }, [isEdit, title, category, tags, repImageUrl, youtubeUrl, content]);
+  }, [isEdit, title, category, tags, content, repImageUrl, youtubeUrl]);
 
   // 유튜브
   const youtubeId = useMemo(() => toYoutubeId(youtubeUrl), [youtubeUrl]);
@@ -143,9 +131,9 @@ export default function WritePage() {
     [youtubeId]
   );
 
-  // 검증 (에디터에서 현재 마크다운 읽어 검증)
+  // 검증
   function validate() {
-    const md = (editorRef.current?.getMarkdown?.() || "").trim();
+    const md = (content || "").trim();
     const e = {};
     if (!title.trim()) e.title = "제목을 입력하세요.";
     else if (title.trim().length < 4) e.title = "제목은 4자 이상 권장해요.";
@@ -191,7 +179,7 @@ export default function WritePage() {
       if (submitting) return;
       setSubmitting(true);
       try {
-        const md = (editorRef.current?.getMarkdown?.() || content || "").trim();
+        const md = (content || "").trim();
         const finalRep = repImageUrl || youtubeCover || "";
         const cleanTags = tags.map((t) => String(t).trim()).filter(Boolean);
         const payload = {
@@ -368,16 +356,11 @@ export default function WritePage() {
           </div>
 
           {/* 태그 */}
-<div className="mb-3">
-  <label className="form-label">태그</label>
-  <TagInput
-    value={tags}
-    onChange={setTags}
-    placeholder="태그 입력 후 Enter"
-    maxTags={10}
-  />
-  <div className="form-text">최대 10개 · Enter 로 추가/Backspace 로 삭제</div>
-</div>
+          <div className="mb-3">
+            <label className="form-label">태그</label>
+            <TagInput value={tags} onChange={setTags} placeholder="태그 입력 후 Enter" maxTags={10} />
+            <div className="form-text">최대 10개 · Enter 로 추가/Backspace 로 삭제</div>
+          </div>
 
           {/* 내용 (Toast UI Editor) */}
           <div className="mb-3">
@@ -386,10 +369,12 @@ export default function WritePage() {
             </label>
             <div className={`border rounded-3 ${errors.content ? "border-danger" : ""}`}>
               <TuiMdEditor
-                ref={editorRef}
-                initialValue={content}
+                value={content}
+                onChange={setContent}
                 height="480px"
-                onUploadImage={async (blob) => {
+                placeholder={`레시피/후기/질문 내용을 자세히 적어주세요.
+- 캡처 이미지를 붙여넣거나 드래그하면 자동 업로드됩니다.`}
+                upload={async (blob) => {
                   const up = await uploadFile(blob);
                   const url = pickUploadUrl(up);
                   if (!url) throw new Error("업로드 응답에 URL이 없어요.");
@@ -415,7 +400,6 @@ export default function WritePage() {
                     setContent("");
                     setRepImageUrl("");
                     setYoutubeUrl("");
-                    editorRef.current?.setMarkdown?.("");
                   }
                 }}
               >
@@ -428,19 +412,18 @@ export default function WritePage() {
                   type="button"
                   className="btn btn-outline-primary"
                   onClick={() => {
-                    const md = editorRef.current?.getMarkdown?.() || content || "";
                     localStorage.setItem(
                       DRAFT_KEY,
-                      JSON.stringify({ title, category, tags, content: md, repImageUrl, youtubeUrl, savedAt: Date.now() })
+                      JSON.stringify({ title, category, tags, content, repImageUrl, youtubeUrl, savedAt: Date.now() })
                     );
                     alert("임시저장 완료!");
                   }}
                 >
-                임시저장
+                  임시저장
                 </button>
               )}
               <button type="submit" className="btn btn-success" disabled={submitting || repUploading}>
-                {submitting ? (isEdit ? "수정 중…" : "등록 중…") : (isEdit ? "수정하기" : "등록하기")}
+                {submitting ? (isEdit ? "수정 중…" : "등록 중…") : isEdit ? "수정하기" : "등록하기"}
               </button>
             </div>
           </div>
