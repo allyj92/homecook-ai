@@ -13,7 +13,7 @@ import DOMPurify from "dompurify";
 
 const md = new MarkdownIt({
   html: false,   // 생 HTML 금지
-  linkify: true, // URL 자동 링크
+  linkify: false, // URL 자동 링크
   breaks: true,  // 줄바꿈 -> <br>
 });
 const ALLOWED_TAGS = [
