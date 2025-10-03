@@ -4,11 +4,15 @@ import { Link, useSearchParams } from 'react-router-dom';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import BottomNav from '../components/BottomNav';
 import {
-  listActivitiesPaged,
+  // ✅ 서버 우선 페이지네이션(없으면 로컬 폴백)
+  listActivitiesPagedAsync,
+  // ✅ 다른 탭/동일 탭 반영
   subscribeActivity,
+  // ✅ UI 텍스트/링크 생성기
   formatActivityText,
   formatActivityHref,
-  ensureActivityNs,        // ✅ 추가
+  // ✅ auth 네임스페이스 보정(서브도메인/세션 싱크)
+  ensureActivityNs,
 } from '../lib/activity';
 
 const PAGE_SIZE = 20;
@@ -23,6 +27,7 @@ export default function ActivityPage() {
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
+  const [err, setErr] = useState('');
 
   const totalPages = useMemo(
     () => Math.max(1, Math.ceil(total / PAGE_SIZE)),
@@ -37,12 +42,18 @@ export default function ActivityPage() {
 
   const load = async () => {
     setLoading(true);
+    setErr('');
     try {
-      // ✅ 백엔드 세션 → localStorage.authUser 동기화 (서브도메인 이슈 방지)
+      // ✅ 백엔드 세션 → localStorage.authUser 동기화
       await ensureActivityNs();
-      const { items, total } = listActivitiesPaged(page, PAGE_SIZE);
-      setItems(items);
-      setTotal(total);
+      // ✅ 서버에서 불러오고, 실패 시 lib에서 로컬 폴백
+      const { items: its, total: tot } = await listActivitiesPagedAsync(page, PAGE_SIZE);
+      setItems(Array.isArray(its) ? its : []);
+      setTotal(Number.isFinite(tot) ? tot : 0);
+    } catch (e) {
+      setErr('활동 내역을 불러오지 못했습니다.');
+      setItems([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
@@ -62,7 +73,7 @@ export default function ActivityPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [total]);
 
-  // 다른 탭/동일 탭에서 활동이 추가되면 1페이지로 이동(최신이 위)
+  // 다른 탭/동일 탭에서 활동이 추가되면 1페이지로 이동(최신 우선)
   useEffect(() => {
     const off = subscribeActivity(async () => {
       if (page !== 0) goPage(0);
@@ -94,6 +105,8 @@ export default function ActivityPage() {
                 <div className="placeholder col-8" style={{ height: 18 }} />
               </div>
             </div>
+          ) : err ? (
+            <div className="p-4 text-center text-danger">{err}</div>
           ) : items.length === 0 ? (
             <div className="p-4 text-center text-secondary">활동 내역이 없습니다.</div>
           ) : (

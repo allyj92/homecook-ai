@@ -1,3 +1,5 @@
+import { apiFetch } from './http';
+
 // src/lib/activity.js
 const LS_PREFIX = "rf:activity";           // rf:activity:<uid>:<provider>
 const LEGACY_KEY = "activityLog:v1";       // 이전 단일 키(마이그레이션 대상)
@@ -8,22 +10,31 @@ const MAX = 300;
 
 // ✅ 활동 페이지네이션
 export function listActivitiesPaged(page = 0, size = 20) {
-  const n = ns();
-  if (!n) return { items: [], total: 0, page, size };
-  migrateLegacyIfAny(n);
-
-  const arr = readRaw(n)
-    .filter(Boolean)
-    .sort((a, b) => (b?.ts || 0) - (a?.ts || 0));
-
-  const total = arr.length;
-  const p = Math.max(0, page | 0);
-  const s = Math.max(1, size | 0);
-  const start = p * s;
-  const end = start + s;
-  const items = arr.slice(start, end);
-  return { items, total, page: p, size: s, hasPrev: p > 0, hasNext: end < total };
+  // 서버 우선
+  // 동기 API가 필요하면 호출부를 async로 바꾸고 await 하세요.
+  // 여기서는 간단히 동기 형태를 유지하기 위해 "서버 요청은 호출부에서 별도로"가 정석이지만,
+  // 프로젝트 대부분이 동기식 사용이라면 아래 즉시 반환 + 내부 self-refresh 패턴으로 운영 가능.
+  // ---- 권장: 호출부에서 async/await로 불러오기 ----
+  throw new Error('Use listActivitiesPagedAsync instead');
 }
+
+export async function listActivitiesPagedAsync(page = 0, size = 20) {
+  try {
+    const res = await apiFetch(`/api/activity?page=${page}&size=${size}`, { credentials: 'include' });
+    if (res.status === 401) throw new Error('unauth');
+    if (!res.ok) throw new Error('bad');
+    const data = await res.json(); // { items, total }
+    return data;
+  } catch {
+    // 폴백: 로컬
+    const all = listActivities(1000); // 기존 로컬 최신 N
+    const total = all.length;
+    const start = page * size;
+    const items = all.slice(start, start + size);
+    return { items, total };
+  }
+}
+
 
 // ✅ 서버 세션으로 authUser 채워 넣어, 다른 서브도메인에서 기록된 활동도 읽을 수 있게
 export async function ensureActivityNs() {
@@ -155,24 +166,34 @@ function migrateLegacyIfAny(nsStr) {
 /* ── public API ────────────────────── */
 
 /** 활동 기록 추가 (계정별 저장) */
-export function logActivity(type, payload = {}) {
+export async function logActivity(type, payload = {}) {
+  // 1) 로컬(즉시 반영: 기존 로직)
   const n = ns();
-  if (!n) return null; // 비로그인은 기록 안 함(원하면 anon 등으로 바꿔도 됨)
-  migrateLegacyIfAny(n);
+  if (n) {
+    migrateLegacyIfAny(n);
+    const ts = nowMs();
+    const item = {
+      id: `${ts}-${Math.random().toString(36).slice(2, 8)}`,
+      type: String(type || "unknown"),
+      ts,
+      data: (payload && typeof payload === "object") ? payload : {},
+    };
+    const arr = readRaw(n);
+    const dedup = arr.filter(a => a?.id !== item.id);
+    dedup.unshift(item);
+    writeRaw(n, dedup);
+  }
 
-  const ts = nowMs();
-  const item = {
-    id: `${ts}-${Math.random().toString(36).slice(2, 8)}`,
-    type: String(type || "unknown"),
-    ts,
-    data: (payload && typeof payload === "object") ? payload : {},
-  };
-
-  const arr = readRaw(n);
-  const dedup = arr.filter(a => a?.id !== item.id);
-  dedup.unshift(item);
-  writeRaw(n, dedup);
-  return item; // ✅ 생성된 아이템을 반환
+  // 2) 서버(실패해도 무시)
+  try {
+    await apiFetch('/api/activity', {
+      method: 'POST',
+      body: JSON.stringify({ type, data: payload }),
+      headers: { 'Content-Type': 'application/json' }
+    });
+  } catch {
+    // 서버 실패는 조용히 무시 (네트워크·401 등)
+  }
 }
 
 /** 활동 목록 가져오기 (계정별 최신순) */
