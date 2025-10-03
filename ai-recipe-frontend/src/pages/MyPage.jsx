@@ -429,19 +429,6 @@ useEffect(() => {
 
    
 
-    const onStorage = (e) => {
-      if (!e || !e.key) return;
-      if (e.key.startsWith(`postBookmark:${uid}:${provider}:`) || e.key.startsWith(`postBookmarkData:${uid}:${provider}:`)) {
-        pull();
-      } else if (e.key.startsWith('postBookmark:') || e.key.startsWith('postBookmarkData:')) {
-        /* 다른 탭이 레거시로 쓴 경우 바로 흡수 */
-        adoptLegacyBookmarks(uid, provider);
-        pull();
-      }
-    };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, [currentUid, currentProvider]);
 
   function onUnbookmark(e, postId) {
     if (e) { e.preventDefault(); e.stopPropagation(); }
