@@ -41,9 +41,9 @@ function getAuthSafe() {
     const u = JSON.parse(raw);
     if (!u || !u.authenticated) return null;
     const uid = u.uid ?? u.id ?? u.userId ?? u.user_id ?? null;
-    const provider = u.provider ?? null;
-    if (!uid || !provider) return null;
-    return { uid: String(uid), provider: String(provider) };
+    const provider = u.provider ?? "local";
+    if (!uid) return null;
+    return { uid: String(uid), provider: String(provider || "local") };
   } catch { return null; }
 }
 
