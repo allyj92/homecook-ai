@@ -8,22 +8,34 @@ import '../index.css';
 /* ---------------- 목록 프리뷰 전용 텍스트 정리 ---------------- */
 function makePreviewText(input, maxLen = 120) {
   if (!input) return '';
+
   let s = String(input);
 
-  // 1) 마크다운/HTML 이미지/링크 제거
-  s = s.replace(/!\[[^\]]*\]\([^)]+\)/g, '');                 // md 이미지
-  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, t) => t);    // md 링크 → 텍스트
-  s = s.replace(/<img[^>]*>/gi, '');                          // html 이미지
-  s = s.replace(/<a[^>]*>(.*?)<\/a>/gi, (_m, t) => t);        // html a → 텍스트
+  // 1) 마크다운 이미지: alt 살리기
+  //    예) ![컵케이크](https://...) -> "컵케이크"
+  s = s.replace(/!\[([^\]]*)]\(([^)]+)\)/g, (_m, alt) => (alt || '').trim());
 
-  // 2) URL 자체 제거
+  // 2) 마크다운 링크: 링크 텍스트만 유지
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, text) => (text || '').trim());
+
+  // 3) HTML <img> alt 살리기
+  //    alt가 없으면 공백
+  s = s.replace(/<img[^>]*alt=["']?([^"'>]*)["']?[^>]*>/gi, (_m, alt) => (alt || '').trim());
+
+  // 4) HTML <a> 텍스트만 유지
+  s = s.replace(/<a[^>]*>(.*?)<\/a>/gi, (_m, inner) => (inner || '').trim());
+
+  // 5) URL 자체 제거
   s = s.replace(/\bhttps?:\/\/[^\s)]+/gi, '');
   s = s.replace(/\bwww\.[^\s)]+/gi, '');
 
-  // 3) 잔여 태그/마크다운 기호 정리
+  // 6) 남은 태그/마크다운 문법 기호 정리
   s = s.replace(/<\/?[^>]+>/g, ' ');
   s = s.replace(/[#>*`_~\-]{1,}/g, ' ');
   s = s.replace(/\s+/g, ' ').trim();
+
+  // 7) 완전 비면 대체 문구
+  if (!s) s = '이미지 첨부';
 
   if (s.length > maxLen) s = s.slice(0, maxLen) + '…';
   return s;
