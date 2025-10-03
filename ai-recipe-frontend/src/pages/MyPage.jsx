@@ -5,7 +5,8 @@ import BottomNav from '../components/BottomNav';
 import { apiFetch } from '../lib/http';
 import { listFavoritesSimple, removeFavorite } from '../lib/wishlist';
 import { getMyPosts } from '../api/community';
-import { listActivities, subscribeActivity, formatActivityText, logActivity } from '../lib/activity';
+import { listActivities, subscribeActivity, formatActivityText, formatActivityHref } from '../lib/activity';
+
 
 /* 숫자 ID만 허용(최대 19자리: Long 범위) */
 function isNumericId(id) {
@@ -745,12 +746,20 @@ export default function MyPage() {
               <div className="p-4 text-center text-secondary">아직 활동 내역이 없어요.</div>
             ) : (
               <ul className="list-group list-group-flush">
-                {activities.map((a) => (
-                  <li key={a.id} className="list-group-item d-flex justify-content-between">
-                    <span>{formatActivityText(a)}</span>
-                    <small className="text-secondary">{new Date(a.ts).toLocaleString()}</small>
-                  </li>
-                ))}
+                {activities.map((a) => {
+                  const href = formatActivityHref(a);
+                  const text = formatActivityText(a);
+                  return (
+                    <li key={a.id} className="list-group-item d-flex justify-content-between">
+                      <span>
+                        {href
+                          ? <Link to={href} className="text-decoration-none">{text}</Link>
+                          : text}
+                      </span>
+                      <small className="text-secondary">{new Date(a.ts).toLocaleString()}</small>
+                    </li>
+                  );
+                      })}
               </ul>
             )}
           </div>
