@@ -2,21 +2,20 @@ package com.homecook.ai_recipe.controller;
 
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
 
 @Controller
 public class SpaForwardController {
-    // 제외할 1뎁스 경로들(백엔드/정적자원 prefix)
-    private static final String NOT_SPA = "^(?!(?:api|oauth2|login|logout|error|assets|static|css|js|images|fonts)$).*$";
 
-    // /activity, /community, /mypage 같은 1뎁스 경로
-    @GetMapping("/{path:" + NOT_SPA + "}")
-    public String forward1() {
+    // ① 1단계 경로: /mypage 같은 단일 세그먼트
+    @GetMapping("/{path:^(?!(api|oauth2|login|logout|actuator|error|assets|static|css|js|images|fonts)$).+}")
+    public String forwardSingle() {
         return "forward:/index.html";
     }
 
-    // /community/123 처럼 2뎁스 이상 경로
-    @GetMapping("/{path:" + NOT_SPA + "}/**")
-    public String forward2() {
+    // ② 다단계 경로: /mypage/settings 처럼 첫 세그먼트만 필터링하고 나머지는 ** 로 받음 (마지막 요소가 ** 여야 함)
+    @GetMapping("/{path:^(?!(api|oauth2|login|logout|actuator|error|assets|static|css|js|images|fonts)$).+}/**")
+    public String forwardMulti() {
         return "forward:/index.html";
     }
 }

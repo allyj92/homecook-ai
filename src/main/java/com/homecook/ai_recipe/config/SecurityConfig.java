@@ -102,21 +102,12 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.ignoringRequestMatchers("/api/**"))
                 .securityContext(ctx -> ctx.securityContextRepository(securityContextRepository()))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers("/", "/favicon.ico", "/assets/**", "/static/**", "/css/**", "/js/**", "/images/**").permitAll()
-                        .requestMatchers("/oauth2/**", "/login/oauth2/code/**").permitAll()
-
-                        // 로컬 가입/로그인 엔드포인트는 명시적으로 열기
-                        .requestMatchers("/api/auth/local/**").permitAll()
-
-                        // 기타 auth 유틸성 엔드포인트
-                        .requestMatchers("/api/auth/**").permitAll()
-
-                        .requestMatchers("/api/me/**").authenticated()
-                        .requestMatchers(HttpMethod.GET, "/api/community/posts", "/api/community/posts/*").permitAll()
-                        .requestMatchers("/api/community/**").authenticated()
-                        .requestMatchers("/files/**").permitAll()
-                        .requestMatchers("/api/upload").authenticated()
+                        .requestMatchers("/", "/index.html", "/assets/**", "/static/**",
+                                "/css/**", "/js/**", "/images/**",
+                                "/favicon.ico", "/manifest.webmanifest",
+                                "/robots.txt", "/error").permitAll()
+                        // API는 프로젝트 정책에 맞게 (예: 공개 읽기/인증 필요 쓰기)
+                        .requestMatchers("/api/**").permitAll() // 필요 시 조정
                         .anyRequest().permitAll()
                 )
 

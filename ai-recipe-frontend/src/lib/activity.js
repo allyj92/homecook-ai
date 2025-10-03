@@ -1,64 +1,10 @@
-import { apiFetch } from './http';
+
 
 // src/lib/activity.js
 const LS_PREFIX = "rf:activity";           // rf:activity:<uid>:<provider>
 const LEGACY_KEY = "activityLog:v1";       // 이전 단일 키(마이그레이션 대상)
 const EVT = "activity:changed";
 const MAX = 300;
-
-
-
-// ✅ 활동 페이지네이션
-export function listActivitiesPaged(page = 0, size = 20) {
-  // 서버 우선
-  // 동기 API가 필요하면 호출부를 async로 바꾸고 await 하세요.
-  // 여기서는 간단히 동기 형태를 유지하기 위해 "서버 요청은 호출부에서 별도로"가 정석이지만,
-  // 프로젝트 대부분이 동기식 사용이라면 아래 즉시 반환 + 내부 self-refresh 패턴으로 운영 가능.
-  // ---- 권장: 호출부에서 async/await로 불러오기 ----
-  throw new Error('Use listActivitiesPagedAsync instead');
-}
-
-export async function listActivitiesPagedAsync(page = 0, size = 20) {
-  try {
-    const res = await apiFetch(`/api/activity?page=${page}&size=${size}`, { credentials: 'include' });
-    if (res.status === 401) throw new Error('unauth');
-    if (!res.ok) throw new Error('bad');
-    const data = await res.json(); // { items, total }
-    return data;
-  } catch {
-    // 폴백: 로컬
-    const all = listActivities(1000); // 기존 로컬 최신 N
-    const total = all.length;
-    const start = page * size;
-    const items = all.slice(start, start + size);
-    return { items, total };
-  }
-}
-
-
-// ✅ 서버 세션으로 authUser 채워 넣어, 다른 서브도메인에서 기록된 활동도 읽을 수 있게
-export async function ensureActivityNs() {
-  // 이미 있으면 패스
-  if (getAuthSafe()) return true;
-  try {
-    const res = await fetch('/api/auth/me', { credentials: 'include', cache: 'no-store' });
-    if (!res.ok) return false;
-    const me = await res.json();
-    if (me?.authenticated) {
-      try { localStorage.setItem('authUser', JSON.stringify(me)); } catch {}
-      return true;
-    }
-  } catch {}
-  return false;
-}
-
-// ✅ 전체 개수만 필요할 때
-export function countActivities() {
-  const n = ns();
-  if (!n) return 0;
-  migrateLegacyIfAny(n);
-  return readRaw(n).length;
-}
 
 /* ── utils ─────────────────────────── */
 function hasStorage() {
@@ -67,39 +13,18 @@ function hasStorage() {
 function nowMs() { return Date.now ? Date.now() : new Date().getTime(); }
 function safeJson(s) { try { return JSON.parse(s); } catch { return null; } }
 
-/* 텍스트 프리뷰(마크다운/HTML/URL 제거 + 공백 정리) */
-function toPreviewText(input, maxLen = 60) {
-  if (!input) return "";
-  let s = String(input);
-  // md 이미지/링크 제거·치환
-  s = s.replace(/!\[[^\]]*?\]\([^)]+\)/g, "");                // 이미지 제거
-  s = s.replace(/\[([^\]]+?)\]\(([^)]+)\)/g, (_m, t) => t);   // 링크 → 텍스트
-  // html 태그 제거
-  s = s.replace(/<img[^>]*?>/gi, "");
-  s = s.replace(/<a[^>]*?>(.*?)<\/a>/gi, (_m, t) => t);
-  s = s.replace(/<\/?[^>]+?>/g, " ");
-  // url 제거
-  s = s.replace(/\bhttps?:\/\/\S+/gi, "");
-  s = s.replace(/\bwww\.\S+/gi, "");
-  // 잔여 md 기호/공백 정리
-  s = s.replace(/[#>*`_~\-]{1,}/g, " ").replace(/\s+/g, " ").trim();
-  if (s.length > maxLen) s = s.slice(0, maxLen) + "…";
-  return s;
-}
-
 /* 현재 로그인 사용자 (localStorage.authUser 기준) */
 function getAuthSafe() {
   if (!hasStorage()) return null;
   try {
-    // localStorage 우선, 없으면 sessionStorage도 시도
-    const raw = localStorage.getItem("authUser") || (sessionStorage && sessionStorage.getItem("authUser"));
+    const raw = localStorage.getItem("authUser");
     if (!raw) return null;
     const u = JSON.parse(raw);
     if (!u || !u.authenticated) return null;
     const uid = u.uid ?? u.id ?? u.userId ?? u.user_id ?? null;
-    const provider = u.provider ?? "local";
-    if (!uid) return null;
-    return { uid: String(uid), provider: String(provider || "local") };
+    const provider = u.provider ?? null;
+    if (!uid || !provider) return null;
+    return { uid: String(uid), provider: String(provider) };
   } catch { return null; }
 }
 
@@ -159,44 +84,63 @@ function migrateLegacyIfAny(nsStr) {
     writeRaw(nsStr, merged);
     localStorage.removeItem(LEGACY_KEY);
   } catch {
-    // 읽기 실패해도 깔끔히 무시
+    // 무시
   }
 }
 
 /* ── public API ────────────────────── */
 
-/** 활동 기록 추가 (계정별 저장) */
-export async function logActivity(type, payload = {}) {
-  // 1) 로컬(즉시 반영: 기존 로직)
-  const n = ns();
-  if (n) {
-    migrateLegacyIfAny(n);
-    const ts = nowMs();
-    const item = {
-      id: `${ts}-${Math.random().toString(36).slice(2, 8)}`,
-      type: String(type || "unknown"),
-      ts,
-      data: (payload && typeof payload === "object") ? payload : {},
-    };
-    const arr = readRaw(n);
-    const dedup = arr.filter(a => a?.id !== item.id);
-    dedup.unshift(item);
-    writeRaw(n, dedup);
-  }
-
-  // 2) 서버(실패해도 무시)
+/** 🔑 백엔드 세션을 localStorage.authUser 로 보정 (서브도메인/리프레시 후 동기화) */
+export async function ensureActivityNs() {
+  if (!hasStorage()) return;
   try {
-    await apiFetch('/api/activity', {
-      method: 'POST',
-      body: JSON.stringify({ type, data: payload }),
-      headers: { 'Content-Type': 'application/json' }
-    });
+    const res = await fetch("/api/auth/me", { credentials: "include", cache: "no-store" });
+    if (!res.ok) return;
+    const me = await res.json();
+    if (!me?.authenticated) return;
+
+    const next = {
+      authenticated: true,
+      uid: me.uid ?? me.id ?? me.userId ?? me.user_id,
+      provider: me.provider ?? me.authProvider ?? me.oauthProvider,
+      email: me.email ?? null,
+      name: me.name ?? null,
+      avatar: me.avatar ?? me.picture ?? null,
+    };
+    if (!next.uid || !next.provider) return;
+
+    const prevRaw = localStorage.getItem("authUser");
+    const prev = prevRaw ? safeJson(prevRaw) : null;
+    if (!prev || prev.uid !== next.uid || prev.provider !== next.provider || !prev.authenticated) {
+      localStorage.setItem("authUser", JSON.stringify(next));
+      try { window.dispatchEvent(new Event("auth:changed")); } catch {}
+    }
   } catch {
-    // 서버 실패는 조용히 무시 (네트워크·401 등)
+    // 네트워크 오류 무시
   }
 }
 
-/** 활동 목록 가져오기 (계정별 최신순) */
+/** 활동 기록 추가 (계정별 저장) */
+export function logActivity(type, payload = {}) {
+  const n = ns();
+  if (!n) return; // 비로그인은 기록 안 함
+  migrateLegacyIfAny(n);
+
+  const ts = nowMs();
+  const item = {
+    id: `${ts}-${Math.random().toString(36).slice(2, 8)}`,
+    type: String(type || "unknown"),
+    ts,
+    data: (payload && typeof payload === "object") ? payload : {},
+  };
+
+  const arr = readRaw(n);
+  const dedup = arr.filter(a => a?.id !== item.id);
+  dedup.unshift(item);
+  writeRaw(n, dedup);
+}
+
+/** 활동 목록 가져오기 (최신순, limit) */
 export function listActivities(limit = 50) {
   const n = ns();
   if (!n) return [];
@@ -209,12 +153,37 @@ export function listActivities(limit = 50) {
   return arr.slice(0, lim);
 }
 
+/** 페이지네이션(동기) */
+export function listActivitiesPaged(page = 0, size = 20) {
+  const n = ns();
+  if (!n) return { items: [], total: 0 };
+  migrateLegacyIfAny(n);
+
+  const arr = readRaw(n)
+    .filter(Boolean)
+    .sort((a, b) => (b?.ts || 0) - (a?.ts || 0));
+
+  const total = arr.length;
+  const p = Math.max(0, page | 0);
+  const s = Math.max(1, size | 0);
+  const start = p * s;
+  const end = Math.min(start + s, total);
+  const items = start >= total ? [] : arr.slice(start, end);
+  return { items, total };
+}
+
+/** 페이지네이션(비동기) – 추후 서버 저장 전환을 대비해 Promise 형태로 제공 */
+export async function listActivitiesPagedAsync(page = 0, size = 20) {
+  // 서버 저장으로 바꾸면 여기에서 /api/activity?page=&size= 호출하도록 교체
+  return listActivitiesPaged(page, size);
+}
+
 /** 변경 이벤트 구독 (동일 탭: 커스텀 EVT, 다른 탭: storage) */
 export function subscribeActivity(handler) {
   const safe = () => { try { handler(); } catch {} };
   const onStorage = (e) => {
     try {
-      if (!e || (e.key && !e.key.startsWith(`${LS_PREFIX}:`) && e.key !== LEGACY_KEY)) return;
+      if (!e || (e.key && !e.key.startsWith(`${LS_PREFIX}:`) && e.key !== LEGACY_KEY && e.key !== "authUser")) return;
       safe();
     } catch {}
   };
@@ -226,62 +195,42 @@ export function subscribeActivity(handler) {
   };
 }
 
-/** 추천 이동 링크 (UI에서 사용하고 싶을 때) */
-export function formatActivityHref(a) {
-  const d = a?.data || {};
-  switch (a?.type) {
-    case "post_create":
-    case "post_update":
-    case "post_delete":
-    case "post_like":
-    case "post_bookmark":
-    case "comment_create":
-    case "comment_update":
-    case "comment_delete":
-    case "comment_like":
-      return d.postId != null ? `/community/${d.postId}` : null;
-    case "favorite_add":
-    case "favorite_remove":
-      return d.recipeId != null ? `/result?id=${encodeURIComponent(d.recipeId)}` : null;
-    default:
-      return null;
-  }
-}
-
 /** UI용 텍스트 */
 export function formatActivityText(a) {
   const t = a?.type;
   const d = a?.data || {};
   const postLabel = d.title ?? (d.postId != null ? `게시글 #${d.postId}` : "게시글");
   const recipeLabel = d.title ?? (d.recipeId != null ? `#${d.recipeId}` : "");
-  const preview = toPreviewText(d.preview || d.content || "");
 
   switch (t) {
-    // 글
-    case "post_create":     return `글 작성: ‘${postLabel}’`;
-    case "post_update":     return `글 수정: ‘${postLabel}’`;
-    case "post_delete":     return `글 삭제: ‘${postLabel}’`;
-    case "post_like":       return d.on ? `‘${postLabel}’에 좋아요` : `‘${postLabel}’ 좋아요 취소`;
-    case "post_bookmark":   return d.on ? `‘${postLabel}’ 북마크`   : `‘${postLabel}’ 북마크 해제`;
-
-    // 레시피 찜
-    case "favorite_add":    return `레시피 ‘${recipeLabel}’ 저장`;
-    case "favorite_remove": return `레시피 ‘${recipeLabel}’ 저장 해제`;
-
-    // ✅ 댓글
+    case "post_like":
+      return d.on ? `‘${postLabel}’에 좋아요` : `‘${postLabel}’ 좋아요 취소`;
+    case "post_bookmark":
+      return d.on ? `‘${postLabel}’ 북마크` : `‘${postLabel}’ 북마크 해제`;
     case "comment_create":
     case "comment_add":
-      return preview ? `‘${postLabel}’에 댓글: ${preview}` : `‘${postLabel}’에 댓글 작성`;
-    case "comment_update":
-      return preview ? `‘${postLabel}’ 댓글 수정: ${preview}` : `‘${postLabel}’ 댓글 수정`;
-    case "comment_delete":
-      return `‘${postLabel}’ 댓글 삭제`;
-    case "comment_like":
-      return d.on ? "댓글에 좋아요" : "댓글 좋아요 취소";
-
+      return `‘${postLabel}’에 댓글 작성`;
+    case "favorite_add":
+      return `레시피 ‘${recipeLabel}’ 저장`;
+    case "favorite_remove":
+      return `레시피 ‘${recipeLabel}’ 저장 해제`;
+    case "post_create":
+      return `글 작성: ‘${postLabel}’`;
+    case "post_delete":
+      return `글 삭제: ‘${postLabel}’`;
     default:
       return d.title ? `${t} · ${d.title}` : String(t || "활동");
   }
+}
+
+/** 항목별 링크(있으면 클릭 이동) */
+export function formatActivityHref(a) {
+  const t = a?.type;
+  const d = a?.data || {};
+  if (!t || !d) return null;
+  if (d.postId) return `/community/${d.postId}`;
+  if (d.recipeId) return `/result?id=${encodeURIComponent(d.recipeId)}`;
+  return null;
 }
 
 /** 현재 로그인 계정의 활동만 초기화 (레거시 키도 함께 제거) */
