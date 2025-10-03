@@ -427,38 +427,7 @@ useEffect(() => {
   };
 }, [currentUid, currentProvider]);
 
-    /* 메타 최신화 */
-    (async () => {
-      try {
-        const raw = loadBookmarksFromLS(uid, provider);
-        const ids = raw.slice(0, 20).map((b) => b.id);
-        if (!ids.length) return;
-        for (let i = 0; i < ids.length; i += 4) {
-          const chunk = ids.slice(i, i + 4);
-          const results = await Promise.allSettled(chunk.map((id) => getPostById(id)));
-          results.forEach((r) => {
-            if (r.status !== 'fulfilled' || !r.value) return;
-            const p = r.value;
-            const updatedAt = p.updatedAt ?? p.updated_at ?? p.createdAt ?? p.created_at ?? null;
-            try {
-              localStorage.setItem(
-                bmDataKey(uid, provider, p.id),
-                JSON.stringify({
-                  id: String(p.id),
-                  title: p.title,
-                  category: p.category,
-                  createdAt: p.createdAt ?? p.created_at,
-                  updatedAt,
-                  repImageUrl: withVersion(normalizeCoverUrl(p.repImageUrl ?? p.rep_image_url ?? null), updatedAt),
-                  youtubeId: p.youtubeId ?? p.youtube_id ?? null,
-                })
-              );
-            } catch {}
-          });
-        }
-        setBookmarks(loadBookmarksFromLS(uid, provider));
-      } catch {}
-    })();
+   
 
     const onStorage = (e) => {
       if (!e || !e.key) return;
