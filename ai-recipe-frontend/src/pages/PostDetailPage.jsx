@@ -1,5 +1,5 @@
 // src/pages/PostDetailPage.jsx
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import "bootstrap/dist/css/bootstrap.min.css";
 import BottomNav from "../components/BottomNav";
@@ -11,16 +11,42 @@ import { logActivity } from "../lib/activity";
 import MarkdownIt from "markdown-it";
 import DOMPurify from "dompurify";
 
+import CommentList from "../components/CommentList";
+import CommentEditor from "../components/CommentEditor";
+
+/* ── MarkdownIt 설정 ───────────────────────────────────── */
 const md = new MarkdownIt({
-  html: false,   // 생 HTML 금지
-  linkify: false, // URL 자동 링크
-  breaks: true,  // 줄바꿈 -> <br>
+  html: false,     // 생 HTML 금지
+  linkify: true,   // 텍스트 URL을 자동 링크
+  breaks: true,    // 줄바꿈 -> <br>
 });
+
+// 링크를 새 탭으로 열고 안전 속성 부여
+const defaultLinkOpen =
+  md.renderer.rules.link_open ||
+  function (tokens, idx, options, env, self) {
+    return self.renderToken(tokens, idx, options);
+  };
+md.renderer.rules.link_open = function (tokens, idx, options, env, self) {
+  const tIdx = tokens[idx].attrIndex("target");
+  if (tIdx < 0) tokens[idx].attrPush(["target", "_blank"]);
+  else tokens[idx].attrs[tIdx][1] = "_blank";
+
+  const rIdx = tokens[idx].attrIndex("rel");
+  if (rIdx < 0) tokens[idx].attrPush(["rel", "noopener noreferrer nofollow"]);
+  else tokens[idx].attrs[rIdx][1] = "noopener noreferrer nofollow";
+  return defaultLinkOpen(tokens, idx, options, env, self);
+};
+
 const ALLOWED_TAGS = [
   "p","br","blockquote","pre","code","span","strong","em","ul","ol","li",
   "a","img","h1","h2","h3","h4","h5","h6","hr","table","thead","tbody","tr","th","td"
 ];
-const ALLOWED_ATTR = ["href","target","rel","src","alt","title"];
+const ALLOWED_ATTR = [
+  "href","target","rel","src","alt","title",
+  // 이미지 품질/접근성
+  "loading","width","height"
+];
 
 /* ---- 유틸 ---- */
 const handleFromEmail = (email) => (email ? "@" + String(email).split("@")[0] : null);
@@ -40,7 +66,6 @@ function normalizePost(raw) {
   const id = d.id ?? d.postId ?? null;
   const email = d.authorEmail ?? d.author_email ?? d.userEmail ?? d.user_email ?? null;
 
-  // ✅ 서버가 내려주는 작성자 표시용 필드 사용 (없으면 이메일/ID로 폴백)
   const authorName   = d.authorName   ?? d.author_name   ?? nameFromEmail(email) ?? (id ? `작성자#${d.authorId ?? d.userId ?? ""}` : "");
   const authorAvatar = d.authorAvatar ?? d.author_avatar ?? null;
   const authorHandle = d.authorHandle ?? d.author_handle ?? handleFromEmail(email);
@@ -96,11 +121,9 @@ const likeKey = (uid, provider, id) => `postLike:${uid}:${provider}:${id}`;
 const bmKey = (uid, provider, id) => `postBookmark:${uid}:${provider}:${id}`;
 const bmDataKey = (uid, provider, id) => `postBookmarkData:${uid}:${provider}:${id}`;
 
-/* 레거시 키 흡수 → post*:<uid>:<provider>:<id> */
 function migrateLegacyForThisPost(uid, provider, postId) {
   if (!uid || !provider || !postId) return;
   try {
-    // 1) 완전 레거시(아이디만)
     const legacyBM = `postBookmark:${postId}`;
     const legacyBMD = `postBookmarkData:${postId}`;
     const v1 = localStorage.getItem(legacyBM);
@@ -114,7 +137,6 @@ function migrateLegacyForThisPost(uid, provider, postId) {
       localStorage.removeItem(legacyBMD);
     }
 
-    // 2) uid만 있는 중간 버전
     const midBM = `postBookmark:${uid}:${postId}`;
     const midBMD = `postBookmarkData:${uid}:${postId}`;
     const midLike = `postLike:${uid}:${postId}`;
@@ -137,7 +159,7 @@ function migrateLegacyForThisPost(uid, provider, postId) {
 }
 
 export default function PostDetailPage() {
-  console.log("PostDetail LOADED v-2025-09-23-authorMeta");
+  console.log("PostDetail LOADED v-2025-10-01-md+comments");
 
   const { id } = useParams();
   const navigate = useNavigate();
@@ -277,15 +299,20 @@ export default function PostDetailPage() {
       (!!post?.authorEmail && post.authorEmail === auth.user.email)
     );
 
-  // ✅ 마크다운 → HTML (이미지/링크 허용, 나머지 정화)
+  /* ✅ 마크다운 → 안전한 HTML */
   const renderedHtml = useMemo(() => {
     const raw = md.render(post?.content || "");
-    return DOMPurify.sanitize(raw, {
+    // 이미지에 lazy 부여를 위해 간단 치환(허용된 attr만 DOMPurify가 남김)
+    const lazyRaw = raw.replaceAll("<img ", '<img loading="lazy" ');
+    return DOMPurify.sanitize(lazyRaw, {
       ALLOWED_TAGS,
       ALLOWED_ATTR,
       USE_PROFILES: { html: true },
     });
   }, [post?.content]);
+
+  // 댓글 목록 리프레시 트리거
+  const [commentsVersion, setCommentsVersion] = useState(0);
 
   if (loadingPost) {
     return (
@@ -402,31 +429,26 @@ export default function PostDetailPage() {
           <hr />
 
           {/* ✅ 마크다운을 이미지 포함 HTML로 렌더링 */}
-          <div
-            className="mt-2 post-content"
-            dangerouslySetInnerHTML={{ __html: renderedHtml }}
-          />
-          {!post.content && <span className="text-secondary">내용이 비어 있습니다.</span>}
+          {post.content ? (
+            <div
+              className="mt-2 post-content"
+              dangerouslySetInnerHTML={{ __html: renderedHtml }}
+            />
+          ) : (
+            <span className="text-secondary">내용이 비어 있습니다.</span>
+          )}
 
-          {!auth.loading && (
-            auth.user ? (
-              <div className="mt-4" id="comment-editor">
-                <label className="form-label">댓글</label>
-                <textarea className="form-control" rows="4" placeholder="댓글을 입력하세요..." />
-                <div className="text-end mt-2">
-                  <button
-                    className="btn btn-success"
-                    onClick={() => {
-                      logActivity("comment_create", { postId: post.id, title: post.title });
-                      alert("댓글 등록(예시)");
-                    }}
-                  >
-                    등록
-                  </button>
-                </div>
-              </div>
+          {/* ✅ 댓글 섹션 */}
+          <section className="mt-4" id="comments">
+            <h2 className="h6 mb-3">댓글</h2>
+
+            {!auth.loading && auth.user ? (
+              <CommentEditor
+                postId={post.id}
+                onCreated={() => setCommentsVersion((v) => v + 1)}
+              />
             ) : (
-              <div className="mt-4 alert alert-light border d-flex justify-content-between align-items-center">
+              <div className="alert alert-light border d-flex justify-content-between align-items-center">
                 <span className="text-secondary">댓글을 쓰려면 로그인하세요.</span>
                 <button
                   className="btn btn-success"
@@ -438,12 +460,14 @@ export default function PostDetailPage() {
                   로그인
                 </button>
               </div>
-            )
-          )}
+            )}
+
+            <CommentList key={commentsVersion} postId={post.id} pageSize={20} />
+          </section>
         </div>
       </article>
 
-      <div className="text-center text-secondary small mt-2">PostDetail v-2025-09-23-authorMeta</div>
+      <div className="text-center text-secondary small mt-2">PostDetail v-2025-10-01</div>
 
       <footer className="text-center text-secondary mt-4">
         <div className="small">* 커뮤니티 내 일부 링크는 제휴/광고일 수 있으며, 구매 시 수수료를 받을 수 있습니다.</div>
