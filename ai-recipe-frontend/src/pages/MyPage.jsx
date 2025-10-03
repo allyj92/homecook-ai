@@ -379,10 +379,18 @@ useEffect(() => {
       if (!ids.length) return;
       for (let i = 0; i < ids.length; i += 4) {
         const chunk = ids.slice(i, i + 4);
-        const results = await Promise.allSettled(chunk.map((id) => getPostById(id)));
-        results.forEach((r) => {
-          if (r.status !== 'fulfilled' || !r.value) return;
-          const p = r.value;
+         const results = await Promise.allSettled(chunk.map((id) => getPostById(id)));
+       results.forEach((r, idx) => {
+         const thisId = String(chunk[idx]);
+         // ❌ 글이 사라졌으면 해당 북마크 정리
+         if (r.status !== 'fulfilled' || !r.value) {
+           try {
+             localStorage.setItem(bmKey(uid, provider, thisId), '0');
+             localStorage.removeItem(bmDataKey(uid, provider, thisId));
+           } catch {}
+           return;
+         }
+         const p = r.value;
           const updatedAt = p.updatedAt ?? p.updated_at ?? p.createdAt ?? p.created_at ?? null;
           try {
             localStorage.setItem(
