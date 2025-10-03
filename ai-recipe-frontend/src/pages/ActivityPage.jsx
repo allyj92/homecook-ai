@@ -8,6 +8,7 @@ import {
   subscribeActivity,
   formatActivityText,
   formatActivityHref,
+  ensureActivityNs,        // ✅ 추가
 } from '../lib/activity';
 
 const PAGE_SIZE = 20;
@@ -34,9 +35,11 @@ export default function ActivityPage() {
       { replace: true }
     );
 
-  const load = () => {
+  const load = async () => {
     setLoading(true);
     try {
+      // ✅ 백엔드 세션 → localStorage.authUser 동기화 (서브도메인 이슈 방지)
+      await ensureActivityNs();
       const { items, total } = listActivitiesPaged(page, PAGE_SIZE);
       setItems(items);
       setTotal(total);
@@ -47,7 +50,7 @@ export default function ActivityPage() {
 
   // 페이지 변경 시 로드 + 스크롤 상단
   useEffect(() => {
-    load();
+    (async () => { await load(); })();
     window.scrollTo(0, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
@@ -59,11 +62,11 @@ export default function ActivityPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [total]);
 
-  // 다른 탭/동일 탭에서 활동이 추가되면 1페이지로 이동(최신이 위로 쌓이기 때문)
+  // 다른 탭/동일 탭에서 활동이 추가되면 1페이지로 이동(최신이 위)
   useEffect(() => {
-    const off = subscribeActivity(() => {
+    const off = subscribeActivity(async () => {
       if (page !== 0) goPage(0);
-      else load();
+      else await load();
     });
     return off;
     // eslint-disable-next-line react-hooks/exhaustive-deps
