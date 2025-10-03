@@ -350,26 +350,82 @@ export default function MyPage() {
   };
 
   /* 북마크 로드/동기화 */
-  useEffect(() => {
-    if (!currentUid || !currentProvider) {
-      setBookmarks([]);
-      return;
+useEffect(() => {
+  if (!currentUid || !currentProvider) {
+    setBookmarks([]);
+    return;
+  }
+  const uid = String(currentUid);
+  const provider = String(currentProvider);
+
+  /* 레거시 → 새 포맷으로 이동 */
+  adoptLegacyBookmarks(uid, provider);
+
+  const pull = () => {
+    setBmLoading(true);
+    try {
+      setBookmarks(loadBookmarksFromLS(uid, provider));
+    } finally {
+      setBmLoading(false);
     }
-    const uid = String(currentUid);
-    const provider = String(currentProvider);
+  };
+  pull();
 
-    /* 레거시 → 새 포맷으로 이동 */
-    adoptLegacyBookmarks(uid, provider);
-
-    const pull = () => {
-      setBmLoading(true);
-      try {
-        setBookmarks(loadBookmarksFromLS(uid, provider));
-      } finally {
-        setBmLoading(false);
+  /* 메타 최신화 */
+  (async () => {
+    try {
+      const raw = loadBookmarksFromLS(uid, provider);
+      const ids = raw.slice(0, 20).map((b) => b.id);
+      if (!ids.length) return;
+      for (let i = 0; i < ids.length; i += 4) {
+        const chunk = ids.slice(i, i + 4);
+        const results = await Promise.allSettled(chunk.map((id) => getPostById(id)));
+        results.forEach((r) => {
+          if (r.status !== 'fulfilled' || !r.value) return;
+          const p = r.value;
+          const updatedAt = p.updatedAt ?? p.updated_at ?? p.createdAt ?? p.created_at ?? null;
+          try {
+            localStorage.setItem(
+              bmDataKey(uid, provider, p.id),
+              JSON.stringify({
+                id: String(p.id),
+                title: p.title,
+                category: p.category,
+                createdAt: p.createdAt ?? p.created_at,
+                updatedAt,
+                repImageUrl: withVersion(normalizeCoverUrl(p.repImageUrl ?? p.rep_image_url ?? null), updatedAt),
+                youtubeId: p.youtubeId ?? p.youtube_id ?? null,
+              })
+            );
+          } catch {}
+        });
       }
-    };
-    pull();
+      setBookmarks(loadBookmarksFromLS(uid, provider));
+    } catch {}
+  })();
+
+  const onStorage = (e) => {
+    if (!e || !e.key) return;
+    if (e.key.startsWith(`postBookmark:${uid}:${provider}:`) || e.key.startsWith(`postBookmarkData:${uid}:${provider}:`)) {
+      pull();
+    } else if (e.key.startsWith('postBookmark:') || e.key.startsWith('postBookmarkData:')) {
+      /* 다른 탭이 레거시로 쓴 경우 바로 흡수 */
+      adoptLegacyBookmarks(uid, provider);
+      pull();
+    }
+  };
+
+  /* ✅ 같은 탭에서 즉시 반영 */
+  const onBookmarkChanged = () => pull();
+
+  window.addEventListener('storage', onStorage);
+  window.addEventListener('bookmark-changed', onBookmarkChanged);
+
+  return () => {
+    window.removeEventListener('storage', onStorage);
+    window.removeEventListener('bookmark-changed', onBookmarkChanged);
+  };
+}, [currentUid, currentProvider]);
 
     /* 메타 최신화 */
     (async () => {

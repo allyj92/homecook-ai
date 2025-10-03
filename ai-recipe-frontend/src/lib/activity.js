@@ -1,5 +1,3 @@
-
-
 // src/lib/activity.js
 const LS_PREFIX = "rf:activity";           // rf:activity:<uid>:<provider>
 const LEGACY_KEY = "activityLog:v1";       // 이전 단일 키(마이그레이션 대상)
@@ -12,6 +10,11 @@ function hasStorage() {
 }
 function nowMs() { return Date.now ? Date.now() : new Date().getTime(); }
 function safeJson(s) { try { return JSON.parse(s); } catch { return null; } }
+function toInt(n, min, max) {
+  const v = Number.parseInt(n, 10);
+  const clamped = Number.isFinite(v) ? v : 0;
+  return Math.max(min ?? clamped, Math.min(max ?? clamped, clamped));
+}
 
 /* 현재 로그인 사용자 (localStorage.authUser 기준) */
 function getAuthSafe() {
@@ -88,6 +91,27 @@ function migrateLegacyIfAny(nsStr) {
   }
 }
 
+/* 서버 전송 (fire-and-forget) */
+function sendActivityToServer(type, data) {
+  try {
+    const body = JSON.stringify({ type: String(type || "unknown"), data: (data && typeof data === "object") ? data : {} });
+    // 같은 오리진이면 쿠키 동반
+    if (navigator?.sendBeacon) {
+      const ok = navigator.sendBeacon("/api/activity", new Blob([body], { type: "application/json" }));
+      if (ok) return;
+    }
+    // fallback: fetch
+    fetch("/api/activity", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body,
+    }).catch(() => {});
+  } catch {
+    // 전송 실패는 조용히 무시(로컬 기록은 이미 남음)
+  }
+}
+
 /* ── public API ────────────────────── */
 
 /** 🔑 백엔드 세션을 localStorage.authUser 로 보정 (서브도메인/리프레시 후 동기화) */
@@ -120,7 +144,7 @@ export async function ensureActivityNs() {
   }
 }
 
-/** 활동 기록 추가 (계정별 저장) */
+/** 활동 기록 추가 (로컬 저장 + 서버 전송) */
 export function logActivity(type, payload = {}) {
   const n = ns();
   if (!n) return; // 비로그인은 기록 안 함
@@ -134,13 +158,17 @@ export function logActivity(type, payload = {}) {
     data: (payload && typeof payload === "object") ? payload : {},
   };
 
+  // 1) 로컬 업데이트
   const arr = readRaw(n);
   const dedup = arr.filter(a => a?.id !== item.id);
   dedup.unshift(item);
   writeRaw(n, dedup);
+
+  // 2) 서버 전송 (비동기, 실패 무시)
+  sendActivityToServer(item.type, item.data);
 }
 
-/** 활동 목록 가져오기 (최신순, limit) */
+/** 활동 목록(최신순, limit) — 로컬 전용(마이페이지 짧은 프리뷰 용) */
 export function listActivities(limit = 50) {
   const n = ns();
   if (!n) return [];
@@ -153,7 +181,7 @@ export function listActivities(limit = 50) {
   return arr.slice(0, lim);
 }
 
-/** 페이지네이션(동기) */
+/** 페이지네이션(동기, 로컬 전용) */
 export function listActivitiesPaged(page = 0, size = 20) {
   const n = ns();
   if (!n) return { items: [], total: 0 };
@@ -172,10 +200,35 @@ export function listActivitiesPaged(page = 0, size = 20) {
   return { items, total };
 }
 
-/** 페이지네이션(비동기) – 추후 서버 저장 전환을 대비해 Promise 형태로 제공 */
+/** 페이지네이션(비동기) – 서버 우선, 실패 시 로컬 폴백 */
 export async function listActivitiesPagedAsync(page = 0, size = 20) {
-  // 서버 저장으로 바꾸면 여기에서 /api/activity?page=&size= 호출하도록 교체
-  return listActivitiesPaged(page, size);
+  const p = toInt(page, 0);
+  const s = Math.max(1, toInt(size, 1));
+
+  try {
+    // 세션 동기화(선택)
+    await ensureActivityNs();
+
+    const res = await fetch(`/api/activity?page=${encodeURIComponent(p)}&size=${encodeURIComponent(s)}`, {
+      credentials: "include",
+      cache: "no-store",
+      headers: { "Accept": "application/json" },
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      // 서버 스키마: { items: [{id,type,ts,data}], total }
+      const items = Array.isArray(data?.items) ? data.items : [];
+      const total = Number(data?.total ?? 0);
+      return { items, total };
+    }
+    // 401 등은 로컬 폴백
+  } catch {
+    // 네트워크 에러 → 폴백
+  }
+
+  // 폴백: 로컬
+  return listActivitiesPaged(p, s);
 }
 
 /** 변경 이벤트 구독 (동일 탭: 커스텀 EVT, 다른 탭: storage) */
@@ -233,7 +286,7 @@ export function formatActivityHref(a) {
   return null;
 }
 
-/** 현재 로그인 계정의 활동만 초기화 (레거시 키도 함께 제거) */
+/** 현재 로그인 계정의 활동만 초기화 (레거시 키도 함께 제거) — 서버는 건드리지 않음 */
 export function clearActivities() {
   const n = ns();
   if (!hasStorage()) return;

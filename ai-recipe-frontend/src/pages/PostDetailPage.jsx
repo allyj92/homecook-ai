@@ -14,6 +14,8 @@ import DOMPurify from "dompurify";
 import CommentList from "../components/CommentList";
 import CommentEditor from "../components/CommentEditor";
 
+
+
 /* ── MarkdownIt 설정 ───────────────────────────────────── */
 const md = new MarkdownIt({
   html: false,     // 생 HTML 금지
@@ -253,44 +255,55 @@ export default function PostDetailPage() {
   }, [auth.user, loc, syncAuth]);
 
   const onToggleLike = () =>
-    requireAuth(() => {
-      if (!uid || !provider || !post?.id) return;
-      setLiked((prev) => {
-        const next = !prev;
-        try { localStorage.setItem(likeKey(uid, provider, post.id), next ? "1" : "0"); } catch {}
-        logActivity("post_like", { postId: post.id, title: post.title, on: next });
-        return next;
-      });
-    });
+  requireAuth(() => {
+    if (!uid || !provider || !post?.id) return;
+    setLiked((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(likeKey(uid, provider, post.id), next ? "1" : "0");
+      } catch {}
+      logActivity("post_like", { postId: post.id, title: post.title, on: next });
 
-  const onToggleBookmark = () =>
-    requireAuth(() => {
-      if (!uid || !provider || !post?.id) return;
-      setBookmarked((prev) => {
-        const next = !prev;
-        try {
-          localStorage.setItem(bmKey(uid, provider, post.id), next ? "1" : "0");
-          const dataK = bmDataKey(uid, provider, post.id);
-          if (next) {
-            const payload = {
-              id: post.id,
-              title: post.title,
-              category: post.category,
-              createdAt: post.createdAt || post.updatedAt || null,
-              repImageUrl: post.repImageUrl || null,
-              youtubeId: post.youtubeId || null,
-              tags: Array.isArray(post.tags) ? post.tags : [],
-            };
-            localStorage.setItem(dataK, JSON.stringify(payload));
-          } else {
-            localStorage.removeItem(dataK);
-          }
-          logActivity("post_bookmark", { postId: post.id, title: post.title, on: next });
-        } catch {}
-        return next;
-      });
-    });
+      // ✅ 같은 탭에서 즉시 반영
+      try { window.dispatchEvent(new Event("activity:changed")); } catch {}
 
+      return next;
+    });
+  });
+
+const onToggleBookmark = () =>
+  requireAuth(() => {
+    if (!uid || !provider || !post?.id) return;
+    setBookmarked((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(bmKey(uid, provider, post.id), next ? "1" : "0");
+        const dataK = bmDataKey(uid, provider, post.id);
+        if (next) {
+          const payload = {
+            id: post.id,
+            title: post.title,
+            category: post.category,
+            createdAt: post.createdAt || post.updatedAt || null,
+            repImageUrl: post.repImageUrl || null,
+            youtubeId: post.youtubeId || null,
+            tags: Array.isArray(post.tags) ? post.tags : [],
+          };
+          localStorage.setItem(dataK, JSON.stringify(payload));
+        } else {
+          localStorage.removeItem(dataK);
+        }
+        logActivity("post_bookmark", { postId: post.id, title: post.title, on: next });
+
+        // ✅ 같은 탭에서도 북마크/활동 내역 즉시 갱신
+        try { window.dispatchEvent(new Event("bookmark-changed")); } catch {}
+        try { window.dispatchEvent(new Event("activity:changed")); } catch {}
+      } catch {}
+      return next;
+    });
+  });
+
+  
   // 편집 권한
   const canEdit =
     !!auth.user?.authenticated &&
