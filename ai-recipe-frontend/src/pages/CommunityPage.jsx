@@ -5,6 +5,45 @@ import 'bootstrap/dist/css/bootstrap.min.css';
 import BottomNav from '../components/BottomNav';
 import '../index.css';
 
+
+/* ---- 이미지 URL 정리/대체 ---- */
+function normalizeCoverUrl(url) {
+  if (!url) return null;
+  try {
+    if (url.startsWith('/')) return url; // 같은 도메인 상대경로 그대로
+    const u = new URL(url, window.location.origin);
+    // https 페이지에 http 이미지면 업그레이드(혼합콘텐츠 방지)
+    if (window.location.protocol === 'https:' && u.protocol === 'http:') {
+      u.protocol = 'https:';
+    }
+    // 같은 호스트면 경로만 사용(쿠키/리다이렉션 이슈 최소화)
+    if (u.host === window.location.host) return u.pathname + u.search + u.hash;
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+function withVersion(url, ver) {
+  if (!url) return url;
+  try {
+    const u = new URL(url, window.location.origin);
+    const v = ver != null ? (typeof ver === 'number' ? ver : Date.parse(ver) || Date.now()) : Date.now();
+    u.searchParams.set('v', String(v));
+    if (u.host === window.location.host) return u.pathname + u.search + u.hash;
+    return u.toString();
+  } catch { return url; }
+}
+const ytThumb = (id) => (id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : null);
+
+function buildCover(post) {
+  const updatedAt = post.updatedAt ?? post.updated_at ?? post.createdAt ?? post.created_at ?? null;
+  const raw = post.repImageUrl ?? post.rep_image_url ?? null;
+  const normalized = withVersion(normalizeCoverUrl(raw), updatedAt);
+  // 1순위: 대표이미지, 2순위: 유튜브 썸네일
+  return normalized || ytThumb(post.youtubeId ?? post.youtube_id ?? null) || null;
+}
+
+
 /* ---------------- 목록 프리뷰 전용 텍스트 정리 ---------------- */
 function makePreviewText(input, maxLen = 120) {
   if (!input) return '';
@@ -105,9 +144,16 @@ function PostCard({ post, onOpen }) {
           </div>
         </div>
       </div>
-      {post.repImageUrl && (
-        <img src={post.repImageUrl} alt="" className="card-img-bottom" />
-      )}
+       {post.__cover && (
+   <img
+     src={post.__cover}
+     alt=""
+     className="card-img-bottom"
+     loading="lazy"
+     referrerPolicy="no-referrer"
+     onError={(e) => { e.currentTarget.style.display = 'none'; }}
+   />
+ )}
     </article>
   );
 }
@@ -150,9 +196,12 @@ export default function CommunityPage() {
         headers: { 'Cache-Control': 'no-store' },
       });
       const list = await res.json();
-
-      if (pageToLoad === 0) setPosts(list);
-      else setPosts((prev) => [...prev, ...list]);
+      const fixed = (Array.isArray(list) ? list : []).map(p => ({
+      ...p,
+       __cover: buildCover(p),
+ }));
+ if (pageToLoad === 0) setPosts(fixed);
+ else setPosts(prev => [...prev, ...fixed]);
 
       setHasMore(list.length === size);
       setPage(pageToLoad);
@@ -252,7 +301,7 @@ export default function CommunityPage() {
 
           <div className="col-12 col-lg-4 text-lg-end">
             <button
-              className="btn btn.success btn-success"
+              className="btn btn-success"
               onClick={async () => {
                 const user = await ensureLogin('/write');
                 if (user) navigate('/write');

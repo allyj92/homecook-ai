@@ -96,7 +96,7 @@
   border:3px solid rgba(255,255,255,.55); border-top-color:#fff; animation:spin .9s linear infinite;
 }
 @keyframes spin{ to{ transform: rotate(360deg); } }
-
+/*  */
 .help-links{ display:flex; flex-direction:column; gap:12px; align-items:center; margin-top: 22px; }
 .help-link{ color:#1E1E1E; text-decoration: underline; text-underline-offset: 3px; }
 
@@ -926,4 +926,11 @@ body{
 /* ⬇️ ADD: 노치 기기에서 우상단 X 버튼 여백 확보 */
 .modal .btn-close.position-absolute {
   padding-top: max(0.5rem, env(safe-area-inset-top));
+}
+
+.card-img-bottom {
+  width: 100%;
+  max-height: 320px;      /* 필요에 맞게 조정 */
+  object-fit: cover;
+  display: block;
 }
