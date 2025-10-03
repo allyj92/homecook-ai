@@ -4,6 +4,8 @@ const LEGACY_KEY = "activityLog:v1";       // 이전 단일 키(마이그레이�
 const EVT = "activity:changed";
 const MAX = 300;
 
+
+
 // ✅ 활동 페이지네이션
 export function listActivitiesPaged(page = 0, size = 20) {
   const n = ns();
@@ -21,6 +23,22 @@ export function listActivitiesPaged(page = 0, size = 20) {
   const end = start + s;
   const items = arr.slice(start, end);
   return { items, total, page: p, size: s, hasPrev: p > 0, hasNext: end < total };
+}
+
+// ✅ 서버 세션으로 authUser 채워 넣어, 다른 서브도메인에서 기록된 활동도 읽을 수 있게
+export async function ensureActivityNs() {
+  // 이미 있으면 패스
+  if (getAuthSafe()) return true;
+  try {
+    const res = await fetch('/api/auth/me', { credentials: 'include', cache: 'no-store' });
+    if (!res.ok) return false;
+    const me = await res.json();
+    if (me?.authenticated) {
+      try { localStorage.setItem('authUser', JSON.stringify(me)); } catch {}
+      return true;
+    }
+  } catch {}
+  return false;
 }
 
 // ✅ 전체 개수만 필요할 때
