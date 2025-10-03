@@ -622,6 +622,7 @@ useEffect(() => {
             <div className="card-header d-flex justify-content-between align-items-center">
               <h5 className="m-0">북마크한 글</h5>
               <span className="text-secondary small">{bookmarks.length}개</span>
+              <Link className="btn btn-sm btn-outline-primary" to="/bookmarks">전체보기</Link>
             </div>
 
             {bmLoading && (
@@ -685,6 +686,7 @@ useEffect(() => {
             <div className="card-header d-flex justify-content-between align-items-center">
               <h5 className="m-0">내가 쓴 글</h5>
               <div className="d-flex gap-2">
+                <Link className="btn btn-sm btn-outline-primary" to="/myposts">전체보기</Link>
                 <button className="btn btn-sm btn-success" onClick={() => navigate('/write')}>글쓰기</button>
               </div>
             </div>

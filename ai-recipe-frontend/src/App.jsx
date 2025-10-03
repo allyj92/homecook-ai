@@ -19,6 +19,10 @@ import PostDetailPage from "./pages/PostDetailPage.jsx";
 import "./styles/post-content.css";
 import ActivityPage from './pages/ActivityPage';
 
+import BookmarksPage from './pages/BookmarksPage';
+import MyPostsPage from './pages/MyPostsPage';
+
+
 // ⚠️ Header는 Layout 내부에서만 렌더되므로 여기서 import 불필요
 // import Header from './compoments/Header'
 
@@ -53,6 +57,9 @@ export default function App() {
         <Route path="auth/callback" element={<AuthCallback />} />
 
         <Route path="/activity" element={<ActivityPage />} />
+
+        <Route path="/bookmarks" element={<BookmarksPage />} />
+        <Route path="/myposts" element={<MyPostsPage />} />
       
 
         {/* 쇼핑도 같은 헤더/레이아웃 하에서 */}
