@@ -5,7 +5,7 @@ import BottomNav from '../components/BottomNav';
 import { apiFetch } from '../lib/http';
 import { listFavoritesSimple, removeFavorite } from '../lib/wishlist';
 import { getMyPosts } from '../api/community';
-import { listActivities, subscribeActivity, formatActivityText, formatActivityHref } from '../lib/activity';
+ import { listActivitiesPaged, subscribeActivity, formatActivityText, formatActivityHref } from '../lib/activity';
 
 
 /* 숫자 ID만 허용(최대 19자리: Long 범위) */
@@ -238,8 +238,9 @@ export default function MyPage() {
   const [deletingId, setDeletingId] = useState(null); // ✅ 삭제 중인 글 ID
 
   /* 최근 활동 */
-  const [activities, setActivities] = useState([]);
-  const [actLoading, setActLoading] = useState(true);
+   const [activities, setActivities] = useState([]);
+   const [actLoading, setActLoading] = useState(true);
+   const [actTotal, setActTotal] = useState(0); 
 
   /* 북마크(로컬) */
   const [bookmarks, setBookmarks] = useState([]);
@@ -436,17 +437,22 @@ export default function MyPage() {
     setBookmarks((arr) => arr.filter((b) => String(b.id) !== id));
   }
 
-  /* 최근 활동 */
-  useEffect(() => {
-    const pull = () => {
-      setActLoading(true);
-      try { setActivities(listActivities(30)); }
-      finally { setActLoading(false); }
-    };
-    pull();
-    const off = subscribeActivity(pull);
-    return off;
-  }, []);
+ /* 최근 활동: 상위 3개만 */
+ useEffect(() => {
+   const pull = () => {
+     setActLoading(true);
+     try {
+       const { items, total } = listActivitiesPaged(0, 3);
+       setActivities(items);
+       setActTotal(total);
+     } finally {
+       setActLoading(false);
+     }
+   };
+   pull();
+   const off = subscribeActivity(pull);
+   return off;
+ }, []);
 
   /* 로딩 스켈레톤 (me) */
   if (meLoading) {
@@ -727,44 +733,40 @@ export default function MyPage() {
 
           <AdSlot id="ad-mypage-native" height={120} label="네이티브 인라인" />
 
-          {/* 최근 활동 */}
           <div className="card shadow-sm mb-3">
-            <div className="card-header d-flex justify-content-between align-items-center">
-              <h5 className="m-0">최근 활동</h5>
-              <button className="btn btn-link btn-sm" onClick={() => navigate('/activity')}>전체보기</button>
-            </div>
+   <div className="card-header d-flex justify-content-between align-items-center">
+     <h5 className="m-0">최근 활동</h5>
+     <div className="d-flex align-items-center gap-2">
+       <span className="text-secondary small">총 {actTotal}건</span>
+       <button className="btn btn-link btn-sm" onClick={() => navigate('/activity')}>전체보기</button>
+     </div>
+   </div>
 
-            {actLoading ? (
-              <div className="p-3">
-                <div className="placeholder-glow">
-                  <div className="placeholder col-12 mb-2" style={{ height: 18 }} />
-                  <div className="placeholder col-10 mb-2" style={{ height: 18 }} />
-                  <div className="placeholder col-8" style={{ height: 18 }} />
-                </div>
-              </div>
-            ) : activities.length === 0 ? (
-              <div className="p-4 text-center text-secondary">아직 활동 내역이 없어요.</div>
-            ) : (
-              <ul className="list-group list-group-flush">
-                {activities.map((a) => {
-                  const href = formatActivityHref(a);
-                  const text = formatActivityText(a);
-                  return (
-                    <li key={a.id} className="list-group-item d-flex justify-content-between">
-                      <span>
-                        {href
-                          ? <Link to={href} className="text-decoration-none">{text}</Link>
-                          : text}
-                      </span>
-                      <small className="text-secondary">{new Date(a.ts).toLocaleString()}</small>
-                    </li>
-                  );
-                      })}
-              </ul>
-            )}
-          </div>
-        </section>
-      </div>
+   {actLoading ? (
+     <div className="p-3">
+       <div className="placeholder-glow">
+         <div className="placeholder col-12 mb-2" style={{ height: 18 }} />
+         <div className="placeholder col-10 mb-2" style={{ height: 18 }} />
+         <div className="placeholder col-8" style={{ height: 18 }} />
+       </div>
+     </div>
+   ) : activities.length === 0 ? (
+     <div className="p-4 text-center text-secondary">아직 활동 내역이 없어요.</div>
+   ) : (
+     <ul className="list-group list-group-flush">
+       {activities.map((a) => {
+         const href = formatActivityHref(a);
+         const text = formatActivityText(a);
+         return (
+           <li key={a.id} className="list-group-item d-flex justify-content-between">
+             <span>{href ? <Link to={href} className="text-decoration-none">{text}</Link> : text}</span>
+             <small className="text-secondary">{new Date(a.ts).toLocaleString()}</small>
+           </li>
+         );
+       })}
+     </ul>
+   )}
+ </div>
 
       <footer className="text-center text-secondary small mt-4">
         * 일부 링크는 제휴/광고일 수 있으며, 구매 시 수수료를 받을 수 있습니다.

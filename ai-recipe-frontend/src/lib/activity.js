@@ -4,6 +4,33 @@ const LEGACY_KEY = "activityLog:v1";       // 이전 단일 키(마이그레이�
 const EVT = "activity:changed";
 const MAX = 300;
 
+// ✅ 활동 페이지네이션
+export function listActivitiesPaged(page = 0, size = 20) {
+  const n = ns();
+  if (!n) return { items: [], total: 0, page, size };
+  migrateLegacyIfAny(n);
+
+  const arr = readRaw(n)
+    .filter(Boolean)
+    .sort((a, b) => (b?.ts || 0) - (a?.ts || 0));
+
+  const total = arr.length;
+  const p = Math.max(0, page | 0);
+  const s = Math.max(1, size | 0);
+  const start = p * s;
+  const end = start + s;
+  const items = arr.slice(start, end);
+  return { items, total, page: p, size: s, hasPrev: p > 0, hasNext: end < total };
+}
+
+// ✅ 전체 개수만 필요할 때
+export function countActivities() {
+  const n = ns();
+  if (!n) return 0;
+  migrateLegacyIfAny(n);
+  return readRaw(n).length;
+}
+
 /* ── utils ─────────────────────────── */
 function hasStorage() {
   try { return typeof window !== "undefined" && !!window.localStorage; } catch { return false; }

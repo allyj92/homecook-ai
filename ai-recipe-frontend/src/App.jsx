@@ -17,6 +17,7 @@ import ResetPassword from './pages/ResetPassword';
 import SavedPage from './pages/SavedPage';
 import PostDetailPage from "./pages/PostDetailPage.jsx";
 import "./styles/post-content.css";
+import ActivityPage from './pages/ActivityPage';
 
 // ⚠️ Header는 Layout 내부에서만 렌더되므로 여기서 import 불필요
 // import Header from './compoments/Header'
@@ -45,10 +46,13 @@ export default function App() {
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/saved" element={<SavedPage />} />
+        
        
-      <Route path="login" element={<Navigate to="/login-signup" replace />} />
-      <Route path="signup" element={<Navigate to="/login-signup" replace />} />
-      <Route path="auth/callback" element={<AuthCallback />} />
+        <Route path="login" element={<Navigate to="/login-signup" replace />} />
+        <Route path="signup" element={<Navigate to="/login-signup" replace />} />
+        <Route path="auth/callback" element={<AuthCallback />} />
+
+        <Route path="/activity" element={<ActivityPage />} />
       
 
         {/* 쇼핑도 같은 헤더/레이아웃 하에서 */}
