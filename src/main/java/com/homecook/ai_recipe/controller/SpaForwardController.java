@@ -7,14 +7,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 @Controller
 public class SpaForwardController {
 
-    // 1) 단일 세그먼트 (확장자 없는 경로: /mypage, /activity 등)
-    @GetMapping("/{path:[^\\.]+}")
-    public String forwardSingle() {
-        return "forward:/index.html";
-    }
-
-    // 2) 다단계 세그먼트 (확장자 없는 시작 세그먼트 뒤로 뭐가 와도 OK: /community/34, /settings/profile 등)
-    @GetMapping("/{path:[^\\.]+}/**")
+    // 확장자 없는 경로만 SPA로 넘김 (이미지/js/css 등은 제외)
+    @GetMapping({"/{path:[^\\.]*}", "/{path:^(?!api|files|uploads|images|assets|webjars|oauth2|login|logout).*$}/**"})
     public String forwardMulti() {
         return "forward:/index.html";
     }
