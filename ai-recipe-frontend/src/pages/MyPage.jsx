@@ -484,7 +484,7 @@ useEffect(() => {
             <div className="card shadow-sm mb-3">
               <div className="card-body">
                 <div className="placeholder-glow">
-                  <div className="placeholder col-4 rounded-circle mb-3" style={{ height: 80 }} />
+                  
                   <div className="placeholder col-6 mb-2" />
                   <div className="placeholder col-4 mb-2" />
                   <div className="placeholder col-8" />
@@ -547,7 +547,6 @@ useEffect(() => {
           <div className="sticky-lg-top" style={{ top: 0, zIndex: 2 }}>
             <div className="card shadow-sm mb-3">
               <div className="card-body text-center">
-                <img src={user.avatar} alt="avatar" className="rounded-circle mb-2" width={80} height={80} />
                 <h5 className="fw-bold">{user.name}</h5>
                 <div className="text-secondary small mb-1">{user.handle}</div>
                 <p className="text-secondary small">{user.bio}</p>
@@ -602,11 +601,11 @@ useEffect(() => {
                 {wishlist.slice(0, 3).map((w) => {
                   const key = w.id ?? w.recipeId;
                   const to = `/result?id=${encodeURIComponent(w.recipeId)}`;
-                  const cover = normalizeCoverUrl(w.image || null);
+                  
                   return (
                     <Link key={key} to={to} className="list-group-item list-group-item-action">
                       <div className="d-flex align-items-center gap-3">
-                        <div className="flex-shrink-0"><SmartThumb src={cover} seed={`wish-${w.recipeId}-${w.title || ''}`} /></div>
+                    
                         <div className="flex-grow-1" style={{ minWidth: 0 }}>
                           <div className="fw-semibold" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {w.title ?? `레시피 #${w.recipeId}`}
@@ -654,15 +653,12 @@ useEffect(() => {
               <div className="list-group list-group-flush">
                 {bookmarks.slice(0, 5).map((b) => {
                   const to = `/community/${b.id}`;
-                  const coverBase =
-                    normalizeCoverUrl(b.repImageUrl || b.rep_image_url) ||
-                    ytThumb(b.youtubeId || b.youtube_id) ||
-                    null;
-                  const cover = withVersion(coverBase, b.updatedAt || b.updated_at || b.createdAt || b.created_at);
+                
+                  
                   return (
                     <Link key={b.id} to={to} className="list-group-item list-group-item-action">
                       <div className="d-flex align-items-center gap-3">
-                        <div className="flex-shrink-0"><SmartThumb src={cover} seed={`bm-${b.id}-${b.title || ''}`} /></div>
+                       
                         <div className="flex-grow-1" style={{ minWidth: 0 }}>
                           <div className="fw-semibold" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {b.title || `게시글 #${b.id}`}
@@ -726,7 +722,7 @@ useEffect(() => {
                   return (
                     <Link key={p.id} to={to} className="list-group-item list-group-item-action">
                       <div className="d-flex align-items-center gap-3">
-                        <div className="flex-shrink-0"><SmartThumb src={p.__cover} seed={`post-${p.id}-${p.title}`} /></div>
+                      
                         <div className="flex-grow-1" style={{ minWidth: 0 }}>
                           <div className="fw-semibold" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.title}</div>
                           <div className="small text-secondary" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
