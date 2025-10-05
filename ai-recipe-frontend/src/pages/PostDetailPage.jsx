@@ -475,17 +475,18 @@ export default function PostDetailPage() {
               <CommentEditor
                 postId={post.id}
                 onCreated={(saved) => {
-                  // 댓글 저장 성공 직후 활동 기록
-                  try {
-                    logActivity("comment_add", {
-                      postId: post.id,
-                      postTitle: post.title,
-                      commentId: saved?.id,                       // saved가 있으면 앵커 이동 지원
-                      text: commentPreview(saved?.content || ""), // 간단 프리뷰
-                    });
-                    // 마이페이지 최근 활동 즉시 갱신
-                    window.dispatchEvent(new Event("activity:changed"));
-                  } catch {}
+              try {
+                // 제목까지 함께 저장 (표시는 activity 포맷터에서 … 처리)
+                logActivity("comment_add", {
+                  postId: post.id,
+                  postTitle: (post.title || "").trim(),
+                  commentId: saved?.id,
+                  text: (saved?.content || "").slice(0, 120), // 프리뷰 용(선택)
+                });
+
+                // 마이페이지 "총 N건" 등 즉시 갱신
+                window.dispatchEvent(new Event("activity:changed"));
+              } catch {}
                   // 댓글 목록 새로고침
                   setCommentsVersion((v) => v + 1);
                 }}

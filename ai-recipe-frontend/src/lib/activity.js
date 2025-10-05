@@ -12,8 +12,17 @@ function nowMs() { return Date.now ? Date.now() : new Date().getTime(); }
 function safeJson(s) { try { return JSON.parse(s); } catch { return null; } }
 function toInt(n, min, max) {
   const v = Number.parseInt(n, 10);
-  const clamped = Number.isFinite(v) ? v : 0;
-  return Math.max(min ?? clamped, Math.min(max ?? clamped, clamped));
+  let x = Number.isFinite(v) ? v : 0;
+  if (typeof min === "number") x = Math.max(min, x);
+  if (typeof max === "number") x = Math.min(max, x);
+  return x;
+}
+
+/** 길면 … 처리 */
+export function ellipsis(s, max = 36) {
+  const t = (s ?? "").trim();
+  if (!t) return "";
+  return t.length > max ? t.slice(0, max - 1) + "…" : t;
 }
 
 /* 현재 로그인 사용자 (localStorage.authUser 기준) */
@@ -248,18 +257,32 @@ export function subscribeActivity(handler) {
   };
 }
 
-/** UI용 텍스트 */
+/** UI용 텍스트 (제목 우선, 길면 …) */
 export function formatActivityText(a) {
   const t = a?.type;
   const d = a?.data || {};
-  const postLabel = d.title ?? (d.postId != null ? `게시글 #${d.postId}` : "게시글");
-  const recipeLabel = d.title ?? (d.recipeId != null ? `#${d.recipeId}` : "");
+
+  // 제목 소스 우선순위
+  const rawPostTitle =
+    d.postTitle ??
+    d.title ??
+    d.post_title ??
+    d.subject ??
+    (d.postId != null ? `게시글 #${d.postId}` : "게시글");
+
+  const rawRecipeTitle =
+    d.recipeTitle ??
+    d.title ??
+    (d.recipeId != null ? `#${d.recipeId}` : "레시피");
+
+  const postLabel = ellipsis(rawPostTitle, 36);
+  const recipeLabel = ellipsis(rawRecipeTitle, 36);
 
   switch (t) {
     case "post_like":
-      return d.on ? `‘${postLabel}’에 좋아요` : `‘${postLabel}’ 좋아요 취소`;
+      return d.on ? `‘${postLabel}’ 좋아요 표시` : `‘${postLabel}’ 좋아요 취소`;
     case "post_bookmark":
-      return d.on ? `‘${postLabel}’ 북마크` : `‘${postLabel}’ 북마크 해제`;
+      return d.on ? `‘${postLabel}’ 북마크 추가` : `‘${postLabel}’ 북마크 해제`;
     case "comment_create":
     case "comment_add":
       return `‘${postLabel}’에 댓글 작성`;
@@ -272,16 +295,18 @@ export function formatActivityText(a) {
     case "post_delete":
       return `글 삭제: ‘${postLabel}’`;
     default:
-      return d.title ? `${t} · ${d.title}` : String(t || "활동");
+      return d.title ? `${t} · ${ellipsis(d.title, 36)}` : String(t || "활동");
   }
 }
 
-/** 항목별 링크(있으면 클릭 이동) */
+/** 항목별 링크(있으면 클릭 이동) — 댓글이면 앵커 포함 */
 export function formatActivityHref(a) {
-  const t = a?.type;
   const d = a?.data || {};
-  if (!t || !d) return null;
-  if (d.postId) return `/community/${d.postId}`;
+  const postId = d.postId ?? d.pid;
+  if (postId) {
+    const commentId = d.commentId ?? d.cid;
+    return `/community/${postId}${commentId ? `#comment-${commentId}` : ""}`;
+  }
   if (d.recipeId) return `/result?id=${encodeURIComponent(d.recipeId)}`;
   return null;
 }
