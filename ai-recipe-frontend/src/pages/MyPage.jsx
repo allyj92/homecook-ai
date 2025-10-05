@@ -5,7 +5,7 @@ import BottomNav from '../components/BottomNav';
 import { apiFetch } from '../lib/http';
 import { listFavoritesSimple, removeFavorite } from '../lib/wishlist';
 import { getMyPosts } from '../api/community';
- import { listActivitiesPaged, subscribeActivity, formatActivityText, formatActivityHref } from '../lib/activity';
+import { listActivitiesPaged, subscribeActivity, formatActivityText, formatActivityHref, logActivity } from '../lib/activity';
 
 
 /* 숫자 ID만 허용(최대 19자리: Long 범위) */
@@ -531,7 +531,7 @@ useEffect(() => {
   const twoLine = { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' };
 
   return (
-    <div className="container-xxl py-3">
+    <div className="container-xxl py-3 mypage">
       <div className="d-flex align-items-center justify-content-between mb-3">
         <h1 className="h4 fw-bold">마이페이지</h1>
         <div className="d-flex gap-2">
