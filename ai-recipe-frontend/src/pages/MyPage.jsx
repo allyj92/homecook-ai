@@ -436,7 +436,7 @@ async function onRemove(e, recipeId) {
     };
   }, [currentUid, currentProvider]);
 
-  function onUnbookmark(e, postId) {
+  function onUnbookmark(e, postId, postTitle = "")  {
     if (e) { e.preventDefault(); e.stopPropagation(); }
     const id = String(postId);
     try {
@@ -452,6 +452,8 @@ async function onRemove(e, recipeId) {
       localStorage.removeItem(`postBookmarkData:${currentUid}:${id}`);
     } catch {}
     setBookmarks((arr) => arr.filter((b) => String(b.id) !== id));
+    try { logActivity('post_bookmark', { postId: Number(id), postTitle, on: false }); } catch {}
+    try { window.dispatchEvent(new Event('activity:changed')); } catch {}
     try {
     // 제목을 이미 로컬에 갖고 있으면 그걸 쓰고, 없으면 fallback
     const b = bookmarks.find((x) => String(x.id) === id);
@@ -670,7 +672,7 @@ async function onRemove(e, recipeId) {
                           <button
                             className="btn btn-sm btn-outline-danger"
                             style={{ minWidth: 72, height: 32, padding: '0 12px' }}
-                            onClick={(e) => onUnbookmark(e, b.id)}
+                            onClick={(e) => onUnbookmark(e, b.id, b.title)}
                             title="북마크 해제"
                           >
                             해제

@@ -279,7 +279,7 @@ export default function PostDetailPage() {
         try {
           localStorage.setItem(likeKey(uid, provider, post.id), next ? "1" : "0");
         } catch {}
-        logActivity("post_like", { postId: post.id, title: post.title, on: next });
+        logActivity("post_like", { postId: post.id, postTitle: post.title, on: next });
 
         // ✅ 같은 탭에서 즉시 반영
         try { window.dispatchEvent(new Event("activity:changed")); } catch {}
@@ -310,7 +310,7 @@ export default function PostDetailPage() {
           } else {
             localStorage.removeItem(dataK);
           }
-          logActivity("post_bookmark", { postId: post.id, title: post.title, on: next });
+          logActivity("post_bookmark", { postId: post.id, postTitle: post.title, on: next });
 
           // ✅ 같은 탭에서도 북마크/활동 내역 즉시 갱신
           try { window.dispatchEvent(new Event("bookmark-changed")); } catch {}
