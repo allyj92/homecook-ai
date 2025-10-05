@@ -257,7 +257,7 @@ export function subscribeActivity(handler) {
   };
 }
 
-/** UI용 텍스트 (제목 우선, 길면 …) */
+/** UI용 텍스트 (제목 + 동사, 길면 …) */
 export function formatActivityText(a) {
   const t = a?.type;
   const d = a?.data || {};
@@ -268,34 +268,36 @@ export function formatActivityText(a) {
     d.title ??
     d.post_title ??
     d.subject ??
-    (d.postId != null ? `게시글 #${d.postId}` : "게시글");
+    (d.postId != null ? `게시글 #${d.postId}` : (d.recipeId != null ? `레시피 #${d.recipeId}` : "항목"));
 
   const rawRecipeTitle =
     d.recipeTitle ??
     d.title ??
-    (d.recipeId != null ? `#${d.recipeId}` : "레시피");
+    (d.recipeId != null ? `레시피 #${d.recipeId}` : null);
 
-  const postLabel = ellipsis(rawPostTitle, 36);
-  const recipeLabel = ellipsis(rawRecipeTitle, 36);
+  const postTitle = ellipsis(rawPostTitle, 36);
+  const recipeTitle = ellipsis(rawRecipeTitle || rawPostTitle, 36); // 레시피 없으면 포스트 제목으로 대체
 
   switch (t) {
-    case "post_like":
-      return d.on ? `‘${postLabel}’ 좋아요 표시` : `‘${postLabel}’ 좋아요 취소`;
-    case "post_bookmark":
-      return d.on ? `‘${postLabel}’ 북마크 추가` : `‘${postLabel}’ 북마크 해제`;
+    case "post_create":
+      return `${postTitle} 작성`;
+    case "post_update":
+      return `${postTitle} 수정`;
+    case "post_delete":
+      return `${postTitle} 삭제`;
     case "comment_create":
     case "comment_add":
-      return `‘${postLabel}’에 댓글 작성`;
+      return `${postTitle} 댓글 작성`;
+    case "post_like":
+      return d.on ? `${postTitle} 좋아요` : `${postTitle} 좋아요 취소`;
+    case "post_bookmark":
+      return d.on ? `${postTitle} 북마크` : `${postTitle} 북마크 해제`;
     case "favorite_add":
-      return `레시피 ‘${recipeLabel}’ 저장`;
+      return `${recipeTitle} 저장`;
     case "favorite_remove":
-      return `레시피 ‘${recipeLabel}’ 저장 해제`;
-    case "post_create":
-      return `글 작성: ‘${postLabel}’`;
-    case "post_delete":
-      return `글 삭제: ‘${postLabel}’`;
+      return `${recipeTitle} 저장 해제`;
     default:
-      return d.title ? `${t} · ${ellipsis(d.title, 36)}` : String(t || "활동");
+      return `${postTitle} · ${String(t || "활동")}`;
   }
 }
 
