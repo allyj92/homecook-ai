@@ -10,7 +10,8 @@ import {
   listActivitiesPaged,
   subscribeActivity,
   formatActivityText,
-  formatActivityHref
+  formatActivityHref,
+  logActivity
 } from '../lib/activity';
 
 /* 숫자 ID만 허용(최대 19자리: Long 범위) */
@@ -307,24 +308,31 @@ export default function MyPage() {
     return () => { aborted = true; };
   }, [navigate]);
 
-  /* 찜 해제 */
-  async function onRemove(e, recipeId) {
-    if (e) { e.preventDefault(); e.stopPropagation(); }
-    const rid = Number(recipeId);
-    if (!Number.isFinite(rid) || rid <= 0) return;
+/* 찜 해제 */
+async function onRemove(e, recipeId) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const rid = Number(recipeId);
+  if (!Number.isFinite(rid) || rid <= 0) return;
 
-    const prev = wishlist;
-    setWishlist((arr) => arr.filter((it) => Number(it.recipeId) !== rid));
+  const prev = wishlist;
+  setWishlist((arr) => arr.filter((it) => Number(it.recipeId) !== rid));
+  try {
+    await removeFavorite(rid);
+    const removed = prev.find((it) => Number(it.recipeId) === rid);
     try {
-      await removeFavorite(rid);
-      const removed = prev.find((it) => Number(it.recipeId) === rid);
-      try { logActivity('favorite_remove', { recipeId: rid, title: removed?.title }); } catch {}
-    } catch {
-      alert('삭제에 실패했어요.');
-      setWishlist(prev);
-    }
+      // ✅ 활동로그: 제목 키를 recipeTitle로 통일
+      logActivity('favorite_remove', {
+        recipeId: rid,
+        recipeTitle: removed?.title || `#${rid}`,
+      });
+      // (선택) 같은 탭 즉시 갱신이 필요하면 아래 라인 활성화
+      // window.dispatchEvent(new Event("activity:changed"));
+    } catch {}
+  } catch {
+    alert('삭제에 실패했어요.');
+    setWishlist(prev);
   }
-
+}
   /* ✅ 내가 쓴 글 삭제 */
   const onDeletePost = async (e, post) => {
     if (e) { e.preventDefault(); e.stopPropagation(); }
@@ -339,7 +347,7 @@ export default function MyPage() {
     try {
       await deleteCommunityPost(id);
       setMyPosts((arr) => arr.filter((p) => String(p.id) !== id));
-      try { logActivity('post_delete', { postId: id, title }); } catch {}
+      try { logActivity('post_delete', { postId: id, postTitle: title }); } catch {}
     } catch (err) {
       alert((err && err.message) ? err.message : '삭제에 실패했어요.');
     } finally {
@@ -444,6 +452,13 @@ export default function MyPage() {
       localStorage.removeItem(`postBookmarkData:${currentUid}:${id}`);
     } catch {}
     setBookmarks((arr) => arr.filter((b) => String(b.id) !== id));
+    try {
+    // 제목을 이미 로컬에 갖고 있으면 그걸 쓰고, 없으면 fallback
+    const b = bookmarks.find((x) => String(x.id) === id);
+    const postTitle = b?.title || `게시글 #${id}`;
+    logActivity('post_bookmark', { postId: id, postTitle, on: false });
+  } catch {}
+
   }
 
   /* ✅ 최근 활동(상단 프리뷰 & 댓글 수 동시 갱신) */
