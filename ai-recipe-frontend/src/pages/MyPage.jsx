@@ -5,8 +5,13 @@ import BottomNav from '../components/BottomNav';
 import { apiFetch } from '../lib/http';
 import { listFavoritesSimple, removeFavorite } from '../lib/wishlist';
 import { getMyPosts } from '../api/community';
-import { listActivitiesPaged, subscribeActivity, formatActivityText, formatActivityHref, logActivity } from '../lib/activity';
-
+import {
+  listActivities,           // ✅ 추가
+  listActivitiesPaged,
+  subscribeActivity,
+  formatActivityText,
+  formatActivityHref
+} from '../lib/activity';
 
 /* 숫자 ID만 허용(최대 19자리: Long 범위) */
 function isNumericId(id) {
@@ -118,14 +123,10 @@ async function getPostById(id) {
 
 /* 🔥 글 삭제 API */
 async function deleteCommunityPost(id) {
-  // 1) DELETE 먼저 시도
   let res = await apiFetch(`/api/community/posts/${encodeURIComponent(id)}`, { method: 'DELETE' });
-
-  // 405(Method Not Allowed)나 일부 400/501이면 폴백
   if (res.status === 405 || res.status === 400 || res.status === 501) {
     res = await apiFetch(`/api/community/posts/${encodeURIComponent(id)}/delete`, { method: 'POST' });
   }
-
   if (!res.ok) {
     let msg = '삭제에 실패했어요.';
     try { msg = (await res.text()) || msg; } catch {}
@@ -167,13 +168,8 @@ function adoptLegacyBookmarks(uid, provider) {
       const parts = k.split(':');
       const prefix = parts[0];
       let id = null;
-
-      if (parts.length === 2) {
-        id = parts[1];
-      } else if (parts.length === 3) {
-        id = parts[2];
-      }
-
+      if (parts.length === 2) id = parts[1];
+      else if (parts.length === 3) id = parts[2];
       if (id && isNumericId(String(id))) {
         const newKey = `${prefix}:${uid}:${provider}:${id}`;
         if (v != null) localStorage.setItem(newKey, v);
@@ -235,16 +231,19 @@ export default function MyPage() {
   const [myPosts, setMyPosts] = useState([]);
   const [myLoading, setMyLoading] = useState(false);
   const [myErr, setMyErr] = useState('');
-  const [deletingId, setDeletingId] = useState(null); // ✅ 삭제 중인 글 ID
+  const [deletingId, setDeletingId] = useState(null);
 
   /* 최근 활동 */
-   const [activities, setActivities] = useState([]);
-   const [actLoading, setActLoading] = useState(true);
-   const [actTotal, setActTotal] = useState(0); 
+  const [activities, setActivities] = useState([]);
+  const [actLoading, setActLoading] = useState(true);
+  const [actTotal, setActTotal] = useState(0);
 
   /* 북마크(로컬) */
   const [bookmarks, setBookmarks] = useState([]);
   const [bmLoading, setBmLoading] = useState(false);
+
+  /* ✅ 내 댓글 수 (활동 로그 기반) */
+  const [myCommentCount, setMyCommentCount] = useState(0);
 
   /* me 먼저 로드 */
   useEffect(() => {
@@ -319,7 +318,7 @@ export default function MyPage() {
     try {
       await removeFavorite(rid);
       const removed = prev.find((it) => Number(it.recipeId) === rid);
-      logActivity('favorite_remove', { recipeId: rid, title: removed?.title });
+      try { logActivity('favorite_remove', { recipeId: rid, title: removed?.title }); } catch {}
     } catch {
       alert('삭제에 실패했어요.');
       setWishlist(prev);
@@ -336,7 +335,6 @@ export default function MyPage() {
     if (!window.confirm(`정말 삭제할까요?\n\n"${title}"`)) return;
 
     setDeletingId(id);
-    // 같은 아이디의 북마크도 즉시 해제
     onUnbookmark(undefined, id);
     try {
       await deleteCommunityPost(id);
@@ -350,93 +348,85 @@ export default function MyPage() {
   };
 
   /* 북마크 로드/동기화 */
-useEffect(() => {
-  if (!currentUid || !currentProvider) {
-    setBookmarks([]);
-    return;
-  }
-  const uid = String(currentUid);
-  const provider = String(currentProvider);
-
-  /* 레거시 → 새 포맷으로 이동 */
-  adoptLegacyBookmarks(uid, provider);
-
-  const pull = () => {
-    setBmLoading(true);
-    try {
-      setBookmarks(loadBookmarksFromLS(uid, provider));
-    } finally {
-      setBmLoading(false);
+  useEffect(() => {
+    if (!currentUid || !currentProvider) {
+      setBookmarks([]);
+      return;
     }
-  };
-  pull();
+    const uid = String(currentUid);
+    const provider = String(currentProvider);
 
-  /* 메타 최신화 */
-  (async () => {
-    try {
-      const raw = loadBookmarksFromLS(uid, provider);
-      const ids = raw.slice(0, 20).map((b) => b.id);
-      if (!ids.length) return;
-      for (let i = 0; i < ids.length; i += 4) {
-        const chunk = ids.slice(i, i + 4);
-         const results = await Promise.allSettled(chunk.map((id) => getPostById(id)));
-       results.forEach((r, idx) => {
-         const thisId = String(chunk[idx]);
-         // ❌ 글이 사라졌으면 해당 북마크 정리
-         if (r.status !== 'fulfilled' || !r.value) {
-           try {
-             localStorage.setItem(bmKey(uid, provider, thisId), '0');
-             localStorage.removeItem(bmDataKey(uid, provider, thisId));
-           } catch {}
-           return;
-         }
-         const p = r.value;
-          const updatedAt = p.updatedAt ?? p.updated_at ?? p.createdAt ?? p.created_at ?? null;
-          try {
-            localStorage.setItem(
-              bmDataKey(uid, provider, p.id),
-              JSON.stringify({
-                id: String(p.id),
-                title: p.title,
-                category: p.category,
-                createdAt: p.createdAt ?? p.created_at,
-                updatedAt,
-                repImageUrl: withVersion(normalizeCoverUrl(p.repImageUrl ?? p.rep_image_url ?? null), updatedAt),
-                youtubeId: p.youtubeId ?? p.youtube_id ?? null,
-              })
-            );
-          } catch {}
-        });
+    adoptLegacyBookmarks(uid, provider);
+
+    const pull = () => {
+      setBmLoading(true);
+      try {
+        setBookmarks(loadBookmarksFromLS(uid, provider));
+      } finally {
+        setBmLoading(false);
       }
-      setBookmarks(loadBookmarksFromLS(uid, provider));
-    } catch {}
-  })();
+    };
+    pull();
 
-  const onStorage = (e) => {
-    if (!e || !e.key) return;
-    if (e.key.startsWith(`postBookmark:${uid}:${provider}:`) || e.key.startsWith(`postBookmarkData:${uid}:${provider}:`)) {
-      pull();
-    } else if (e.key.startsWith('postBookmark:') || e.key.startsWith('postBookmarkData:')) {
-      /* 다른 탭이 레거시로 쓴 경우 바로 흡수 */
-      adoptLegacyBookmarks(uid, provider);
-      pull();
-    }
-  };
+    (async () => {
+      try {
+        const raw = loadBookmarksFromLS(uid, provider);
+        const ids = raw.slice(0, 20).map((b) => b.id);
+        if (!ids.length) return;
+        for (let i = 0; i < ids.length; i += 4) {
+          const chunk = ids.slice(i, i + 4);
+          const results = await Promise.allSettled(chunk.map((id) => getPostById(id)));
+          results.forEach((r, idx) => {
+            const thisId = String(chunk[idx]);
+            if (r.status !== 'fulfilled' || !r.value) {
+              try {
+                localStorage.setItem(bmKey(uid, provider, thisId), '0');
+                localStorage.removeItem(bmDataKey(uid, provider, thisId));
+              } catch {}
+              return;
+            }
+            const p = r.value;
+            const updatedAt = p.updatedAt ?? p.updated_at ?? p.createdAt ?? p.created_at ?? null;
+            try {
+              localStorage.setItem(
+                bmDataKey(uid, provider, p.id),
+                JSON.stringify({
+                  id: String(p.id),
+                  title: p.title,
+                  category: p.category,
+                  createdAt: p.createdAt ?? p.created_at,
+                  updatedAt,
+                  repImageUrl: withVersion(normalizeCoverUrl(p.repImageUrl ?? p.rep_image_url ?? null), updatedAt),
+                  youtubeId: p.youtubeId ?? p.youtube_id ?? null,
+                })
+              );
+            } catch {}
+          });
+        }
+        setBookmarks(loadBookmarksFromLS(uid, provider));
+      } catch {}
+    })();
 
-  /* ✅ 같은 탭에서 즉시 반영 */
-  const onBookmarkChanged = () => pull();
+    const onStorage = (e) => {
+      if (!e || !e.key) return;
+      if (e.key.startsWith(`postBookmark:${uid}:${provider}:`) || e.key.startsWith(`postBookmarkData:${uid}:${provider}:`)) {
+        pull();
+      } else if (e.key.startsWith('postBookmark:') || e.key.startsWith('postBookmarkData:')) {
+        adoptLegacyBookmarks(uid, provider);
+        pull();
+      }
+    };
 
-  window.addEventListener('storage', onStorage);
-  window.addEventListener('bookmark-changed', onBookmarkChanged);
+    const onBookmarkChanged = () => pull();
 
-  return () => {
-    window.removeEventListener('storage', onStorage);
-    window.removeEventListener('bookmark-changed', onBookmarkChanged);
-  };
-}, [currentUid, currentProvider]);
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('bookmark-changed', onBookmarkChanged);
 
-   
-
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('bookmark-changed', onBookmarkChanged);
+    };
+  }, [currentUid, currentProvider]);
 
   function onUnbookmark(e, postId) {
     if (e) { e.preventDefault(); e.stopPropagation(); }
@@ -448,7 +438,6 @@ useEffect(() => {
         localStorage.setItem(bmKey(uid, provider, id), '0');
         localStorage.removeItem(bmDataKey(uid, provider, id));
       }
-      /* 레거시 키도 정리 */
       localStorage.setItem(`postBookmark:${id}`, '0');
       localStorage.removeItem(`postBookmarkData:${id}`);
       localStorage.setItem(`postBookmark:${currentUid}:${id}`, '0');
@@ -457,22 +446,27 @@ useEffect(() => {
     setBookmarks((arr) => arr.filter((b) => String(b.id) !== id));
   }
 
- /* 최근 활동: 상위 3개만 */
- useEffect(() => {
-   const pull = () => {
-     setActLoading(true);
-     try {
-       const { items, total } = listActivitiesPaged(0, 3);
-       setActivities(items);
-       setActTotal(total);
-     } finally {
-       setActLoading(false);
-     }
-   };
-   pull();
-   const off = subscribeActivity(pull);
-   return off;
- }, []);
+  /* ✅ 최근 활동(상단 프리뷰 & 댓글 수 동시 갱신) */
+  useEffect(() => {
+    const pull = () => {
+      setActLoading(true);
+      try {
+        const { items, total } = listActivitiesPaged(0, 3);
+        setActivities(items);
+        setActTotal(total);
+
+        // 댓글 수(로컬 활동 기준)
+        const all = listActivities(300);
+        const cnt = all.filter(a => a?.type === 'comment_create' || a?.type === 'comment_add').length;
+        setMyCommentCount(cnt);
+      } finally {
+        setActLoading(false);
+      }
+    };
+    pull();
+    const off = subscribeActivity(pull);
+    return off;
+  }, []);
 
   /* 로딩 스켈레톤 (me) */
   if (meLoading) {
@@ -484,7 +478,6 @@ useEffect(() => {
             <div className="card shadow-sm mb-3">
               <div className="card-body">
                 <div className="placeholder-glow">
-                  
                   <div className="placeholder col-6 mb-2" />
                   <div className="placeholder col-4 mb-2" />
                   <div className="placeholder col-8" />
@@ -513,22 +506,18 @@ useEffect(() => {
     );
   }
 
-  /* 데모 유저 */
-  const demoUser = { name: '레시프리', handle: '@recipfree', bio: '레시프리와 함께, 자유롭게 창작하는 맞춤형 건강 레시피.', avatar: 'https://picsum.photos/seed/recipfree/200/200' };
-
-  /* 실제 로그인 정보 */
+  /* 사용자 표시 */
+  const demoUser = { name: '레시프리', handle: '@recipfree', bio: '레시프리와 함께, 자유롭게 창작하는 맞춤형 건강 레시피.' };
   const user = me
     ? {
         name: me.name || (me.email ? me.email.split('@')[0] : '회원'),
         handle: me.email ? `@${me.email.split('@')[0]}` : '@member',
         bio: demoUser.bio,
-        avatar: me.avatar || me.picture || demoUser.avatar,
       }
     : demoUser;
 
-  const stats = { recipes: myPosts.length, saved: wishlist.length, comments: 67, streak: 6 };
-  const oneLine = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
-  const twoLine = { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' };
+  /* ✅ 동적 통계 */
+  const stats = { recipes: myPosts.length, saved: wishlist.length, comments: myCommentCount, streak: 6 };
 
   return (
     <div className="container-xxl py-3 mypage">
@@ -592,7 +581,7 @@ useEffect(() => {
             {!wishLoading && !wishErr && wishlist.length === 0 && (
               <div className="p-4 text-center text-secondary">
                 아직 저장한 레시피가 없어요.
-                <div className="mt-2"><Link className="btn btn-sm btn-success" to="/input">레시피 받으러 가기</Link></div>
+                <div className="mt-2"><Link className="btn btn-sm btn	success" to="/input">레시피 받으러 가기</Link></div>
               </div>
             )}
 
@@ -601,11 +590,9 @@ useEffect(() => {
                 {wishlist.slice(0, 3).map((w) => {
                   const key = w.id ?? w.recipeId;
                   const to = `/result?id=${encodeURIComponent(w.recipeId)}`;
-                  
                   return (
                     <Link key={key} to={to} className="list-group-item list-group-item-action">
                       <div className="d-flex align-items-center gap-3">
-                    
                         <div className="flex-grow-1" style={{ minWidth: 0 }}>
                           <div className="fw-semibold" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {w.title ?? `레시피 #${w.recipeId}`}
@@ -653,12 +640,9 @@ useEffect(() => {
               <div className="list-group list-group-flush">
                 {bookmarks.slice(0, 5).map((b) => {
                   const to = `/community/${b.id}`;
-                
-                  
                   return (
                     <Link key={b.id} to={to} className="list-group-item list-group-item-action">
                       <div className="d-flex align-items-center gap-3">
-                       
                         <div className="flex-grow-1" style={{ minWidth: 0 }}>
                           <div className="fw-semibold" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {b.title || `게시글 #${b.id}`}
@@ -722,7 +706,6 @@ useEffect(() => {
                   return (
                     <Link key={p.id} to={to} className="list-group-item list-group-item-action">
                       <div className="d-flex align-items-center gap-3">
-                      
                         <div className="flex-grow-1" style={{ minWidth: 0 }}>
                           <div className="fw-semibold" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.title}</div>
                           <div className="small text-secondary" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -730,7 +713,6 @@ useEffect(() => {
                           </div>
                         </div>
                         <div className="d-flex gap-2 flex-shrink-0">
-                          {/* 필요하면 수정 버튼도 추가 가능: onClick={() => navigate(`/write?id=${p.id}`)} */}
                           <button
                             className="btn btn-sm btn-outline-danger"
                             style={{ minWidth: 72, height: 32, padding: '0 12px' }}
@@ -752,41 +734,42 @@ useEffect(() => {
           <AdSlot id="ad-mypage-native" height={120} label="네이티브 인라인" />
 
           <div className="card shadow-sm mb-3">
-   <div className="card-header d-flex justify-content-between align-items-center">
-     <h5 className="m-0">최근 활동</h5>
-     <div className="d-flex align-items-center gap-2">
-       <span className="text-secondary small">총 {actTotal}건</span>
-       <button className="btn btn-link btn-sm" onClick={() => navigate('/activity')}>전체보기</button>
-     </div>
-   </div>
+            <div className="card-header d-flex justify-content-between align-items-center">
+              <h5 className="m-0">최근 활동</h5>
+              <div className="d-flex align-items-center gap-2">
+                <span className="text-secondary small">총 {actTotal}건</span>
+                <button className="btn btn-link btn-sm" onClick={() => navigate('/activity')}>전체보기</button>
+              </div>
+            </div>
 
-   {actLoading ? (
-     <div className="p-3">
-       <div className="placeholder-glow">
-         <div className="placeholder col-12 mb-2" style={{ height: 18 }} />
-         <div className="placeholder col-10 mb-2" style={{ height: 18 }} />
-         <div className="placeholder col-8" style={{ height: 18 }} />
-       </div>
-     </div>
-   ) : activities.length === 0 ? (
-     <div className="p-4 text-center text-secondary">아직 활동 내역이 없어요.</div>
-   ) : (
-     <ul className="list-group list-group-flush">
-       {activities.map((a) => {
-         const href = formatActivityHref(a);
-         const text = formatActivityText(a);
-         return (
-           <li key={a.id} className="list-group-item d-flex justify-content-between">
-             <span>{href ? <Link to={href} className="text-decoration-none">{text}</Link> : text}</span>
-             <small className="text-secondary">{new Date(a.ts).toLocaleString()}</small>
-           </li>
-         );
-       })}
-     </ul>
-   )}
- </div>
- </section>  
- </div>
+            {actLoading ? (
+              <div className="p-3">
+                <div className="placeholder-glow">
+                  <div className="placeholder col-12 mb-2" style={{ height: 18 }} />
+                  <div className="placeholder col-10 mb-2" style={{ height: 18 }} />
+                  <div className="placeholder col-8" style={{ height: 18 }} />
+                </div>
+              </div>
+            ) : activities.length === 0 ? (
+              <div className="p-4 text-center text-secondary">아직 활동 내역이 없어요.</div>
+            ) : (
+              <ul className="list-group list-group-flush">
+                {activities.map((a) => {
+                  const href = formatActivityHref(a);
+                  const text = formatActivityText(a);
+                  return (
+                    <li key={a.id} className="list-group-item d-flex justify-content-between">
+                      <span>{href ? <Link to={href} className="text-decoration-none">{text}</Link> : text}</span>
+                      <small className="text-secondary">{new Date(a.ts).toLocaleString()}</small>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </section>
+      </div>
+
       <footer className="text-center text-secondary small mt-4">
         * 일부 링크는 제휴/광고일 수 있으며, 구매 시 수수료를 받을 수 있습니다.
         <br />

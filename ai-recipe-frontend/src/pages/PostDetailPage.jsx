@@ -474,23 +474,18 @@ export default function PostDetailPage() {
             {!auth.loading && auth.user ? (
               <CommentEditor
                 postId={post.id}
-                onCreated={(saved) => {
+                onCreated={(created) => {
               try {
-                // 제목까지 함께 저장 (표시는 activity 포맷터에서 … 처리)
-                logActivity("comment_add", {
-                  postId: post.id,
-                  postTitle: (post.title || "").trim(),
-                  commentId: saved?.id,
-                  text: (saved?.content || "").slice(0, 120), // 프리뷰 용(선택)
-                });
-
-                // 마이페이지 "총 N건" 등 즉시 갱신
-                window.dispatchEvent(new Event("activity:changed"));
-              } catch {}
-                  // 댓글 목록 새로고침
-                  setCommentsVersion((v) => v + 1);
-                }}
-              />
+          logActivity("comment_create", {
+            postId: post.id,
+            commentId: created?.id,
+            postTitle: post.title,
+          });
+        } catch {}
+        // 리스트 재로딩
+        setCommentsVersion((v) => v + 1);
+      }}
+    />
             ) : (
               <div className="alert alert-light border d-flex justify-content-between align-items-center">
                 <span className="text-secondary">댓글을 쓰려면 로그인하세요.</span>
