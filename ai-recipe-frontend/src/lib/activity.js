@@ -323,3 +323,56 @@ export function clearActivities() {
   } catch {}
   try { window.dispatchEvent(new Event(EVT)); } catch {}
 }
+
+/* ── streak helpers ─────────────────────────────────────── */
+const DAY_MS = 24 * 60 * 60 * 1000;
+function ymdLocal(ts) {
+  const d = new Date(ts);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${dd}`;
+}
+
+/** 연속일 계산에 포함할 기본 활동 타입들 */
+export const DEFAULT_STREAK_TYPES = [
+  "post_create", "post_update", "post_delete",
+  "post_like", "post_bookmark",
+  "comment_create", "comment_add",
+  "favorite_add", "favorite_remove",
+];
+
+/**
+ * 현재 계정의 연속 활동일 수 계산
+ * @param {Object} opts
+ * @param {boolean} [opts.includeToday=true]  오늘 활동 없으면 0부터(오늘 포함), 어제까지로 볼 땐 false
+ * @param {string[]} [opts.types=DEFAULT_STREAK_TYPES] 포함할 타입 화이트리스트
+ * @returns {number} streak
+ */
+export function getDailyActivityStreak(opts = {}) {
+  const { includeToday = true, types = DEFAULT_STREAK_TYPES } = opts;
+  const n = ns();
+  if (!n) return 0;
+  migrateLegacyIfAny(n);
+
+  const allow = Array.isArray(types) && types.length ? new Set(types) : null;
+  const days = new Set(
+    readRaw(n)
+      .filter(a => a && a.ts && (!allow || allow.has(a.type)))
+      .map(a => ymdLocal(a.ts))
+  );
+
+  const base = new Date();
+  base.setHours(0, 0, 0, 0);
+  if (!includeToday) base.setTime(base.getTime() - DAY_MS);
+
+  let streak = 0;
+  let cursor = new Date(base);
+  while (true) {
+    const key = ymdLocal(cursor.getTime());
+    if (!days.has(key)) break;
+    streak += 1;
+    cursor.setTime(cursor.getTime() - DAY_MS);
+  }
+  return streak;
+}

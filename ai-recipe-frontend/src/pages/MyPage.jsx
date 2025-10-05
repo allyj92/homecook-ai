@@ -11,8 +11,11 @@ import {
   subscribeActivity,
   formatActivityText,
   formatActivityHref,
-  logActivity
+  logActivity,
+  getDailyActivityStreak
 } from '../lib/activity';
+
+
 
 /* 숫자 ID만 허용(최대 19자리: Long 범위) */
 function isNumericId(id) {
@@ -216,6 +219,7 @@ function loadBookmarksFromLS(uid, provider) {
 export default function MyPage() {
   const navigate = useNavigate();
   useEffect(() => { window.scrollTo(0, 0); }, []);
+  const [streak, setStreak] = useState(0);
 
   /* 세션 */
   const [me, setMe] = useState(null);
@@ -452,14 +456,13 @@ async function onRemove(e, recipeId) {
       localStorage.removeItem(`postBookmarkData:${currentUid}:${id}`);
     } catch {}
     setBookmarks((arr) => arr.filter((b) => String(b.id) !== id));
-    try { logActivity('post_bookmark', { postId: Number(id), postTitle, on: false }); } catch {}
+   // 제목 전달 없으면 북마크 목록에서 보강
+    const title =
+      postTitle ||
+      bookmarks.find((x) => String(x.id) === id)?.title ||
+      `게시글 #${id}`;
+    try { logActivity('post_bookmark', { postId: Number(id), postTitle: title, on: false }); } catch {}
     try { window.dispatchEvent(new Event('activity:changed')); } catch {}
-    try {
-    // 제목을 이미 로컬에 갖고 있으면 그걸 쓰고, 없으면 fallback
-    const b = bookmarks.find((x) => String(x.id) === id);
-    const postTitle = b?.title || `게시글 #${id}`;
-    logActivity('post_bookmark', { postId: id, postTitle, on: false });
-  } catch {}
 
   }
 
@@ -471,7 +474,7 @@ async function onRemove(e, recipeId) {
         const { items, total } = listActivitiesPaged(0, 3);
         setActivities(items);
         setActTotal(total);
-
+        setStreak(getDailyActivityStreak({ includeToday: true }));  
         // 댓글 수(로컬 활동 기준)
         const all = listActivities(300);
         const cnt = all.filter(a => a?.type === 'comment_create' || a?.type === 'comment_add').length;
@@ -534,7 +537,7 @@ async function onRemove(e, recipeId) {
     : demoUser;
 
   /* ✅ 동적 통계 */
-  const stats = { recipes: myPosts.length, saved: wishlist.length, comments: myCommentCount, streak: 6 };
+  const stats = { recipes: myPosts.length, saved: wishlist.length, comments: myCommentCount, streak };
 
   return (
     <div className="container-xxl py-3 mypage">
@@ -598,7 +601,7 @@ async function onRemove(e, recipeId) {
             {!wishLoading && !wishErr && wishlist.length === 0 && (
               <div className="p-4 text-center text-secondary">
                 아직 저장한 레시피가 없어요.
-                <div className="mt-2"><Link className="btn btn-sm btn	success" to="/input">레시피 받으러 가기</Link></div>
+                <div className="mt-2"><Link className="btn btn-sm btn-success" to="/input">레시피 받으러 가기</Link></div>
               </div>
             )}
 
