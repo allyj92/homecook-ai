@@ -139,40 +139,33 @@ async function fetchJson(url) {
   return res.json();
 }
 const toArr = (data) => {
+  if (!data) return [];
   if (Array.isArray(data)) return data;
-  if (Array.isArray(data?.items)) return data.items;
-  if (Array.isArray(data?.content)) return data.content; // ✅ Page 지원
-  return [];
+  if (Array.isArray(data.content)) return data.content;     // PageImpl
+  if (Array.isArray(data.items)) return data.items;         // items
+  const firstArray = Object.values(data).find(v => Array.isArray(v));
+  return Array.isArray(firstArray) ? firstArray : [];
 };
 
 /** 최신 레시피(최신순) */
 async function loadDailyNewRecipe(size = 8) {
-  // 1) 표준: createdAt 내림차순
   try {
-    const qs = new URLSearchParams({ page: '0', size: String(size), sort: 'createdAt,desc' });
-    const res = await fetch(`/api/recipes?${qs}`, {
-      credentials: 'include',
-      cache: 'no-store',
-      headers: { 'Accept': 'application/json' }
-    });
-    if (res.ok) {
-      const data = await res.json();
-      const arr = toArr(data);           // ✅ Page(content) 포함해서 파싱
-      if (arr.length) return arr;         // 내용 있으면 그대로 반환
+    const qs = new URLSearchParams({ size: String(size) });
+    const r = await fetch(`/api/recipes/latest?${qs}`, { credentials:'include', cache:'no-store', headers:{Accept:'application/json'}});
+    if (r.ok) {
+      const j = await r.json();
+      const arr = toArr(j);
+      if (arr.length) return arr;
     }
   } catch {}
 
-  // 2) 폴백: /api/recipes/latest?size
   try {
-    const qs = new URLSearchParams({ size: String(size) });
-    const res = await fetch(`/api/recipes/latest?${qs}`, {
-      credentials: 'include',
-      cache: 'no-store',
-      headers: { 'Accept': 'application/json' }
-    });
-    if (res.ok) {
-      const data = await res.json();
-      return toArr(data);                 // ✅ 여기서도 toArr 사용
+    const qs = new URLSearchParams({ page:'0', size:String(size), sort:'createdAt,desc' });
+    const r = await fetch(`/api/recipes?${qs}`, { credentials:'include', cache:'no-store', headers:{Accept:'application/json'}});
+    if (r.ok) {
+      const j = await r.json();
+      const arr = toArr(j);
+      if (arr.length) return arr;
     }
   } catch {}
 
