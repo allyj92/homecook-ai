@@ -296,8 +296,10 @@ export default function MainPage() {
 
   /* ✅ 최신 레시피 로딩 */
   const reloadDailyNew = useCallback(async () => {
+   
     setDailyNewLoading(true);
     try {
+      console.debug('[dailyNewRecipe]', arr);
       const arr = await loadDailyNewRecipe(8);
       const fixed = (Array.isArray(arr) ? arr : []).map(r => ({
         ...r,
