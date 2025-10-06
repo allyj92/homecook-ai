@@ -138,7 +138,12 @@ async function fetchJson(url) {
   if (!res.ok) throw new Error(String(res.status));
   return res.json();
 }
-const toArr = (data) => Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+const toArr = (data) => {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.content)) return data.content; // ✅ Page 지원
+  return [];
+};
 
 /** 최신 레시피(최신순) */
 async function loadDailyNewRecipe(size = 8) {
@@ -152,9 +157,10 @@ async function loadDailyNewRecipe(size = 8) {
     });
     if (res.ok) {
       const data = await res.json();
-      return Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+      const arr = toArr(data);           // ✅ Page(content) 포함해서 파싱
+      if (arr.length) return arr;         // 내용 있으면 그대로 반환
     }
-  } catch { /* pass */ }
+  } catch {}
 
   // 2) 폴백: /api/recipes/latest?size
   try {
@@ -166,13 +172,12 @@ async function loadDailyNewRecipe(size = 8) {
     });
     if (res.ok) {
       const data = await res.json();
-      return Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+      return toArr(data);                 // ✅ 여기서도 toArr 사용
     }
-  } catch { /* pass */ }
+  } catch {}
 
   return [];
 }
-
 /** 인기 커뮤니티(백엔드 sort=popular 우선, 폴백 클라이언트 점수) */
 async function loadPopularCommunity(size = 8) {
   try {
