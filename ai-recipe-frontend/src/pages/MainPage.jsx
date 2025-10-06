@@ -97,10 +97,10 @@ const BrandBadge = ({ tone = 'soft', children, className = '' }) => {
 /* ---------------- 이미지 URL 정리 ---------------- */
 function normalizeCoverUrl(url) {
   if (!url) return null;
+  if (/^(data:|blob:)/i.test(url)) return url;
   try {
     if (url.startsWith('/')) return url;
     const u = new URL(url, window.location.origin);
-    if (window.location.protocol === 'https:' && u.protocol === 'http:') u.protocol = 'https:';
     if (u.host === window.location.host) return u.pathname + u.search + u.hash;
     return u.toString();
   } catch { return url; }
@@ -109,16 +109,28 @@ function withVersion(url, ver) {
   if (!url) return url;
   try {
     const u = new URL(url, window.location.origin);
-    const v = ver != null ? (typeof ver === 'number' ? ver : Date.parse(ver) || Date.now()) : Date.now();
-    u.searchParams.set('v', String(v));
-    if (u.host === window.location.host) return u.pathname + u.search + u.hash;
+    const sameHost = (u.host === window.location.host);
+    const hasQuery = !!u.search && u.search.length > 1;
+    const looksSigned = /X-Amz-|Signature=|X-Goog-Signature=|token=|expires=|CloudFront/i.test(u.search);
+    // ✅ 캐시버스트는 "같은 호스트" & "쿼리 없음" & "서명 아님"인 경우에만
+    if (sameHost && !hasQuery && !looksSigned) {
+      const v = ver != null ? (typeof ver === 'number' ? ver : Date.parse(ver) || Date.now()) : Date.now();
+      u.searchParams.set('v', String(v));
+      return u.pathname + u.search + u.hash;
+    }
     return u.toString();
   } catch { return url; }
 }
 const ytThumb = (id) => (id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : null);
+function pick(obj, keys) { for (const k of keys) { if (obj && obj[k]) return obj[k]; } return null; }
 function buildCover(p) {
   const updatedAt = p.updatedAt ?? p.updated_at ?? p.createdAt ?? p.created_at ?? null;
-  const raw = p.repImageUrl ?? p.rep_image_url ?? null;
+  const raw = pick(p, [
+    'coverUrl','cover_url',
+    'repImageUrl','rep_image_url',
+    'imageUrl','image_url',
+    'thumbnailUrl','thumbnail_url','thumbnail'
+  ]);
   const normalized = withVersion(normalizeCoverUrl(raw), updatedAt);
   return normalized || ytThumb(p.youtubeId ?? p.youtube_id ?? null) || null;
 }
@@ -518,7 +530,7 @@ export default function MainPage() {
                               style={{ objectFit: 'cover' }}
                               loading="lazy"
                               referrerPolicy="no-referrer"
-                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                              onError={(e) => { console.warn('[img-error]', r.id, r.title, r.__cover); e.currentTarget.style.display = 'none'; }}
                             />
                           )}
                         </div>
