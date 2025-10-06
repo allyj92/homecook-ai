@@ -186,7 +186,7 @@ async function loadDailyNewRecipe(size = 8) {
         createdAt: p.createdAt ?? p.created_at ?? null,
         likeCount: p.likeCount ?? p.metrics?.likes ?? 0,
         commentCount: p.commentCount ?? p.metrics?.comments ?? 0,
-        repImageUrl: p.coverUrl ?? p.repImageUrl ?? null,
+        repImageUrl: p.coverUrl ?? p.cover_url ?? p.repImageUrl ?? p.rep_image_url ?? null,
         __asPost: true,  // 있으면 썸네일로
       }));
     }
@@ -525,7 +525,7 @@ export default function MainPage() {
                     <article
                       className="card h-100 shadow-sm"
                       onClick={() => navigate(r.__asPost ? `/community/${r.id}` : `/recipe/${r.id}`)}
-                      onKeyDown={(e)=>onCardKey(e, `/recipe/${r.id}`)}
+                      onKeyDown={(e)=> onCardKey(e, r.__asPost ? `/community/${r.id}` : `/recipe/${r.id}`)}
                       tabIndex={0}
                       role="button"
                       aria-label={`${r.title || '레시피'} 보기`}
