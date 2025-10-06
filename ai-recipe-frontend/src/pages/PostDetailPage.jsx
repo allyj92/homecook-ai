@@ -7,12 +7,30 @@ import { ensureLogin, fetchMe } from "../lib/auth";
 import { getCommunityPost } from "../api/community";
 import { logActivity } from "../lib/activity";
 
+
+
+
 /* ✅ 마크다운 렌더링 */
 import MarkdownIt from "markdown-it";
 import DOMPurify from "dompurify";
 
 import CommentList from "../components/CommentList";
 import CommentEditor from "../components/CommentEditor";
+
+
+
+// 추가: 서버 북마크 토글
+async function apiToggleBookmark(postId, on) {
+  const url = `/api/community/posts/${encodeURIComponent(postId)}/bookmark`;
+  let res = await fetch(url, { method: on ? 'POST' : 'DELETE', credentials: 'include' });
+  if (!res.ok && (res.status === 405 || res.status === 400 || res.status === 501)) {
+    res = await fetch(url + `?on=${on ? '1' : '0'}`, { method: 'POST', credentials: 'include' });
+  }
+  if (!res.ok) throw new Error('BOOKMARK_TOGGLE_FAILED');
+  try { return await res.json(); } catch { return null; }
+}
+
+
 
 /* ── MarkdownIt 설정 ───────────────────────────────────── */
 const md = new MarkdownIt({
@@ -302,35 +320,26 @@ export default function PostDetailPage() {
       }
     });
 
-  const onToggleBookmark = () =>
-    requireAuth(() => {
-      if (!uid || !provider || !post?.id) return;
-      setBookmarked((prev) => {
-        const next = !prev;
-        try {
-          localStorage.setItem(bmKey(uid, provider, post.id), next ? "1" : "0");
-          const dataK = bmDataKey(uid, provider, post.id);
-          if (next) {
-            const payload = {
-              id: post.id,
-              title: post.title,
-              category: post.category,
-              createdAt: post.createdAt || post.updatedAt || null,
-              repImageUrl: post.repImageUrl || null,
-              youtubeId: post.youtubeId || null,
-              tags: Array.isArray(post.tags) ? post.tags : [],
-            };
-            localStorage.setItem(dataK, JSON.stringify(payload));
-          } else {
-            localStorage.removeItem(dataK);
-          }
-          logActivity("post_bookmark", { postId: post.id, postTitle: post.title, on: next });
-          try { window.dispatchEvent(new Event("bookmark-changed")); } catch {}
-          try { window.dispatchEvent(new Event("activity:changed")); } catch {}
-        } catch {}
-        return next;
-      });
-    });
+ const onToggleBookmark = () =>
+  requireAuth(async () => {
+    if (!uid || !provider || !post?.id) return;
+    const next = !bookmarked;
+    setBookmarked(next); // 낙관적
+    try {
+      // 서버 반영 (집계)
+      const ret = await apiToggleBookmark(post.id, next);
+      // (선택) 서버가 최신 카운트 반환하면 적용
+      setPost((prev) => prev ? ({
+        ...prev,
+        bookmarkCount: (ret?.bookmarkCount ?? (prev.bookmarkCount ?? 0)) + (next ? 1 : -1),
+      }) : prev);
+      // 로컬 기록 및 다른 탭 갱신
+      try { window.dispatchEvent(new Event('bookmark-changed')); } catch {}
+    } catch {
+      setBookmarked(!next); // 롤백
+      alert('북마크 처리에 실패했어요.');
+    }
+  });
 
   // 편집 권한
   const canEdit =

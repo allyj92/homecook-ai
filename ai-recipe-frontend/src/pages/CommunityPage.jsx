@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+// src/pages/CommunityPage.jsx
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ensureLogin } from '../lib/auth'; // ✅ 경로 수정
+import { ensureLogin } from '../lib/auth';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import BottomNav from '../components/BottomNav';
 import '../index.css';
-
 
 /* ---- 이미지 URL 정리/대체 ---- */
 function normalizeCoverUrl(url) {
@@ -43,39 +43,20 @@ function buildCover(post) {
   return normalized || ytThumb(post.youtubeId ?? post.youtube_id ?? null) || null;
 }
 
-
 /* ---------------- 목록 프리뷰 전용 텍스트 정리 ---------------- */
 function makePreviewText(input, maxLen = 120) {
   if (!input) return '';
-
   let s = String(input);
-
-  // 1) 마크다운 이미지: alt 살리기
-  //    예) ![컵케이크](https://...) -> "컵케이크"
-  s = s.replace(/!\[([^\]]*)]\(([^)]+)\)/g, (_m, alt) => (alt || '').trim());
-
-  // 2) 마크다운 링크: 링크 텍스트만 유지
-  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, text) => (text || '').trim());
-
-  // 3) HTML <img> alt 살리기
-  //    alt가 없으면 공백
+  s = s.replace(/!\[([^\]]*)]\(([^)]+)\)/g, (_m, alt) => (alt || '').trim());       // MD 이미지 alt
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, text) => (text || '').trim());     // MD 링크 텍스트
   s = s.replace(/<img[^>]*alt=["']?([^"'>]*)["']?[^>]*>/gi, (_m, alt) => (alt || '').trim());
-
-  // 4) HTML <a> 텍스트만 유지
   s = s.replace(/<a[^>]*>(.*?)<\/a>/gi, (_m, inner) => (inner || '').trim());
-
-  // 5) URL 자체 제거
   s = s.replace(/\bhttps?:\/\/[^\s)]+/gi, '');
   s = s.replace(/\bwww\.[^\s)]+/gi, '');
-
-  // 6) 남은 태그/마크다운 문법 기호 정리
   s = s.replace(/<\/?[^>]+>/g, ' ');
   s = s.replace(/[#>*`_~\-]{1,}/g, ' ');
   s = s.replace(/\s+/g, ' ').trim();
-
-  // 7) 완전 비면 대체 문구
   if (!s) s = '이미지 첨부';
-
   if (s.length > maxLen) s = s.slice(0, maxLen) + '…';
   return s;
 }
@@ -104,8 +85,30 @@ function Badge({ children, tone = 'gray' }) {
   return <span className={`badge rounded-pill ${cls}`}>{children}</span>;
 }
 
+/** 숫자 포맷 (k/M 축약) */
+const fmtNum = (n) => {
+  const x = Number(n || 0);
+  if (x >= 1_000_000) return (x / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (x >= 1_000) return (x / 1_000).toFixed(1).replace(/\.0$/, '') + 'k';
+  return String(x);
+};
+
+/** 서버에서 내려오는 다양한 키들을 흡수해서 count 정규화 */
+function extractCounts(p) {
+  const likeCount =
+    p.likeCount ?? p.like_count ?? p.likes ?? p.hearts ?? p.metrics?.likes ?? p.metrics?.hearts ?? 0;
+  const commentCount =
+    p.commentCount ?? p.comment_count ?? p.comments ?? p.metrics?.comments ?? 0;
+  const bookmarkCount =
+    p.bookmarkCount ?? p.bookmark_count ?? p.bookmarks ?? p.metrics?.bookmarks ?? 0;
+  return {
+    __likes: Number(likeCount || 0),
+    __comments: Number(commentCount || 0),
+    __bookmarks: Number(bookmarkCount || 0),
+  };
+}
+
 function PostCard({ post, onOpen }) {
-  // 서버가 preview/bodyPreview를 주면 우선 사용, 없으면 content/body 사용
   const rawForPreview = post.preview || post.bodyPreview || post.content || post.body || '';
   const preview = makePreviewText(rawForPreview, 100);
   const when = new Date(post.createdAt || post.updatedAt || Date.now()).toLocaleString();
@@ -126,9 +129,10 @@ function PostCard({ post, onOpen }) {
             </a>
           </div>
           <div className="text-secondary small d-inline-flex gap-2">
-            {post.author && <span>{post.author}</span>}
-            {post.author && <span>·</span>}
-            <span>{when}</span>
+            {/* 우상단 메타 오른쪽에 간단 숫자도 표시 */}
+            <span title="좋아요">❤ {fmtNum(post.__likes)}</span>
+            <span title="댓글">💬 {fmtNum(post.__comments)}</span>
+            <span title="북마크">📌 {fmtNum(post.__bookmarks)}</span>
           </div>
         </div>
 
@@ -144,16 +148,17 @@ function PostCard({ post, onOpen }) {
           </div>
         </div>
       </div>
-       {post.__cover && (
-   <img
-     src={post.__cover}
-     alt=""
-     className="card-img-bottom"
-     loading="lazy"
-     referrerPolicy="no-referrer"
-     onError={(e) => { e.currentTarget.style.display = 'none'; }}
-   />
- )}
+
+      {post.__cover && (
+        <img
+          src={post.__cover}
+          alt=""
+          className="card-img-bottom"
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+        />
+      )}
     </article>
   );
 }
@@ -164,7 +169,7 @@ export default function CommunityPage() {
 
   const [q, setQ] = useState(params.get('q') ?? '');
   const [tab, setTab] = useState(params.get('tab') ?? 'all');
-  const [sort, setSort] = useState(params.get('sort') ?? 'new'); // ✅ 서버 기준은 최신순
+  const [sort, setSort] = useState(params.get('sort') ?? 'new'); // 서버 기준: 최신순
 
   // 서버 데이터 상태
   const [posts, setPosts] = useState([]);
@@ -178,10 +183,10 @@ export default function CommunityPage() {
     if (t === 'question') return '질문';
     if (t === 'review') return '후기';
     if (t === 'recipe') return '레시피';
-    return ''; // all/popular은 전체
+    return ''; // all은 전체
   };
 
-  async function load(pageToLoad = 0, tabToLoad = tab) {
+  const load = useCallback(async (pageToLoad = 0, tabToLoad = tab) => {
     setLoading(true);
     try {
       const category = tabToCategory(tabToLoad);
@@ -193,34 +198,54 @@ export default function CommunityPage() {
       const res = await fetch(`/api/community/posts?${qs.toString()}`, {
         credentials: 'include',
         cache: 'no-store',
-        headers: { 'Cache-Control': 'no-store' },
+        headers: { 'Cache-Control': 'no-store', 'Accept': 'application/json' },
       });
       const list = await res.json();
-      const fixed = (Array.isArray(list) ? list : []).map(p => ({
-      ...p,
-       __cover: buildCover(p),
- }));
- if (pageToLoad === 0) setPosts(fixed);
- else setPosts(prev => [...prev, ...fixed]);
+      const arr = Array.isArray(list) ? list : (Array.isArray(list?.items) ? list.items : []);
+      const fixed = arr.map(p => ({
+        ...p,
+        ...extractCounts(p),
+        __cover: buildCover(p),
+      }));
 
-      setHasMore(list.length === size);
+      if (pageToLoad === 0) setPosts(fixed);
+      else setPosts(prev => [...prev, ...fixed]);
+
+      setHasMore(arr.length === size);
       setPage(pageToLoad);
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
     }
-  }
+  }, [tab]);
 
   // 최초 로드
   useEffect(() => { window.scrollTo(0, 0); }, []);
-  useEffect(() => { load(0, tab); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { load(0, tab); }, [load, tab]);
 
-  // 탭 변경 시 처음부터 다시 로드
+  // 탭/검색/정렬 쿼리 동기화 헬퍼
+  function syncQuery(next = {}) {
+    const merged = new URLSearchParams(params);
+    Object.entries(next).forEach(([k, v]) => (v == null ? merged.delete(k) : merged.set(k, String(v))));
+    setParams(merged, { replace: true });
+  }
+
+  // 같은/다른 탭 활동 발생 시 목록 갱신 (좋아요/북마크/댓글)
   useEffect(() => {
-    load(0, tab);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]);
+    const refresh = () => load(0, tab);
+    const onVisible = () => { if (document.visibilityState === 'visible') refresh(); };
+    window.addEventListener('activity:changed', refresh);
+    window.addEventListener('bookmark-changed', refresh);
+    window.addEventListener('storage', refresh);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('activity:changed', refresh);
+      window.removeEventListener('bookmark-changed', refresh);
+      window.removeEventListener('storage', refresh);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [load, tab]);
 
   // 클라이언트 측 필터/정렬(서버는 최신순 반환)
   const filtered = useMemo(() => {
@@ -240,12 +265,6 @@ export default function CommunityPage() {
     }
     return arr;
   }, [posts, q, sort]);
-
-  function syncQuery(next = {}) {
-    const merged = new URLSearchParams(params);
-    Object.entries(next).forEach(([k, v]) => (v == null ? merged.delete(k) : merged.set(k, String(v))));
-    setParams(merged, { replace: true });
-  }
 
   return (
     <div className="container-xxl py-3">
