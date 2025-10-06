@@ -192,7 +192,7 @@ async function loadDailyNewRecipe(size = 8) {
   } catch {}
 
   return [];
-
+}
 /** 인기 커뮤니티(백엔드 sort=popular 우선, 폴백 클라이언트 점수) */
 async function loadPopularCommunity(size = 8) {
   try {
