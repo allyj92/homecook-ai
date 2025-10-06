@@ -10,7 +10,7 @@ import '../index.css';
 function normalizeCoverUrl(url) {
   if (!url) return null;
   try {
-    if (url.startsWith('/')) return url; // 같은 도메인 상대경로 그대로
+    if (url.startsWith('/')) return url; // 같은 도메인 상대경로 그대로 (// 포함)
     const u = new URL(url, window.location.origin);
     // https 페이지에 http 이미지면 업그레이드(혼합콘텐츠 방지)
     if (window.location.protocol === 'https:' && u.protocol === 'http:') {
@@ -23,66 +23,93 @@ function normalizeCoverUrl(url) {
     return url;
   }
 }
+
 function withVersion(url, ver) {
   if (!url) return url;
   try {
     const u = new URL(url, window.location.origin);
     const sameHost = (u.host === window.location.host);
-   const hasQuery = !!u.search && u.search.length > 1;
-   // 서명/토큰 붙은 URL은 절대 건드리면 안 됨
-   const looksSigned = /X-Amz-|Signature=|X-Goog-Signature=|token=|expires=|CloudFront/i.test(u.search);
-   if (sameHost && !hasQuery && !looksSigned) {
-     const v = ver != null ? (typeof ver === 'number' ? ver : Date.parse(ver) || Date.now()) : Date.now();
-     u.searchParams.set('v', String(v));
-     return u.pathname + u.search + u.hash;
-   }
-   return u.toString();
+    const hasQuery = !!u.search && u.search.length > 1;
+    // 서명/토큰 붙은 URL은 절대 건드리면 안 됨
+    const looksSigned = /X-Amz-|Signature=|X-Goog-Signature=|token=|expires=|CloudFront/i.test(u.search);
+    if (sameHost && !hasQuery && !looksSigned) {
+      const v = ver != null ? (typeof ver === 'number' ? ver : Date.parse(ver) || Date.now()) : Date.now();
+      u.searchParams.set('v', String(v));
+      return u.pathname + u.search + u.hash;
+    }
+    return u.toString();
   } catch { return url; }
 }
+
 const ytThumb = (id) => (id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : null);
 
-// 본문에서 첫 이미지 (MD/HTML/data-src/srcset 모두 커버)
-function firstImageFromContent(p) {
+// 본문에서 이미지 후보 모두 뽑기 (MD/HTML/data-src/srcset)
+function extractImagesFromContent(p) {
   const s = String(p?.content ?? p?.body ?? p?.html ?? '').trim();
-  if (!s) return null;
+  const out = [];
+  if (!s) return out;
+
   // Markdown: ![alt](url "title")
-  let m = /!\[[^\]]*]\(([^)]+)\)/.exec(s);
-  if (m?.[1]) return m[1].split('"')[0].trim();
-  // HTML: <img src="...">
-  m = /<img[^>]+src=["']([^"']+)["'][^>]*>/i.exec(s);
-  if (m?.[1]) return m[1];
-  // data-src
-  m = /<img[^>]+data-src=["']([^"']+)["'][^>]*>/i.exec(s);
-  if (m?.[1]) return m[1];
+  s.replace(/!\[[^\]]*]\(([^)]+)\)/g, (_m, u) => {
+    const cleaned = (u || '').split('"')[0].trim();
+    if (cleaned) out.push(cleaned);
+  });
+
+  // HTML: <img src="...">, data-src="..."
+  s.replace(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi, (_m, u) => u && out.push(u));
+  s.replace(/<img[^>]+data-src=["']([^"']+)["'][^>]*>/gi, (_m, u) => u && out.push(u));
+
   // srcset의 첫 번째 후보
-  m = /<img[^>]+srcset=["']([^"']+)["'][^>]*>/i.exec(s);
-  if (m?.[1]) {
-    const first = m[1].split(',')[0].trim().split(' ')[0];
-    if (first) return first;
-  }
-  return null;
+  s.replace(/<img[^>]+srcset=["']([^"']+)["'][^>]*>/gi, (_m, list) => {
+    const first = String(list || '').split(',')[0].trim().split(' ')[0];
+    if (first) out.push(first);
+  });
+
+  return out;
 }
 
-// 첨부 배열(images/photos/attachments 등)에서도 첫 이미지
-function firstAttachmentUrl(p) {
-  const cand = p?.attachments ?? p?.images ?? p?.photos ?? [];
-  for (const it of cand) {
+// 첨부(images/photos/attachments 등)에서도 후보 추출
+function extractImagesFromAttachments(p) {
+  const arr = p?.attachments ?? p?.images ?? p?.photos ?? [];
+  const out = [];
+  for (const it of (Array.isArray(arr) ? arr : [])) {
     const u = it?.url ?? it?.src ?? it?.imageUrl ?? it?.downloadUrl;
-    if (u) return u;
+    if (u) out.push(u);
   }
-  return null;
+  return out;
+}
+
+// 로그인/인증/혼합콘텐츠 등 썸네일로 부적절한 URL 걸러내기
+function isUsableImageUrl(url) {
+  try {
+    const u = new URL(url, window.location.origin);
+    const host = u.host.toLowerCase();
+    const path = u.pathname.toLowerCase();
+    // 로그인/인증 경로는 배제
+    if (host.startsWith('login.') || /\/(auth|login)/i.test(path)) return false;
+    // http 이미지는 https 페이지에서 배제(혼합콘텐츠)
+    if (window.location.protocol === 'https:' && u.protocol === 'http:') return false;
+    return /^https?:|^\//.test(u.href) || /^data:/.test(u.href);
+  } catch {
+    return false;
+  }
 }
 
 function buildCover(post) {
   const updatedAt = post.updatedAt ?? post.updated_at ?? post.createdAt ?? post.created_at ?? null;
-  const raw =
-   post.coverUrl ?? post.cover_url ??
-   post.repImageUrl ?? post.rep_image_url ??
-   firstAttachmentUrl(post) ??
-   firstImageFromContent(post) ?? null;
-  const normalized = withVersion(normalizeCoverUrl(raw), updatedAt);
-  // 1순위: 대표이미지, 2순위: 유튜브 썸네일
-  return normalized || ytThumb(post.youtubeId ?? post.youtube_id ?? null) || null;
+
+  const candidates = [
+    post.coverUrl ?? post.cover_url ?? null,
+    post.repImageUrl ?? post.rep_image_url ?? null,
+    ...(extractImagesFromAttachments(post)),
+    ...(extractImagesFromContent(post)),
+    ytThumb(post.youtubeId ?? post.youtube_id ?? null),
+  ].filter(Boolean);
+
+  const chosen = candidates.find(isUsableImageUrl);
+  const normalized = withVersion(normalizeCoverUrl(chosen), updatedAt);
+  // 1순위: 대표/첨부/본문 이미지, 2순위: 유튜브 썸네일
+  return normalized || null;
 }
 
 /* ---------------- 목록 프리뷰 전용 텍스트 정리 ---------------- */
@@ -171,7 +198,6 @@ function PostCard({ post, onOpen }) {
             </a>
           </div>
           <div className="text-secondary small d-inline-flex gap-2">
-            {/* 우상단 메타 오른쪽에 간단 숫자도 표시 */}
             <span title="좋아요">❤ {fmtNum(post.__likes)}</span>
             <span title="댓글">💬 {fmtNum(post.__comments)}</span>
             <span title="북마크">📌 {fmtNum(post.__bookmarks)}</span>
@@ -188,6 +214,7 @@ function PostCard({ post, onOpen }) {
               <span key={t} className="badge rounded-pill bg-light text-dark border">#{t}</span>
             ))}
           </div>
+          <span className="small text-secondary">{when}</span>
         </div>
       </div>
 
@@ -197,7 +224,7 @@ function PostCard({ post, onOpen }) {
           alt=""
           className="card-img-bottom"
           loading="lazy"
-          referrerPolicy="no-referrer"
+          decoding="async"
           onError={(e) => { e.currentTarget.style.display = 'none'; }}
         />
       )}
