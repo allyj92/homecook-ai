@@ -2,6 +2,7 @@
 package com.homecook.ai_recipe.controller;
 
 import com.homecook.ai_recipe.domain.Recipe;
+import com.homecook.ai_recipe.dto.RecipeCardDto;
 import com.homecook.ai_recipe.dto.RecommendRequest;
 import com.homecook.ai_recipe.dto.RecommendResponse;
 import com.homecook.ai_recipe.repo.RecipeRepository;
@@ -113,13 +114,4 @@ public class RecipeController {
                 .build();
     }
 
-    @Data @AllArgsConstructor
-    static class RecipeCardDto {
-        Long id;
-        String title;
-        Instant createdAt;
-        Integer likeCount;
-        Integer commentCount;
-        String repImageUrl;
-    }
 }

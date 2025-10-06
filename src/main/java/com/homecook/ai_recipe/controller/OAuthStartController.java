@@ -13,6 +13,7 @@ public class OAuthStartController {
     public String start(@PathVariable String provider) {
         // 예: /api/auth/oauth/naver/start → /oauth2/authorization/naver
         return "redirect:/oauth2/authorization/" + provider;
+
     }
 
 }

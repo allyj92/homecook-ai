@@ -1,71 +1,62 @@
 // src/App.jsx
-import { Routes, Route , Navigate} from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './layouts/Layout'
 import MainPage from './pages/MainPage'
 import InputPage from './pages/InputPage'
 import ResultPage from './pages/ResultPage'
 import CommunityPage from './pages/CommunityPage'
-import WritePage from "./pages/WritePage";
+import WritePage from './pages/WritePage'
 import MyPage from './pages/MyPage'
 import LoginPage from './pages/LoginPage'
 import ShopPage from './pages/ShopPage'
-import AuthBootstrap from './auth/AuthBootstrap' 
-import AuthCallback from './pages/AuthCallback'; 
-import ForgotResetPage from './pages/ForgotResetPage';
-import ForgotPassword from './pages/ForgotPassword';
-import ResetPassword from './pages/ResetPassword';
-import SavedPage from './pages/SavedPage';
-import PostDetailPage from "./pages/PostDetailPage.jsx";
-import "./styles/post-content.css";
-import ActivityPage from './pages/ActivityPage';
+import AuthBootstrap from './auth/AuthBootstrap'
+import AuthCallback from './pages/AuthCallback'
+import ForgotResetPage from './pages/ForgotResetPage'
+import ForgotPassword from './pages/ForgotPassword'
+import ResetPassword from './pages/ResetPassword'
+import SavedPage from './pages/SavedPage'
+import PostDetailPage from './pages/PostDetailPage'
+import ActivityPage from './pages/ActivityPage'
+import BookmarksPage from './pages/BookmarksPage'
+import MyPostsPage from './pages/MyPostsPage'
 
-import BookmarksPage from './pages/BookmarksPage';
-import MyPostsPage from './pages/MyPostsPage';
-
-
-// ⚠️ Header는 Layout 내부에서만 렌더되므로 여기서 import 불필요
-// import Header from './compoments/Header'
+// ✅ 레시피 상세 페이지가 있다면 임포트(없으면 임시 컴포넌트 만들어도 OK)
+// import RecipeDetailPage from './pages/RecipeDetailPage'
 
 export default function App() {
   return (
     <Routes>
-      {/* 공통 레이아웃(헤더 + <Outlet/>) */}
       <Route element={<><AuthBootstrap /><Layout /></>}>
-        {/* "/" */}
+        {/* 홈 */}
         <Route index element={<MainPage />} />
 
-        {/* 자식 경로(상대경로로 작성) */}
+        {/* 상대 경로로 통일 */}
         <Route path="input" element={<InputPage />} />
         <Route path="result" element={<ResultPage />} />
-        <Route path="/write" element={<WritePage />} />
-        <Route path="/community" element={<CommunityPage />} />
-        <Route path="/community/:id" element={<PostDetailPage />} />
-        <Route path="*" element={<CommunityPage />} />
+        <Route path="write" element={<WritePage />} />
+        <Route path="community" element={<CommunityPage />} />
+        <Route path="community/:id" element={<PostDetailPage />} />
+
+        {/* ✅ 누락된 라우트 추가 */}
+        {/* <Route path="recipe/:id" element={<RecipeDetailPage />} /> */}
+
         <Route path="mypage" element={<MyPage />} />
         <Route path="profile" element={<div>프로필 편집(추후)</div>} />
         <Route path="settings" element={<div>계정/보안(추후)</div>} />
-    
         <Route path="login-signup" element={<LoginPage />} />
-        <Route path="/forgot" element={<ForgotResetPage />} />
-        <Route path="/forgot-password" element={<ForgotPassword />} />
-        <Route path="/reset-password" element={<ResetPassword />} />
-        <Route path="/saved" element={<SavedPage />} />
-        
-       
+        <Route path="forgot" element={<ForgotResetPage />} />
+        <Route path="forgot-password" element={<ForgotPassword />} />
+        <Route path="reset-password" element={<ResetPassword />} />
+        <Route path="saved" element={<SavedPage />} />
         <Route path="login" element={<Navigate to="/login-signup" replace />} />
         <Route path="signup" element={<Navigate to="/login-signup" replace />} />
         <Route path="auth/callback" element={<AuthCallback />} />
-
-        <Route path="/activity" element={<ActivityPage />} />
-
-        <Route path="/bookmarks" element={<BookmarksPage />} />
-        <Route path="/myposts" element={<MyPostsPage />} />
-      
-
-        {/* 쇼핑도 같은 헤더/레이아웃 하에서 */}
+        <Route path="activity" element={<ActivityPage />} />
+        <Route path="bookmarks" element={<BookmarksPage />} />
+        <Route path="myposts" element={<MyPostsPage />} />
         <Route path="shop" element={<ShopPage />} />
 
-        {/* 404 */}
+        {/* ❌ 중복 와일드카드 제거하고 하나만 남김(404) */}
         <Route path="*" element={<div style={{padding:24}}>페이지를 찾을 수 없어요. 😢</div>} />
       </Route>
     </Routes>
