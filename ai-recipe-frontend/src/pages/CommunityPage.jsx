@@ -27,17 +27,59 @@ function withVersion(url, ver) {
   if (!url) return url;
   try {
     const u = new URL(url, window.location.origin);
-    const v = ver != null ? (typeof ver === 'number' ? ver : Date.parse(ver) || Date.now()) : Date.now();
-    u.searchParams.set('v', String(v));
-    if (u.host === window.location.host) return u.pathname + u.search + u.hash;
-    return u.toString();
+    const sameHost = (u.host === window.location.host);
+   const hasQuery = !!u.search && u.search.length > 1;
+   // 서명/토큰 붙은 URL은 절대 건드리면 안 됨
+   const looksSigned = /X-Amz-|Signature=|X-Goog-Signature=|token=|expires=|CloudFront/i.test(u.search);
+   if (sameHost && !hasQuery && !looksSigned) {
+     const v = ver != null ? (typeof ver === 'number' ? ver : Date.parse(ver) || Date.now()) : Date.now();
+     u.searchParams.set('v', String(v));
+     return u.pathname + u.search + u.hash;
+   }
+   return u.toString();
   } catch { return url; }
 }
 const ytThumb = (id) => (id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : null);
 
+// 본문에서 첫 이미지 (MD/HTML/data-src/srcset 모두 커버)
+function firstImageFromContent(p) {
+  const s = String(p?.content ?? p?.body ?? p?.html ?? '').trim();
+  if (!s) return null;
+  // Markdown: ![alt](url "title")
+  let m = /!\[[^\]]*]\(([^)]+)\)/.exec(s);
+  if (m?.[1]) return m[1].split('"')[0].trim();
+  // HTML: <img src="...">
+  m = /<img[^>]+src=["']([^"']+)["'][^>]*>/i.exec(s);
+  if (m?.[1]) return m[1];
+  // data-src
+  m = /<img[^>]+data-src=["']([^"']+)["'][^>]*>/i.exec(s);
+  if (m?.[1]) return m[1];
+  // srcset의 첫 번째 후보
+  m = /<img[^>]+srcset=["']([^"']+)["'][^>]*>/i.exec(s);
+  if (m?.[1]) {
+    const first = m[1].split(',')[0].trim().split(' ')[0];
+    if (first) return first;
+  }
+  return null;
+}
+
+// 첨부 배열(images/photos/attachments 등)에서도 첫 이미지
+function firstAttachmentUrl(p) {
+  const cand = p?.attachments ?? p?.images ?? p?.photos ?? [];
+  for (const it of cand) {
+    const u = it?.url ?? it?.src ?? it?.imageUrl ?? it?.downloadUrl;
+    if (u) return u;
+  }
+  return null;
+}
+
 function buildCover(post) {
   const updatedAt = post.updatedAt ?? post.updated_at ?? post.createdAt ?? post.created_at ?? null;
-  const raw = post.coverUrl ?? post.cover_url ?? post.repImageUrl ?? post.rep_image_url ?? null;
+  const raw =
+   post.coverUrl ?? post.cover_url ??
+   post.repImageUrl ?? post.rep_image_url ??
+   firstAttachmentUrl(post) ??
+   firstImageFromContent(post) ?? null;
   const normalized = withVersion(normalizeCoverUrl(raw), updatedAt);
   // 1순위: 대표이미지, 2순위: 유튜브 썸네일
   return normalized || ytThumb(post.youtubeId ?? post.youtube_id ?? null) || null;
