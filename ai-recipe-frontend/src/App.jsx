@@ -19,6 +19,7 @@ import PostDetailPage from './pages/PostDetailPage'
 import ActivityPage from './pages/ActivityPage'
 import BookmarksPage from './pages/BookmarksPage'
 import MyPostsPage from './pages/MyPostsPage'
+import RecipeDetailPage from './pages/RecipeDetailPage'
 
 // ✅ 레시피 상세 페이지가 있다면 임포트(없으면 임시 컴포넌트 만들어도 OK)
 // import RecipeDetailPage from './pages/RecipeDetailPage'
@@ -27,8 +28,13 @@ export default function App() {
   return (
     <Routes>
       <Route element={<><AuthBootstrap /><Layout /></>}>
+
+
         {/* 홈 */}
         <Route index element={<MainPage />} />
+
+        {/* ✅ 레시피 상세 */}
+        <Route path="/recipe/:id" element={<RecipeDetailPage />} />
 
         {/* 상대 경로로 통일 */}
         <Route path="input" element={<InputPage />} />

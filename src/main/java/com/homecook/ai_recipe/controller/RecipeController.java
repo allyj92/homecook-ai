@@ -76,6 +76,12 @@ public class RecipeController {
                 .getContent();
     }
 
+    @GetMapping("/recipes/{id}")
+    public RecipeCardDto getOne(@PathVariable Long id) {
+        Recipe r = recipeRepo.findById(id).orElseThrow();
+        return toCard(r);
+    }
+
     // --- 가벼운 카드 DTO로 반환: 프런트는 id/title/createdAt 정도만 씀 ---
     private RecipeCardDto toCard(Recipe r) {
         return new RecipeCardDto(
