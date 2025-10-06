@@ -205,6 +205,18 @@ export default function MyPage() {
   const [bookmarks, setBookmarks] = useState([]);
   const [bmLoading, setBmLoading] = useState(false);
 
+  +  /* 북마크 변경/화면 복귀 시 새로고침 */
+  useEffect(() => {
+    const onBM = () => fetchBookmarks();
+    const onVis = () => { if (document.visibilityState === 'visible') fetchBookmarks(); };
+    window.addEventListener('bookmark-changed', onBM);
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      window.removeEventListener('bookmark-changed', onBM);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [fetchBookmarks]);
+
   /* me 먼저 로드 */
   useEffect(() => {
     let aborted = false;
@@ -328,23 +340,25 @@ export default function MyPage() {
   };
 
   /* 북마크 로드(서버 기반) */
-  useEffect(() => {
-    if (!me) return; // 로그인 후
+    const fetchBookmarks = useCallback(async () => {
+    if (!me) return;
     setBmLoading(true);
-    (async () => {
-      try {
-        const res = await apiFetch(`/api/community/bookmarks?page=0&size=5`);
-        if (!res.ok) throw new Error('bookmark_list_failed');
-        const page = await res.json(); // Spring Page<CommunityPost>
-        const items = (page?.content ?? []).map(normalizePostMeta);
-        setBookmarks(items);
-      } catch {
-        setBookmarks([]);
-      } finally {
-        setBmLoading(false);
-      }
-    })();
+    try {
+      // 캐시버스터 & 캐시 비활성화
+      const res = await apiFetch(`/api/community/bookmarks?page=0&size=5&_=${Date.now()}`, { cache: 'no-store' });
+      if (!res.ok) throw new Error('bookmark_list_failed');
+      const page = await res.json();
+      setBookmarks((page?.content ?? []).map(normalizePostMeta));
+    } catch {
+      setBookmarks([]);
+    } finally {
+      setBmLoading(false);
+    }
   }, [me]);
+
+
+
+  useEffect(() => { fetchBookmarks(); }, [fetchBookmarks]);
 
   /* 북마크 해제(서버 호출) */
   async function onUnbookmark(e, postId) {
