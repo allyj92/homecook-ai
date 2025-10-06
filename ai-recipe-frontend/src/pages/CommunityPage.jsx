@@ -35,8 +35,12 @@ function normalizeCoverUrl(url) {
     if (raw.startsWith('/')) return raw;
     const u = new URL(raw, window.location.origin);
     if (window.location.protocol === 'https:' && u.protocol === 'http:') {
-      u.protocol = 'https:';
-    }
+     try {
+       u.protocol = 'https:';
+     } catch {
+       // 승격 실패 시 원본으로 두고 SmartImg onError에 맡김
+     }
+   }
     if (u.host === window.location.host) return u.pathname + u.search + u.hash;
     return u.toString();
   } catch {
@@ -66,11 +70,11 @@ const ytThumb = (id) => (id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : nul
 function isUsableImageUrl(url) {
   try {
     const u = new URL(url, window.location.origin);
-    const host = u.host.toLowerCase();
-    const path = u.pathname.toLowerCase();
-    if (host.startsWith('login.') || /\/(auth|login)/i.test(path)) return false;
-    if (window.location.protocol === 'https:' && u.protocol === 'http:') return false;
-    return /^https?:|^\//.test(u.href) || /^data:/.test(u.href);
+       // 로그인 래퍼 자체 URL만 1차 제외 (실제 이미지 src로 쓰일 일 거의 없음)
+   const path = u.pathname.toLowerCase();
+   if (/\/(auth|login)/i.test(path)) return false;
+   // 나머지는 브라우저/SmartImg에 맡김 (http -> https 승격은 normalize에서 시도함)
+   return /^https?:/.test(u.href) || u.href.startsWith('data:') || u.href.startsWith('/');
   } catch {
     return false;
   }
@@ -210,6 +214,8 @@ function SmartImg({ sources, alt = '', className = '', onHide }) {
       className={className}
       loading="lazy"
       decoding="async"
+      referrerPolicy="no-referrer"
+      crossOrigin="anonymous"
       onError={() => {
         if (idx + 1 < (sources?.length || 0)) setIdx(idx + 1);
         else if (onHide) onHide();
