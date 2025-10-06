@@ -209,16 +209,8 @@ async function loadDailyNewRecipe(size = 8) {
   if (!res.ok) return [];
   const j = await res.json();
   const posts = toArr(j);
-  return posts.map((p) => ({
-    id: p.id,
-    title: p.title,
-    createdAt: p.createdAt ?? p.created_at ?? null,
-    likeCount: p.likeCount ?? p.metrics?.likes ?? 0,
-    commentCount: p.commentCount ?? p.metrics?.comments ?? 0,
-    // buildCover가 coverUrl도 처리하므로 굳이 이름 바꿔 넣지 않아도 됨
-    coverUrl: p.coverUrl ?? p.cover_url ?? null,
-    __asPost: true,
-  }));
+  // ⚠️ 원본을 그대로 유지해야 buildCover가 content/attachments/repImageUrl 등을 읽을 수 있음
+  return posts.map((p) => ({ ...p, __asPost: true }));
 }
 /** 인기 커뮤니티(백엔드 sort=popular 우선, 폴백 클라이언트 점수) */
 async function loadPopularCommunity(size = 8) {
@@ -329,11 +321,11 @@ export default function MainPage() {
       const arr = await loadDailyNewRecipe(8);
       console.debug('[dailyNewRecipe]', arr);
       const fixed = (Array.isArray(arr) ? arr : []).map(r => ({
-        ...r,
-        __cover: buildCover(r),
-        __likes: Number(r.likeCount ?? r.like_count ?? r.metrics?.likes ?? 0),
-        __comments: Number(r.commentCount ?? r.comment_count ?? r.metrics?.comments ?? 0),
-      }));
+           ...r,
+    __cover: buildCover(r),
+    __likes: Number(r.likeCount ?? r.like_count ?? r.likes ?? r.hearts ?? r.metrics?.likes ?? r.metrics?.hearts ?? 0),
+    __comments: Number(r.commentCount ?? r.comment_count ?? r.comments ?? r.metrics?.comments ?? 0),
+   }));
       setDailyNewRecipe(fixed);
     } finally {
       setDailyNewLoading(false);
@@ -493,6 +485,7 @@ export default function MainPage() {
                                 style={{ objectFit: 'cover' }}
                                 loading="lazy"
                                 referrerPolicy="no-referrer"
+                                crossOrigin="anonymous"
                                 onError={(e) => { e.currentTarget.style.display = 'none'; }}
                               />
                             )}
@@ -561,18 +554,19 @@ export default function MainPage() {
                     >
                       <div className="position-relative">
                         <div className="ratio ratio-4x3 bg-light rounded-top">
-                          {r.__cover && (
-                            <img
-                              src={r.__cover}
-                              alt=""
-                              className="position-absolute top-0 start-0 w-100 h-100 rounded-top"
-                              style={{ objectFit: 'cover' }}
-                              loading="lazy"
-                              referrerPolicy="no-referrer"
-                              onError={(e) => { console.warn('[img-error]', r.id, r.title, r.__cover); e.currentTarget.style.display = 'none'; }}
-                            />
-                          )}
-                        </div>
+                      {r.__cover && (
+                        <img
+                          src={r.__cover}
+                          alt=""
+                          className="position-absolute top-0 start-0 w-100 h-100 rounded-top"
+                          style={{ objectFit: 'cover' }}
+                          loading="lazy"
+                          referrerPolicy="no-referrer"                
+                          crossOrigin="anonymous"
+                          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                        />
+                      )}
+                    </div>
                       </div>
                       <div className="card-body">
                         <h3 className="h6 fw-semibold mb-1" style={{ color: BRAND.ink }}>
@@ -700,8 +694,21 @@ export default function MainPage() {
                       aria-label={`${r.title || '레시피'} 보기`}
                     >
                       <div className="position-relative">
-                        <div className="ratio ratio-4x3 bg-light rounded-top" />
+                      <div className="ratio ratio-4x3 bg-light rounded-top">
+                        {r.__cover && (
+                          <img
+                            src={r.__cover}
+                            alt=""
+                            className="position-absolute top-0 start-0 w-100 h-100 rounded-top"
+                            style={{ objectFit: 'cover' }}
+                            loading="lazy"
+                            referrerPolicy="no-referrer"
+                            crossOrigin="anonymous"
+                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                          />
+                        )}
                       </div>
+                    </div>
                       <div className="card-body">
                         <h3 className="h6 fw-semibold mb-1" style={{ color: BRAND.ink }}>
                           {r.title ? ellipsis(r.title, 48) : <span className="placeholder col-8" style={{ display:'inline-block', height:18 }} />}
