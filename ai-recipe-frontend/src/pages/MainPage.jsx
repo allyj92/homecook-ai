@@ -94,32 +94,157 @@ const BrandBadge = ({ tone = 'soft', children, className = '' }) => {
   );
 };
 
+/* ---------------- 이미지 URL 정리 ---------------- */
+function normalizeCoverUrl(url) {
+  if (!url) return null;
+  try {
+    if (url.startsWith('/')) return url;
+    const u = new URL(url, window.location.origin);
+    if (window.location.protocol === 'https:' && u.protocol === 'http:') u.protocol = 'https:';
+    if (u.host === window.location.host) return u.pathname + u.search + u.hash;
+    return u.toString();
+  } catch { return url; }
+}
+function withVersion(url, ver) {
+  if (!url) return url;
+  try {
+    const u = new URL(url, window.location.origin);
+    const v = ver != null ? (typeof ver === 'number' ? ver : Date.parse(ver) || Date.now()) : Date.now();
+    u.searchParams.set('v', String(v));
+    if (u.host === window.location.host) return u.pathname + u.search + u.hash;
+    return u.toString();
+  } catch { return url; }
+}
+const ytThumb = (id) => (id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : null);
+function buildCover(p) {
+  const updatedAt = p.updatedAt ?? p.updated_at ?? p.createdAt ?? p.created_at ?? null;
+  const raw = p.repImageUrl ?? p.rep_image_url ?? null;
+  const normalized = withVersion(normalizeCoverUrl(raw), updatedAt);
+  return normalized || ytThumb(p.youtubeId ?? p.youtube_id ?? null) || null;
+}
+
+/* ---------------- 유틸 ---------------- */
+const ellipsis = (s, n = 48) => (s && s.length > n ? s.slice(0, n - 1) + '…' : s || '');
+const fmtNum = (n) => {
+  const x = Number(n || 0);
+  if (x >= 1000000) return (x / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (x >= 1000) return (x / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+  return String(x);
+};
+
+/* ---------------- 인기 커뮤니티 로더 ---------------- */
+async function fetchJson(url) {
+  const res = await fetch(url, { credentials: 'include', cache: 'no-store', headers: { 'Accept': 'application/json' } });
+  if (!res.ok) throw new Error(String(res.status));
+  return res.json();
+}
+
+/** 서버가 sort=popular를 지원하면 그걸 사용, 아니면 점수 산정(좋아요/댓글/북마크 + 시간감쇠)로 정렬 */
+async function loadPopularCommunity(size = 8) {
+  // 1) 표준 시도: sort=popular
+  try {
+    const qs = new URLSearchParams({ size: String(size), sort: 'popular' });
+    const arr = await fetchJson(`/api/community/posts?${qs}`);
+    if (Array.isArray(arr) && arr.length) return arr;
+  } catch { /* pass */ }
+
+  // 2) 대체: /trending 엔드포인트가 있다면
+  try {
+    const qs = new URLSearchParams({ size: String(size) });
+    const arr = await fetchJson(`/api/community/trending?${qs}`);
+    if (Array.isArray(arr) && arr.length) return arr;
+  } catch { /* pass */ }
+
+  // 3) 폴백: 최신 n개를 받아서 프런트에서 점수 계산
+  try {
+    const page0 = await fetchJson(`/api/community/posts?page=0&size=50`);
+    const items = Array.isArray(page0) ? page0 : [];
+    const now = Date.now();
+
+    const scoreOf = (p) => {
+      const likes = Number(p.likeCount ?? p.likes ?? p.hearts ?? 0);
+      const comments = Number(p.commentCount ?? p.comments ?? 0);
+      const bookmarks = Number(p.bookmarkCount ?? p.bookmarks ?? 0);
+      const createdAt = new Date(p.createdAt ?? p.created_at ?? p.updatedAt ?? p.updated_at ?? now).getTime();
+      const ageHours = Math.max(1, (now - createdAt) / 36e5); // 시간
+      // 가벼운 hot-score: 참여(가중치) / 시간감쇠
+      const engagement = likes * 3 + comments * 2 + bookmarks * 1;
+      return engagement / Math.pow(ageHours, 0.6);
+    };
+
+    const ranked = [...items]
+      .map(p => ({ ...p, __score: scoreOf(p) }))
+      .sort((a, b) => b.__score - a.__score)
+      .slice(0, size);
+    return ranked;
+  } catch {
+    return [];
+  }
+}
+
 export default function MainPage() {
   const navigate = useNavigate();
   const [modalOpen, setModalOpen] = useState(false);
   const hsc = useHScrollControls();
 
+  // 🔥 인기 커뮤니티 섹션 상태
+  const [popLoading, setPopLoading] = useState(true);
+  const [popular, setPopular] = useState([]);
+
   useEffect(() => { window.scrollTo(0, 0); }, []);
 
   const onCardKey = (e, to) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(to); } };
 
-  // 🔐 로그인 가드: HashRouter를 고려해 복귀 경로를 항상 해시 기준으로 저장
+  // 🔐 로그인 가드: HashRouter를 고려해 복귀 경로 저장
   const requireLogin = useCallback(async (backTo, onOk) => {
     const safeBack = backTo ?? (
       window.location.hash
         ? window.location.hash.slice(1)
         : (window.location.pathname + window.location.search)
     );
-
-    // ensureLogin: /api/auth/me → 401이면 내부에서 #/login-signup으로 이동 + postLoginRedirect 저장
     const me = await ensureLogin(safeBack);
-    if (!me) return;              // 미로그인 → ensureLogin이 라우팅 처리, 여기서 끝
-    if (onOk) onOk();             // 로그인 상태 → 원하는 동작 실행
+    if (!me) return;
+    if (onOk) onOk();
   }, []);
 
+  // 데모 레시피 카드(기존 섹션 유지)
   const initialRecipes = ['두부 파프리카 볶음', '참치 곤약 비빔', '닭가슴살 유부초밥', '두유 된장국'];
   const extraRecipes   = ['연두부 달걀탕', '현미 닭가슴살 덮밥', '고구마 샐러드', '시금치 두부무침'];
   const recipes        = [...initialRecipes, ...extraRecipes];
+
+  /* ✅ 인기 커뮤니티 로딩 + 즉시성 갱신 */
+  const reloadPopular = useCallback(async () => {
+    setPopLoading(true);
+    try {
+      const arr = await loadPopularCommunity(8);
+      const fixed = (Array.isArray(arr) ? arr : []).map(p => {
+        const cover = buildCover(p);
+        // 숫자 필드 정리
+        const likeCount = Number(p.likeCount ?? p.likes ?? p.hearts ?? 0);
+        const commentCount = Number(p.commentCount ?? p.comments ?? 0);
+        return { ...p, __cover: cover, __likes: likeCount, __comments: commentCount };
+      });
+      setPopular(fixed);
+    } finally {
+      setPopLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { reloadPopular(); }, [reloadPopular]);
+
+  // 같은 탭에서 좋아요/북마크/댓글이 생기면 새로고침
+  useEffect(() => {
+    const onAct = () => reloadPopular();
+    const onVisible = () => { if (document.visibilityState === 'visible') reloadPopular(); };
+    window.addEventListener('activity:changed', onAct);
+    window.addEventListener('bookmark-changed', onAct);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('activity:changed', onAct);
+      window.removeEventListener('bookmark-changed', onAct);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [reloadPopular]);
 
   return (
     <div className="container-xxl py-3">
@@ -134,6 +259,7 @@ export default function MainPage() {
         </aside>
 
         <section className="col-12 col-lg-9">
+          {/* HERO */}
           <section className="rounded-4 border p-4 p-lg-5" style={{ background: '#fff', borderColor: BRAND.softBd }}>
             <div className="row align-items-center g-4">
               <div className="col-12 col-lg-7">
@@ -172,7 +298,8 @@ export default function MainPage() {
                     <img
                       src="/images/chicken-broccoli.jpg"
                       alt="저염 닭가슴살 볶음"
-                      className="position-absolute top-0 start-0 w-100 h-100 object-fit-cover rounded-top"
+                      className="position-absolute top-0 start-0 w-100 h-100 rounded-top"
+                      style={{ objectFit: 'cover' }}
                     />
                   </div>
                   <div className="card-body">
@@ -184,6 +311,90 @@ export default function MainPage() {
             </div>
           </section>
 
+          {/* ✅ 지금 인기 커뮤니티 */}
+          <section className="mt-4">
+            <div className="d-flex align-items-center justify-content-between mb-2">
+              <h2 className="h5 fw-bold m-0" style={{ color: BRAND.ink }}>지금 인기 커뮤니티</h2>
+              <div className="d-flex gap-2">
+                <BrandButton
+                  outline
+                  className="btn-sm"
+                  onClick={() => navigate('/community?tab=all&sort=popular')}
+                >
+                  더보기
+                </BrandButton>
+              </div>
+            </div>
+
+            {popLoading ? (
+              <div className="row g-3">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div className="col-12 col-sm-6 col-lg-3" key={i}>
+                    <div className="card shadow-sm">
+                      <div className="ratio ratio-4x3 bg-light rounded-top placeholder" />
+                      <div className="card-body">
+                        <div className="placeholder col-10 mb-2" style={{ height: 18 }} />
+                        <div className="placeholder col-6" style={{ height: 14 }} />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : popular.length === 0 ? (
+              <div className="alert alert-light border small">아직 인기 게시글이 없어요. 첫 글을 올려보세요!</div>
+            ) : (
+              <div className="row g-3">
+                {popular.slice(0, 8).map((p) => {
+                  const to = `/community/${p.id}`;
+                  return (
+                    <div className="col-12 col-sm-6 col-lg-3" key={p.id}>
+                      <article
+                        className="card h-100 shadow-sm"
+                        onClick={() => navigate(to)}
+                        onKeyDown={(e) => onCardKey(e, to)}
+                        tabIndex={0}
+                        role="button"
+                        aria-label={`${p.title || '게시글'} 보기`}
+                      >
+                        <div className="position-relative">
+                          <div className="ratio ratio-4x3 bg-light rounded-top">
+                            {p.__cover && (
+                              <img
+                                src={p.__cover}
+                                alt=""
+                                className="position-absolute top-0 start-0 w-100 h-100 rounded-top"
+                                style={{ objectFit: 'cover' }}
+                                loading="lazy"
+                                referrerPolicy="no-referrer"
+                                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                              />
+                            )}
+                          </div>
+                          {/* 상단 뱃지: 좋아요 TOP */}
+                          {p.__likes > 0 && (
+                            <BrandBadge tone="teal" className="position-absolute top-0 start-0 m-2">
+                              ❤ {fmtNum(p.__likes)}
+                            </BrandBadge>
+                          )}
+                        </div>
+                        <div className="card-body">
+                          <h3 className="h6 fw-semibold mb-1" style={{ color: BRAND.ink }}>
+                            {ellipsis(p.title || `게시글 #${p.id}`, 48)}
+                          </h3>
+                          <div className="small d-flex align-items-center gap-3" style={{ color: BRAND.mute }}>
+                            <span>❤ {fmtNum(p.__likes)}</span>
+                            <span>💬 {fmtNum(p.__comments)}</span>
+                          </div>
+                        </div>
+                      </article>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          {/* 기존: 요즘 뜨는 레시피 */}
           <section className="mt-4">
             <div className="d-flex align-items-center justify-content-between mb-2">
               <h2 className="h5 fw-bold m-0" style={{ color: BRAND.ink }}>요즘 뜨는 레시피</h2>
@@ -227,6 +438,7 @@ export default function MainPage() {
             <AdSlot id="ad-infeed-1" height={250} label="In-Feed 336×280 / 반응형" />
           </div>
 
+          {/* 안내 섹션 */}
           <section className="mt-4">
             <div className="mb-2">
               <h2 className="h5 fw-bold m-0" id="how-title" style={{ color: BRAND.ink }}>어떻게 추천하나요?</h2>
@@ -286,6 +498,7 @@ export default function MainPage() {
       <BottomNav />
       <div className="bottom-nav-spacer" aria-hidden="true" />
 
+      {/* 모달: 레시피 전체보기 (기존 유지) */}
       <div className={`modal fade ${modalOpen ? 'show d-block' : ''}`} tabIndex="-1" role="dialog" aria-hidden={!modalOpen} onClick={() => setModalOpen(false)}>
         <div className="modal-dialog modal-xl modal-dialog-centered" onClick={(e) => e.stopPropagation()}>
           <div className="modal-content">
