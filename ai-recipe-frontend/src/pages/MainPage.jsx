@@ -101,6 +101,9 @@ function normalizeCoverUrl(url) {
   try {
     if (url.startsWith('/')) return url;
     const u = new URL(url, window.location.origin);
+    if (window.location.protocol === 'https:' && u.protocol === 'http:') {
+     u.protocol = 'https:';
+   }
     if (u.host === window.location.host) return u.pathname + u.search + u.hash;
     return u.toString();
   } catch { return url; }
@@ -127,8 +130,21 @@ const ytThumb = (id) => (id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : nul
 function firstImageFromContent(p) {
   const s = String(p?.content ?? p?.body ?? p?.html ?? '').trim();
   if (!s) return null;
-  // Markdown 이미지 ![alt](url)
-  let m = /!\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/.exec(s);
+  // Markdown 이미지 ![alt](url "title")  — 공백/괄호 일부 허용
+ let m = /!\[[^\]]*]\(([^)]+)\)/.exec(s);
+  if (m?.[1]) return m[1].split('"')[0].trim();
+  // HTML 이미지 <img src="...">
+  m = /<img[^>]+src=["']([^"']+)["'][^>]*>/i.exec(s);
+  if (m?.[1]) return m[1];
+ // 지연로딩 data-src
+ m = /<img[^>]+data-src=["']([^"']+)["'][^>]*>/i.exec(s);
+ if (m?.[1]) return m[1];
+ // srcset의 첫 번째 소스
+ m = /<img[^>]+srcset=["']([^"']+)["'][^>]*>/i.exec(s);
+ if (m?.[1]) {
+   const first = m[1].split(',')[0].trim().split(' ')[0];
+   if (first) return first;
+ }
   if (m?.[1]) return m[1];
   // HTML 이미지 <img src="...">
   m = /<img[^>]+src=["']([^"']+)["'][^>]*>/i.exec(s);
@@ -138,6 +154,14 @@ function firstImageFromContent(p) {
 
 
 function pick(obj, keys) { for (const k of keys) { if (obj && obj[k]) return obj[k]; } return null; }
+function firstAttachmentUrl(p) {
+  const cand = p?.attachments ?? p?.images ?? p?.photos ?? [];
+  for (const it of cand) {
+    const u = it?.url ?? it?.src ?? it?.imageUrl ?? it?.downloadUrl;
+    if (u) return u;
+  }
+  return null;
+}
 function buildCover(p) {
   const updatedAt = p.updatedAt ?? p.updated_at ?? p.createdAt ?? p.created_at ?? null;
   const raw = pick(p, [
@@ -145,7 +169,7 @@ function buildCover(p) {
     'repImageUrl','rep_image_url',
     'imageUrl','image_url',
     'thumbnailUrl','thumbnail_url','thumbnail'
-  ]) ?? firstImageFromContent(p); 
+  ]) ?? firstAttachmentUrl(p) ?? firstImageFromContent(p); 
   const normalized = withVersion(normalizeCoverUrl(raw), updatedAt);
   return normalized || ytThumb(p.youtubeId ?? p.youtube_id ?? null) || null;
 }
