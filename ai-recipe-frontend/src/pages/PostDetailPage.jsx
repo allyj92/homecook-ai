@@ -1,5 +1,5 @@
 // src/pages/PostDetailPage.jsx
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import "bootstrap/dist/css/bootstrap.min.css";
 import BottomNav from "../components/BottomNav";
@@ -16,9 +16,9 @@ import CommentEditor from "../components/CommentEditor";
 
 /* ── MarkdownIt 설정 ───────────────────────────────────── */
 const md = new MarkdownIt({
-  html: false,     // 생 HTML 금지
-  linkify: true,   // 텍스트 URL을 자동 링크
-  breaks: true,    // 줄바꿈 -> <br>
+  html: false,
+  linkify: true,
+  breaks: true,
 });
 
 // 링크를 새 탭으로 열고 안전 속성 부여
@@ -44,7 +44,6 @@ const ALLOWED_TAGS = [
 ];
 const ALLOWED_ATTR = [
   "href","target","rel","src","alt","title",
-  // 이미지 품질/접근성
   "loading","width","height"
 ];
 
@@ -56,7 +55,6 @@ const nameFromEmail = (email) => (email ? String(email).split("@")[0] : null);
 function commentPreview(input, maxLen = 80) {
   if (!input) return "";
   let s = String(input);
-  // 태그/마크다운/URL 간단 제거
   s = s.replace(/!\[([^\]]*)]\([^)]*\)/g, (_m, alt) => (alt || "").trim());
   s = s.replace(/\[([^\]]+)]\([^)]*\)/g, (_m, t) => (t || "").trim());
   s = s.replace(/<img[^>]*alt=["']?([^"'>]*)["']?[^>]*>/gi, (_m, alt) => (alt || "").trim());
@@ -271,21 +269,37 @@ export default function PostDetailPage() {
     }
   }, [auth.user, loc, syncAuth]);
 
+  // ✅ 서버에 좋아요 반영
+  async function apiToggleLike(postId, on) {
+    const url = `/api/community/posts/${encodeURIComponent(postId)}/like`;
+    let res = await fetch(url, { method: on ? "POST" : "DELETE", credentials: "include" });
+    if (!res.ok && (res.status === 405 || res.status === 400 || res.status === 501)) {
+      res = await fetch(url + `?on=${on ? "1" : "0"}`, { method: "POST", credentials: "include" });
+    }
+    if (!res.ok) throw new Error("LIKE_TOGGLE_FAILED");
+    try { return await res.json(); } catch { return null; }
+  }
+
   const onToggleLike = () =>
-    requireAuth(() => {
+    requireAuth(async () => {
       if (!uid || !provider || !post?.id) return;
-      setLiked((prev) => {
-        const next = !prev;
-        try {
-          localStorage.setItem(likeKey(uid, provider, post.id), next ? "1" : "0");
-        } catch {}
-        logActivity("post_like", { postId: post.id, postTitle: post.title, on: next });
 
-        // ✅ 같은 탭에서 즉시 반영
+      // nextOn은 setState 전에 계산 (상태 참조 꼬임 방지)
+      const nextOn = !liked;
+
+      // 낙관적 업데이트
+      setLiked(nextOn);
+      try {
+        try { localStorage.setItem(likeKey(uid, provider, post.id), nextOn ? "1" : "0"); } catch {}
+        await apiToggleLike(post.id, nextOn);
+        logActivity("post_like", { postId: post.id, postTitle: post.title, on: nextOn });
         try { window.dispatchEvent(new Event("activity:changed")); } catch {}
-
-        return next;
-      });
+      } catch (e) {
+        // 롤백
+        setLiked(!nextOn);
+        try { localStorage.setItem(likeKey(uid, provider, post.id), !nextOn ? "1" : "0"); } catch {}
+        alert("좋아요 처리에 실패했어요. 잠시 후 다시 시도해주세요.");
+      }
     });
 
   const onToggleBookmark = () =>
@@ -311,8 +325,6 @@ export default function PostDetailPage() {
             localStorage.removeItem(dataK);
           }
           logActivity("post_bookmark", { postId: post.id, postTitle: post.title, on: next });
-
-          // ✅ 같은 탭에서도 북마크/활동 내역 즉시 갱신
           try { window.dispatchEvent(new Event("bookmark-changed")); } catch {}
           try { window.dispatchEvent(new Event("activity:changed")); } catch {}
         } catch {}
@@ -331,7 +343,6 @@ export default function PostDetailPage() {
   /* ✅ 마크다운 → 안전한 HTML */
   const renderedHtml = useMemo(() => {
     const raw = md.render(post?.content || "");
-    // 이미지에 lazy 부여를 위해 간단 치환(허용된 attr만 DOMPurify가 남김)
     const lazyRaw = raw.replaceAll("<img ", '<img loading="lazy" ');
     return DOMPurify.sanitize(lazyRaw, {
       ALLOWED_TAGS,
@@ -475,17 +486,17 @@ export default function PostDetailPage() {
               <CommentEditor
                 postId={post.id}
                 onCreated={(created) => {
-              try {
-          logActivity("comment_create", {
-            postId: post.id,
-            commentId: created?.id,
-            postTitle: post.title,
-          });
-        } catch {}
-        // 리스트 재로딩
-        setCommentsVersion((v) => v + 1);
-      }}
-    />
+                  try {
+                    logActivity("comment_create", {
+                      postId: post.id,
+                      commentId: created?.id,
+                      postTitle: post.title,
+                      preview: commentPreview(created?.content || created?.text || ""),
+                    });
+                  } catch {}
+                  setCommentsVersion((v) => v + 1);
+                }}
+              />
             ) : (
               <div className="alert alert-light border d-flex justify-content-between align-items-center">
                 <span className="text-secondary">댓글을 쓰려면 로그인하세요.</span>

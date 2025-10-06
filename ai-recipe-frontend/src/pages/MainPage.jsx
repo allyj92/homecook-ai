@@ -138,33 +138,37 @@ async function fetchJson(url) {
   if (!res.ok) throw new Error(String(res.status));
   return res.json();
 }
+// 배열 또는 {items,total} 모두 수용
+const toArr = (data) => Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
 
 /** 서버가 sort=popular를 지원하면 그걸 사용, 아니면 점수 산정(좋아요/댓글/북마크 + 시간감쇠)로 정렬 */
 async function loadPopularCommunity(size = 8) {
   // 1) 표준 시도: sort=popular
   try {
     const qs = new URLSearchParams({ size: String(size), sort: 'popular' });
-    const arr = await fetchJson(`/api/community/posts?${qs}`);
-    if (Array.isArray(arr) && arr.length) return arr;
+    const res = await fetchJson(`/api/community/posts?${qs}`);
+    const arr = toArr(res);
+    if (arr.length) return arr;
   } catch { /* pass */ }
 
   // 2) 대체: /trending 엔드포인트가 있다면
   try {
     const qs = new URLSearchParams({ size: String(size) });
-    const arr = await fetchJson(`/api/community/trending?${qs}`);
-    if (Array.isArray(arr) && arr.length) return arr;
+    const res = await fetchJson(`/api/community/trending?${qs}`);
+    const arr = toArr(res);
+    if (arr.length) return arr;
   } catch { /* pass */ }
 
   // 3) 폴백: 최신 n개를 받아서 프런트에서 점수 계산
   try {
-    const page0 = await fetchJson(`/api/community/posts?page=0&size=50`);
-    const items = Array.isArray(page0) ? page0 : [];
+    const res = await fetchJson(`/api/community/posts?page=0&size=50`);
+    const items = toArr(res);
     const now = Date.now();
 
     const scoreOf = (p) => {
-      const likes = Number(p.likeCount ?? p.likes ?? p.hearts ?? 0);
-      const comments = Number(p.commentCount ?? p.comments ?? 0);
-      const bookmarks = Number(p.bookmarkCount ?? p.bookmarks ?? 0);
+      const likes = Number(p.likeCount ?? p.like_count ?? p.likes ?? p.hearts ?? p.metrics?.likes ?? 0);
+      const comments = Number(p.commentCount ?? p.comment_count ?? p.comments ?? p.metrics?.comments ?? 0);
+      const bookmarks = Number(p.bookmarkCount ?? p.bookmark_count ?? p.bookmarks ?? p.metrics?.bookmarks ?? 0);
       const createdAt = new Date(p.createdAt ?? p.created_at ?? p.updatedAt ?? p.updated_at ?? now).getTime();
       const ageHours = Math.max(1, (now - createdAt) / 36e5); // 시간
       // 가벼운 hot-score: 참여(가중치) / 시간감쇠
@@ -219,10 +223,23 @@ export default function MainPage() {
       const arr = await loadPopularCommunity(8);
       const fixed = (Array.isArray(arr) ? arr : []).map(p => {
         const cover = buildCover(p);
-        // 숫자 필드 정리
-        const likeCount = Number(p.likeCount ?? p.likes ?? p.hearts ?? 0);
-        const commentCount = Number(p.commentCount ?? p.comments ?? 0);
-        return { ...p, __cover: cover, __likes: likeCount, __comments: commentCount };
+        const likeCount = Number(
+          p.likeCount ?? p.like_count ?? p.likes ?? p.hearts ??
+          p.metrics?.likes ?? p.metrics?.hearts ?? 0
+        );
+        const commentCount = Number(
+          p.commentCount ?? p.comment_count ?? p.comments ?? p.metrics?.comments ?? 0
+        );
+        const bookmarkCount = Number(
+          p.bookmarkCount ?? p.bookmark_count ?? p.bookmarks ?? p.metrics?.bookmarks ?? 0
+        );
+        return {
+          ...p,
+          __cover: cover,
+          __likes: likeCount,
+          __comments: commentCount,
+          __bookmarks: bookmarkCount,
+        };
       });
       setPopular(fixed);
     } finally {
@@ -232,17 +249,32 @@ export default function MainPage() {
 
   useEffect(() => { reloadPopular(); }, [reloadPopular]);
 
-  // 같은 탭에서 좋아요/북마크/댓글이 생기면 새로고침
+  // 같은/다른 탭에서 좋아요/북마크/댓글이 생기면 새로고침
   useEffect(() => {
     const onAct = () => reloadPopular();
     const onVisible = () => { if (document.visibilityState === 'visible') reloadPopular(); };
+    const onFocus = () => reloadPopular();
+    const onStorage = (e) => {
+      if (!e?.key) return;
+      if (
+        e.key.startsWith('rf:activity:') ||
+        e.key.startsWith('postBookmark:') ||
+        e.key.startsWith('postBookmarkData:')
+      ) reloadPopular();
+    };
+
     window.addEventListener('activity:changed', onAct);
     window.addEventListener('bookmark-changed', onAct);
     document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('storage', onStorage);
+
     return () => {
       window.removeEventListener('activity:changed', onAct);
       window.removeEventListener('bookmark-changed', onAct);
       document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('storage', onStorage);
     };
   }, [reloadPopular]);
 
@@ -382,8 +414,8 @@ export default function MainPage() {
                             {ellipsis(p.title || `게시글 #${p.id}`, 48)}
                           </h3>
                           <div className="small d-flex align-items-center gap-3" style={{ color: BRAND.mute }}>
-                            <span>❤ {fmtNum(p.__likes)}</span>
-                            <span>💬 {fmtNum(p.__comments)}</span>
+                            <span aria-label={`좋아요 ${p.__likes}개`}>❤ {fmtNum(p.__likes)}</span>
+                            <span aria-label={`댓글 ${p.__comments}개`}>💬 {fmtNum(p.__comments)}</span>
                           </div>
                         </div>
                       </article>
