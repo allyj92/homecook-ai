@@ -122,6 +122,21 @@ function withVersion(url, ver) {
   } catch { return url; }
 }
 const ytThumb = (id) => (id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : null);
+
+// ✅ content/body 안에서 첫 번째 이미지 URL 뽑아오기 (MD, HTML 모두 대응)
+function firstImageFromContent(p) {
+  const s = String(p?.content ?? p?.body ?? p?.html ?? '').trim();
+  if (!s) return null;
+  // Markdown 이미지 ![alt](url)
+  let m = /!\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/.exec(s);
+  if (m?.[1]) return m[1];
+  // HTML 이미지 <img src="...">
+  m = /<img[^>]+src=["']([^"']+)["'][^>]*>/i.exec(s);
+  if (m?.[1]) return m[1];
+  return null;
+}
+
+
 function pick(obj, keys) { for (const k of keys) { if (obj && obj[k]) return obj[k]; } return null; }
 function buildCover(p) {
   const updatedAt = p.updatedAt ?? p.updated_at ?? p.createdAt ?? p.created_at ?? null;
@@ -130,7 +145,7 @@ function buildCover(p) {
     'repImageUrl','rep_image_url',
     'imageUrl','image_url',
     'thumbnailUrl','thumbnail_url','thumbnail'
-  ]);
+  ]) ?? firstImageFromContent(p); 
   const normalized = withVersion(normalizeCoverUrl(raw), updatedAt);
   return normalized || ytThumb(p.youtubeId ?? p.youtube_id ?? null) || null;
 }
