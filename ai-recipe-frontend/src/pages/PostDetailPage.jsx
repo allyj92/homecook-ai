@@ -21,15 +21,13 @@ import CommentEditor from "../components/CommentEditor";
 
 // 추가: 서버 북마크 토글
 async function apiToggleBookmark(postId, on) {
-  const url = `/api/community/posts/${encodeURIComponent(postId)}/bookmark`;
-  let res = await fetch(url, { method: on ? 'POST' : 'DELETE', credentials: 'include' });
-  if (!res.ok && (res.status === 405 || res.status === 400 || res.status === 501)) {
-    res = await fetch(url + `?on=${on ? '1' : '0'}`, { method: 'POST', credentials: 'include' });
-  }
-  if (!res.ok) throw new Error('BOOKMARK_TOGGLE_FAILED');
-  try { return await res.json(); } catch { return null; }
-}
-
+   const url = `/api/community/bookmarks/${encodeURIComponent(postId)}`;
+   const res = await fetch(url, {
+     method: on ? 'PUT' : 'DELETE',
+     credentials: 'include',
+   });
+   if (!res.ok) throw new Error('BOOKMARK_TOGGLE_FAILED');
+ }
 
 
 /* ── MarkdownIt 설정 ───────────────────────────────────── */
@@ -322,24 +320,24 @@ export default function PostDetailPage() {
 
  const onToggleBookmark = () =>
   requireAuth(async () => {
-    if (!uid || !provider || !post?.id) return;
-    const next = !bookmarked;
-    setBookmarked(next); // 낙관적
-    try {
-      // 서버 반영 (집계)
-      const ret = await apiToggleBookmark(post.id, next);
-      // (선택) 서버가 최신 카운트 반환하면 적용
-      setPost((prev) => prev ? ({
-        ...prev,
-        bookmarkCount: (ret?.bookmarkCount ?? (prev.bookmarkCount ?? 0)) + (next ? 1 : -1),
-      }) : prev);
+    if (!uid || !post?.id) return;
+    await apiToggleBookmark(post.id, next);
+      // 서버가 본문을 안 주므로 로컬에서 안전하게 증감
+      try{
+      setPost((prev) => {
+        if (!prev) return prev;
+        const cur = Number(prev.bookmarkCount) || 0;
+        const delta = next ? 1 : -1;
+       return { ...prev, bookmarkCount: Math.max(0, cur + delta) };
+      });
       // 로컬 기록 및 다른 탭 갱신
-      try { window.dispatchEvent(new Event('bookmark-changed')); } catch {}
-    } catch {
-      setBookmarked(!next); // 롤백
-      alert('북마크 처리에 실패했어요.');
-    }
-  });
+     // 로컬 기록 및 다른 탭 갱신
+       try { window.dispatchEvent(new Event('bookmark-changed')); } catch {}
+     } catch {
+       setBookmarked(!next); // 롤백
+       alert('북마크 처리에 실패했어요.');
+     }
+   });
 
   // 편집 권한
   const canEdit =
