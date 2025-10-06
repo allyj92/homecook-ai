@@ -1,6 +1,6 @@
 // src/lib/bookmarks.js
-// 북마크 저장/삭제/조회 (레거시 호환 + uid 네임스페이스 동시 기록)
-// 백엔드 수정 없이 서버 동기화까지 수행하는 버전
+// 북마크 저장/삭제/조회 (로컬 즉시반영 + 서버 동기화)
+// 서버 동기화 엔드포인트: BookmarkController (/api/community/bookmarks/{postId})
 
 /* ---------------- 공통 유틸 ---------------- */
 function resolveUid() {
@@ -16,43 +16,31 @@ function bmKey(uid, id) { return `postBookmark:${uid}:${id}`; }
 function bmDataKey(uid, id) { return `postBookmarkData:${uid}:${id}`; }
 
 /* ---------------- 서버 동기화 ---------------- */
-// 백엔드 스펙: provider 없이도 수락 (컨트롤러 수정 없이 사용)
-// POST /api/me/favorites  body: { recipeId: number, title?, image? }
-async function syncServerAddFavorite(idNumber, meta) {
+// PUT /api/community/bookmarks/{postId}
+async function syncServerAddBookmark(idNumber) {
   try {
-    const res = await fetch('/api/me/favorites', {
-      method: 'POST',
+    const res = await fetch(`/api/community/bookmarks/${Number(idNumber)}`, {
+      method: 'PUT',
       credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      body: JSON.stringify({
-        recipeId: Number(idNumber),        // 숫자 필수
-        title: meta?.title || undefined,
-        image: meta?.repImageUrl || undefined,
-        // provider는 보내지 않음 (백엔드 무수정 전략)
-      }),
+      headers: { Accept: 'application/json' },
     });
-    if (!res.ok) throw new Error(`fav_add_${res.status}`);
-  } catch (e) {
-    // 서버 동기화 실패해도 로컬 상태로는 동작하게 유지
-    // 필요하면 여기서 재시도/큐잉 로직을 붙일 수 있음
-    // console.warn('[bookmark] server add failed', e);
+    if (!res.ok) throw new Error(`bookmark_add_${res.status}`);
+  } catch (_e) {
+    // 서버 동기화 실패해도 로컬 상태는 유지 (필요시 재시도 큐 도입 가능)
   }
 }
 
-// DELETE /api/me/favorites/{id}
-async function syncServerRemoveFavorite(idNumber) {
+// DELETE /api/community/bookmarks/{postId}
+async function syncServerRemoveBookmark(idNumber) {
   try {
-    const res = await fetch(`/api/me/favorites/${Number(idNumber)}`, {
+    const res = await fetch(`/api/community/bookmarks/${Number(idNumber)}`, {
       method: 'DELETE',
       credentials: 'include',
-      headers: { 'Accept': 'application/json' },
+      headers: { Accept: 'application/json' },
     });
-    if (!res.ok) throw new Error(`fav_del_${res.status}`);
-  } catch (e) {
-    // console.warn('[bookmark] server remove failed', e);
+    if (!res.ok) throw new Error(`bookmark_del_${res.status}`);
+  } catch (_e) {
+    // 동기화 실패 무시 (UI 유지)
   }
 }
 
@@ -60,7 +48,7 @@ async function syncServerRemoveFavorite(idNumber) {
 /**
  * 게시글 북마크 추가
  * - 로컬(localStorage) 즉시 반영
- * - 서버 동기화는 비동기 수행 (백엔드 무수정 사용)
+ * - 서버 동기화는 비동기(Fire-and-forget)
  */
 export function addBookmark(post, _uid) {
   const uid = String(_uid ?? resolveUid() ?? '');
@@ -82,21 +70,20 @@ export function addBookmark(post, _uid) {
     youtubeId: post?.youtubeId ?? post?.youtube_id ?? null,
   };
 
-  // 1) 로컬 즉시 반영 (새 포맷 + 레거시 동시 기록)
+  // 1) 로컬 즉시 반영 (계정 네임스페이스 + 레거시 동시 기록)
   try {
     if (uid) {
       localStorage.setItem(bmKey(uid, id), '1');
       localStorage.setItem(bmDataKey(uid, id), JSON.stringify(meta));
     }
-    localStorage.setItem(`postBookmark:${id}`, '1');
+    localStorage.setItem(`postBookmark:${id}`, '1'); // 레거시
     localStorage.setItem(`postBookmarkData:${id}`, JSON.stringify(meta));
   } catch {
-    // localStorage 접근 실패 무시
+    // localStorage 접근 실패는 무시
   }
 
-  // 2) 서버 동기화 (await하지 않고 fire-and-forget)
-  //    기존 호출부가 동기라고 가정해도 UI는 즉시 반영됨
-  void syncServerAddFavorite(Number(id), meta);
+  // 2) 서버 동기화 (비동기)
+  void syncServerAddBookmark(Number(id));
 
   // 3) 같은 탭 강제 갱신 이벤트
   notifyBookmarkChanged();
@@ -106,26 +93,26 @@ export function addBookmark(post, _uid) {
 /**
  * 게시글 북마크 제거
  * - 로컬(localStorage) 즉시 반영
- * - 서버 동기화는 비동기 수행 (백엔드 무수정 사용)
+ * - 서버 동기화는 비동기(Fire-and-forget)
  */
 export function removeBookmark(id, _uid) {
   const uid = String(_uid ?? resolveUid() ?? '');
   id = String(id);
 
-  // 1) 로컬 즉시 반영 (새 포맷 + 레거시 동시 기록)
+  // 1) 로컬 즉시 반영 (계정 네임스페이스 + 레거시 정리)
   try {
     if (uid) {
       localStorage.setItem(bmKey(uid, id), '0');
       localStorage.removeItem(bmDataKey(uid, id));
     }
-    localStorage.setItem(`postBookmark:${id}`, '0');
+    localStorage.setItem(`postBookmark:${id}`, '0'); // 레거시
     localStorage.removeItem(`postBookmarkData:${id}`);
   } catch {
-    // localStorage 접근 실패 무시
+    // localStorage 접근 실패는 무시
   }
 
-  // 2) 서버 동기화 (fire-and-forget)
-  void syncServerRemoveFavorite(Number(id));
+  // 2) 서버 동기화 (비동기)
+  void syncServerRemoveBookmark(Number(id));
 
   // 3) 같은 탭 강제 갱신 이벤트
   notifyBookmarkChanged();
@@ -134,7 +121,7 @@ export function removeBookmark(id, _uid) {
 
 /**
  * 북마크 여부 (로컬 기준 즉시 판정)
- * - 서버 동기화 지연과 무관하게 즉시 UI 반영 가능
+ * - 서버 동기화 지연과 무관하게 즉시 UI 반영
  */
 export function isBookmarked(id, _uid) {
   const uid = String(_uid ?? resolveUid() ?? '');
