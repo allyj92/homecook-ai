@@ -2,6 +2,7 @@
 package com.homecook.ai_recipe.repo;
 
 import com.homecook.ai_recipe.domain.CommunityPost;
+import com.homecook.ai_recipe.domain.CommunityPostBookmark;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -11,6 +12,7 @@ import org.springframework.data.repository.query.Param;
 import java.util.Optional;
 
 public interface CommunityPostRepository extends JpaRepository<CommunityPost, Long> {
+
 
     // 내가 쓴 글 페이징
     Page<CommunityPost> findByAuthorId(Long authorId, Pageable pageable);
@@ -25,4 +27,6 @@ public interface CommunityPostRepository extends JpaRepository<CommunityPost, Lo
 
     // ✅ 수정 시 소유자 검증용
     Optional<CommunityPost> findByIdAndAuthorId(Long id, Long authorId);
+
+
 }

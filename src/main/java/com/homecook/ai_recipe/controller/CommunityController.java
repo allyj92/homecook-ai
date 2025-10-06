@@ -92,7 +92,7 @@ public class CommunityController {
         if (authentication instanceof OAuth2AuthenticationToken token) {
             String provider = token.getAuthorizedClientRegistrationId();
             OAuth2User principal = token.getPrincipal();
-            Map<String, Object> attrs = principal != null ? principal.getAttributes() : Map.of();
+            var attrs = principal != null ? principal.getAttributes() : Map.<String, Object>of();
 
             Object uidObj = attrs.get("uid");
             if (uidObj instanceof Number n) return n.longValue();
@@ -128,14 +128,16 @@ public class CommunityController {
 
     /* ---------- Post APIs ---------- */
 
-    /** 목록 (카테고리/페이지네이션) - 공개 */
+    /** 목록 (카테고리/페이지네이션/정렬) - 공개 */
     @GetMapping("/posts")
     public List<PostRes> list(
             @RequestParam(required = false) String category,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "12") int size
+            @RequestParam(defaultValue = "12") int size,
+            @RequestParam(defaultValue = "new") String sort // "new" | "popular"
     ) {
-        return service.list(category, page, size);
+        int s = clampSize(size, 1, 100);
+        return service.list(category, page, s, sort);
     }
 
     /** 단건 조회 - 공개 */
@@ -163,7 +165,8 @@ public class CommunityController {
             Authentication authentication
     ) {
         long userId = resolveUserId(authentication);
-        return service.findLatestByAuthor(userId, size);
+        int s = clampSize(size, 1, 50);
+        return service.findLatestByAuthor(userId, s);
     }
 
     /** 수정 (작성자 본인만) - 인증 필요 */
@@ -201,6 +204,67 @@ public class CommunityController {
         Long lid = toLongIdOr404(id);
         service.delete(userId, lid);
         return Map.of("deleted", true);
+    }
+
+    /* ---------- Like / Bookmark APIs ---------- */
+
+    /** 좋아요 ON (POST /posts/{id}/like, ?on=1 호환) */
+    @PostMapping("/posts/{id}/like")
+    public Map<String, Object> likeOn(
+            @PathVariable String id,
+            @RequestParam(required = false) Boolean on,
+            Authentication authentication
+    ) {
+        long userId = resolveUserId(authentication);
+        Long postId = toLongIdOr404(id);
+        boolean turnOn = (on == null) ? true : on;
+        long likeCount = service.setLike(userId, postId, turnOn);
+        return Map.of("ok", true, "likeCount", likeCount);
+    }
+
+    /** 좋아요 OFF (DELETE /posts/{id}/like) */
+    @DeleteMapping("/posts/{id}/like")
+    public Map<String, Object> likeOff(
+            @PathVariable String id,
+            Authentication authentication
+    ) {
+        long userId = resolveUserId(authentication);
+        Long postId = toLongIdOr404(id);
+        long likeCount = service.setLike(userId, postId, false);
+        return Map.of("ok", true, "likeCount", likeCount);
+    }
+
+    /** 북마크 ON (POST /posts/{id}/bookmark, ?on=1 호환) */
+    @PostMapping("/posts/{id}/bookmark")
+    public Map<String, Object> bookmarkOn(
+            @PathVariable String id,
+            @RequestParam(required = false) Boolean on,
+            Authentication authentication
+    ) {
+        long userId = resolveUserId(authentication);
+        Long postId = toLongIdOr404(id);
+        boolean turnOn = (on == null) ? true : on;
+        long bookmarkCount = service.setBookmark(userId, postId, turnOn);
+        return Map.of("ok", true, "bookmarkCount", bookmarkCount);
+    }
+
+    /** 북마크 OFF (DELETE /posts/{id}/bookmark) */
+    @DeleteMapping("/posts/{id}/bookmark")
+    public Map<String, Object> bookmarkOff(
+            @PathVariable String id,
+            Authentication authentication
+    ) {
+        long userId = resolveUserId(authentication);
+        Long postId = toLongIdOr404(id);
+        long bookmarkCount = service.setBookmark(userId, postId, false);
+        return Map.of("ok", true, "bookmarkCount", bookmarkCount);
+    }
+
+    /* ---------- (옵션) 인기 전용 엔드포인트 ---------- */
+    @GetMapping("/trending")
+    public List<PostRes> trending(@RequestParam(defaultValue = "8") int size) {
+        int s = clampSize(size, 1, 50);
+        return service.list(null, 0, s, "popular");
     }
 
     /* ---------- Comment APIs (Repo 직접 사용) ---------- */

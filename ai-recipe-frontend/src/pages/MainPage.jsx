@@ -132,18 +132,49 @@ const fmtNum = (n) => {
   return String(x);
 };
 
-/* ---------------- 인기 커뮤니티 로더 ---------------- */
+/* ---------------- 데이터 로더 ---------------- */
 async function fetchJson(url) {
   const res = await fetch(url, { credentials: 'include', cache: 'no-store', headers: { 'Accept': 'application/json' } });
   if (!res.ok) throw new Error(String(res.status));
   return res.json();
 }
-// 배열 또는 {items,total} 모두 수용
 const toArr = (data) => Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
 
-/** 서버가 sort=popular를 지원하면 그걸 사용, 아니면 점수 산정(좋아요/댓글/북마크 + 시간감쇠)로 정렬 */
+/** 최신 레시피(최신순) */
+async function loadDailyNewRecipe(size = 8) {
+  // 1) 표준: createdAt 내림차순
+  try {
+    const qs = new URLSearchParams({ page: '0', size: String(size), sort: 'createdAt,desc' });
+    const res = await fetch(`/api/recipes?${qs}`, {
+      credentials: 'include',
+      cache: 'no-store',
+      headers: { 'Accept': 'application/json' }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+    }
+  } catch { /* pass */ }
+
+  // 2) 폴백: /api/recipes/latest?size
+  try {
+    const qs = new URLSearchParams({ size: String(size) });
+    const res = await fetch(`/api/recipes/latest?${qs}`, {
+      credentials: 'include',
+      cache: 'no-store',
+      headers: { 'Accept': 'application/json' }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return Array.isArray(data) ? data : (Array.isArray(data?.items) ? data.items : []);
+    }
+  } catch { /* pass */ }
+
+  return [];
+}
+
+/** 인기 커뮤니티(백엔드 sort=popular 우선, 폴백 클라이언트 점수) */
 async function loadPopularCommunity(size = 8) {
-  // 1) 표준 시도: sort=popular
   try {
     const qs = new URLSearchParams({ size: String(size), sort: 'popular' });
     const res = await fetchJson(`/api/community/posts?${qs}`);
@@ -151,7 +182,6 @@ async function loadPopularCommunity(size = 8) {
     if (arr.length) return arr;
   } catch { /* pass */ }
 
-  // 2) 대체: /trending 엔드포인트가 있다면
   try {
     const qs = new URLSearchParams({ size: String(size) });
     const res = await fetchJson(`/api/community/trending?${qs}`);
@@ -159,7 +189,6 @@ async function loadPopularCommunity(size = 8) {
     if (arr.length) return arr;
   } catch { /* pass */ }
 
-  // 3) 폴백: 최신 n개를 받아서 프런트에서 점수 계산
   try {
     const res = await fetchJson(`/api/community/posts?page=0&size=50`);
     const items = toArr(res);
@@ -170,17 +199,15 @@ async function loadPopularCommunity(size = 8) {
       const comments = Number(p.commentCount ?? p.comment_count ?? p.comments ?? p.metrics?.comments ?? 0);
       const bookmarks = Number(p.bookmarkCount ?? p.bookmark_count ?? p.bookmarks ?? p.metrics?.bookmarks ?? 0);
       const createdAt = new Date(p.createdAt ?? p.created_at ?? p.updatedAt ?? p.updated_at ?? now).getTime();
-      const ageHours = Math.max(1, (now - createdAt) / 36e5); // 시간
-      // 가벼운 hot-score: 참여(가중치) / 시간감쇠
+      const ageHours = Math.max(1, (now - createdAt) / 36e5);
       const engagement = likes * 3 + comments * 2 + bookmarks * 1;
       return engagement / Math.pow(ageHours, 0.6);
     };
 
-    const ranked = [...items]
+    return [...items]
       .map(p => ({ ...p, __score: scoreOf(p) }))
       .sort((a, b) => b.__score - a.__score)
       .slice(0, size);
-    return ranked;
   } catch {
     return [];
   }
@@ -195,11 +222,15 @@ export default function MainPage() {
   const [popLoading, setPopLoading] = useState(true);
   const [popular, setPopular] = useState([]);
 
+  // ✅ 매일매일 새로운 레시피 섹션 상태
+  const [dailyNewLoading, setDailyNewLoading] = useState(true);
+  const [dailyNewRecipe, setDailyNewRecipe] = useState([]);
+
   useEffect(() => { window.scrollTo(0, 0); }, []);
 
   const onCardKey = (e, to) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(to); } };
 
-  // 🔐 로그인 가드: HashRouter를 고려해 복귀 경로 저장
+  // 🔐 로그인 가드
   const requireLogin = useCallback(async (backTo, onOk) => {
     const safeBack = backTo ?? (
       window.location.hash
@@ -211,12 +242,7 @@ export default function MainPage() {
     if (onOk) onOk();
   }, []);
 
-  // 데모 레시피 카드(기존 섹션 유지)
-  const initialRecipes = ['두부 파프리카 볶음', '참치 곤약 비빔', '닭가슴살 유부초밥', '두유 된장국'];
-  const extraRecipes   = ['연두부 달걀탕', '현미 닭가슴살 덮밥', '고구마 샐러드', '시금치 두부무침'];
-  const recipes        = [...initialRecipes, ...extraRecipes];
-
-  /* ✅ 인기 커뮤니티 로딩 + 즉시성 갱신 */
+  /* ✅ 인기 커뮤니티 로딩 */
   const reloadPopular = useCallback(async () => {
     setPopLoading(true);
     try {
@@ -247,36 +273,55 @@ export default function MainPage() {
     }
   }, []);
 
-  useEffect(() => { reloadPopular(); }, [reloadPopular]);
+  /* ✅ 최신 레시피 로딩 */
+  const reloadDailyNew = useCallback(async () => {
+    setDailyNewLoading(true);
+    try {
+      const arr = await loadDailyNewRecipe(8);
+      const fixed = (Array.isArray(arr) ? arr : []).map(r => ({
+        ...r,
+        __cover: buildCover(r),
+        __likes: Number(r.likeCount ?? r.like_count ?? r.metrics?.likes ?? 0),
+        __comments: Number(r.commentCount ?? r.comment_count ?? r.metrics?.comments ?? 0),
+      }));
+      setDailyNewRecipe(fixed);
+    } finally {
+      setDailyNewLoading(false);
+    }
+  }, []);
 
-  // 같은/다른 탭에서 좋아요/북마크/댓글이 생기면 새로고침
+  useEffect(() => { reloadPopular(); }, [reloadPopular]);
+  useEffect(() => { reloadDailyNew(); }, [reloadDailyNew]);
+
+  // 같은/다른 탭에서 좋아요/북마크/댓글/레시피가 생기면 새로고침
   useEffect(() => {
-    const onAct = () => reloadPopular();
-    const onVisible = () => { if (document.visibilityState === 'visible') reloadPopular(); };
-    const onFocus = () => reloadPopular();
+    const refreshBoth = () => { reloadPopular(); reloadDailyNew(); };
+    const onVisible = () => { if (document.visibilityState === 'visible') refreshBoth(); };
+    const onFocus = () => refreshBoth();
     const onStorage = (e) => {
       if (!e?.key) return;
       if (
         e.key.startsWith('rf:activity:') ||
         e.key.startsWith('postBookmark:') ||
-        e.key.startsWith('postBookmarkData:')
-      ) reloadPopular();
+        e.key.startsWith('postBookmarkData:') ||
+        e.key.startsWith('recipe:') // 여유 키워드
+      ) refreshBoth();
     };
 
-    window.addEventListener('activity:changed', onAct);
-    window.addEventListener('bookmark-changed', onAct);
+    window.addEventListener('activity:changed', refreshBoth);
+    window.addEventListener('bookmark-changed', refreshBoth);
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('focus', onFocus);
     window.addEventListener('storage', onStorage);
 
     return () => {
-      window.removeEventListener('activity:changed', onAct);
-      window.removeEventListener('bookmark-changed', onAct);
+      window.removeEventListener('activity:changed', refreshBoth);
+      window.removeEventListener('bookmark-changed', refreshBoth);
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('storage', onStorage);
     };
-  }, [reloadPopular]);
+  }, [reloadPopular, reloadDailyNew]);
 
   return (
     <div className="container-xxl py-3">
@@ -402,7 +447,6 @@ export default function MainPage() {
                               />
                             )}
                           </div>
-                          {/* 상단 뱃지: 좋아요 TOP */}
                           {p.__likes > 0 && (
                             <BrandBadge tone="teal" className="position-absolute top-0 start-0 m-2">
                               ❤ {fmtNum(p.__likes)}
@@ -426,10 +470,10 @@ export default function MainPage() {
             )}
           </section>
 
-          {/* 기존: 요즘 뜨는 레시피 */}
+          {/* ✅ 매일매일 새로운 레시피 (최신순) */}
           <section className="mt-4">
             <div className="d-flex align-items-center justify-content-between mb-2">
-              <h2 className="h5 fw-bold m-0" style={{ color: BRAND.ink }}>요즘 뜨는 레시피</h2>
+              <h2 className="h5 fw-bold m-0" style={{ color: BRAND.ink }}>매일매일 새로운 레시피</h2>
               <div className="d-flex gap-2">
                 <BrandButton outline className="btn-sm" onClick={() => setModalOpen(true)}>
                   전체 보기
@@ -437,33 +481,63 @@ export default function MainPage() {
               </div>
             </div>
 
-            <div id="trending-cards" className="row g-3">
-              {recipes.slice(0, 4).map((t, i) => (
-                <div className="col-12 col-sm-6 col-lg-3" key={`${t}-${i}`}>
-                  <article
-                    className="card h-100 shadow-sm"
-                    onClick={() => navigate(`/recipe/${i + 1}`)}
-                    onKeyDown={(e)=>onCardKey(e, `/recipe/${i+1}`)}
-                    tabIndex={0}
-                    role="button"
-                    aria-label={`${t} 레시피 보기`}
-                  >
-                    <div className="position-relative">
-                      <div className="ratio ratio-4x3 bg-light rounded-top" />
-                      {i < 3 && (
-                        <BrandBadge tone="teal" className="position-absolute top-0 start-0 m-2">
-                          TOP {i + 1}
-                        </BrandBadge>
-                      )}
+            {dailyNewLoading ? (
+              <div className="row g-3">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div className="col-12 col-sm-6 col-lg-3" key={i}>
+                    <div className="card shadow-sm">
+                      <div className="ratio ratio-4x3 bg-light rounded-top placeholder" />
+                      <div className="card-body">
+                        <div className="placeholder col-10 mb-2" style={{ height: 18 }} />
+                        <div className="placeholder col-6" style={{ height: 14 }} />
+                      </div>
                     </div>
-                    <div className="card-body">
-                      <h3 className="h6 fw-semibold mb-1" style={{ color: BRAND.ink }}>{t}</h3>
-                      <p className="small mb-0" style={{ color: BRAND.mute }}>320kcal · 18분</p>
-                    </div>
-                  </article>
-                </div>
-              ))}
-            </div>
+                  </div>
+                ))}
+              </div>
+            ) : dailyNewRecipe.length === 0 ? (
+              <div className="alert alert-light border small">아직 등록된 레시피가 없어요. 첫 레시피를 올려보세요!</div>
+            ) : (
+              <div className="row g-3">
+                {dailyNewRecipe.slice(0, 8).map((r) => (
+                  <div className="col-12 col-sm-6 col-lg-3" key={r.id}>
+                    <article
+                      className="card h-100 shadow-sm"
+                      onClick={() => navigate(`/recipe/${r.id}`)}
+                      onKeyDown={(e)=>onCardKey(e, `/recipe/${r.id}`)}
+                      tabIndex={0}
+                      role="button"
+                      aria-label={`${r.title || '레시피'} 보기`}
+                    >
+                      <div className="position-relative">
+                        <div className="ratio ratio-4x3 bg-light rounded-top">
+                          {r.__cover && (
+                            <img
+                              src={r.__cover}
+                              alt=""
+                              className="position-absolute top-0 start-0 w-100 h-100 rounded-top"
+                              style={{ objectFit: 'cover' }}
+                              loading="lazy"
+                              referrerPolicy="no-referrer"
+                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                            />
+                          )}
+                        </div>
+                      </div>
+                      <div className="card-body">
+                        <h3 className="h6 fw-semibold mb-1" style={{ color: BRAND.ink }}>
+                          {ellipsis(r.title || `레시피 #${r.id}`, 48)}
+                        </h3>
+                        <div className="small d-flex align-items-center gap-3" style={{ color: BRAND.mute }}>
+                          <span aria-label={`좋아요 ${r.__likes}개`}>❤ {fmtNum(r.__likes)}</span>
+                          <span aria-label={`댓글 ${r.__comments}개`}>💬 {fmtNum(r.__comments)}</span>
+                        </div>
+                      </div>
+                    </article>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
 
           <div className="mt-4">
@@ -530,12 +604,12 @@ export default function MainPage() {
       <BottomNav />
       <div className="bottom-nav-spacer" aria-hidden="true" />
 
-      {/* 모달: 레시피 전체보기 (기존 유지) */}
+      {/* 모달: 최신 레시피 전체보기 */}
       <div className={`modal fade ${modalOpen ? 'show d-block' : ''}`} tabIndex="-1" role="dialog" aria-hidden={!modalOpen} onClick={() => setModalOpen(false)}>
         <div className="modal-dialog modal-xl modal-dialog-centered" onClick={(e) => e.stopPropagation()}>
           <div className="modal-content">
             <div className="modal-header">
-              <h5 className="modal-title" style={{ color: BRAND.ink }}>요즘 뜨는 레시피</h5>
+              <h5 className="modal-title" style={{ color: BRAND.ink }}>매일매일 새로운 레시피</h5>
               <button type="button" className="btn-close" onClick={() => setModalOpen(false)} />
             </div>
 
@@ -564,28 +638,27 @@ export default function MainPage() {
                     scrollSnapType: 'x mandatory'
                   }}
                 >
-                  {recipes.map((t, i) => (
+                  {(dailyNewRecipe.length ? dailyNewRecipe : Array.from({length:8}).map((_,i)=>({id:`sk-${i}`}))).map((r, i) => (
                     <article
-                      key={`${t}-${i}`}
+                      key={r.id ?? i}
                       className="card shadow-sm h-100"
                       role="listitem"
                       style={{ scrollSnapAlign: 'start' }}
                       tabIndex={0}
-                      onClick={() => navigate(`/recipe/${i + 1}`)}
-                      onKeyDown={(e)=>onCardKey(e, `/recipe/${i+1}`)}
-                      aria-label={`${t} 레시피 보기`}
+                      onClick={() => r.id && navigate(`/recipe/${r.id}`)}
+                      onKeyDown={(e)=> r.id && onCardKey(e, `/recipe/${r.id}`)}
+                      aria-label={`${r.title || '레시피'} 보기`}
                     >
                       <div className="position-relative">
                         <div className="ratio ratio-4x3 bg-light rounded-top" />
-                        {i < 3 && (
-                          <BrandBadge tone="teal" className="position-absolute top-0 start-0 m-2">
-                            TOP {i + 1}
-                          </BrandBadge>
-                        )}
                       </div>
                       <div className="card-body">
-                        <h3 className="h6 fw-semibold mb-1" style={{ color: BRAND.ink }}>{t}</h3>
-                        <p className="small mb-0" style={{ color: BRAND.mute }}>320kcal · 18분</p>
+                        <h3 className="h6 fw-semibold mb-1" style={{ color: BRAND.ink }}>
+                          {r.title ? ellipsis(r.title, 48) : <span className="placeholder col-8" style={{ display:'inline-block', height:18 }} />}
+                        </h3>
+                        <p className="small mb-0" style={{ color: BRAND.mute }}>
+                          {r.id ? '방금 올라온 레시피' : <span className="placeholder col-6" style={{ display:'inline-block', height:14 }} />}
+                        </p>
                       </div>
                     </article>
                   ))}

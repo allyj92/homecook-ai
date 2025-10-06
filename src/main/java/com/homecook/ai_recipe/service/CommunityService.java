@@ -1,79 +1,131 @@
+// src/main/java/com/homecook/ai_recipe/service/CommunityService.java
 package com.homecook.ai_recipe.service;
 
 import com.homecook.ai_recipe.auth.UserAccount;
 import com.homecook.ai_recipe.domain.CommunityPost;
 import com.homecook.ai_recipe.domain.CreatePostReq;
 import com.homecook.ai_recipe.domain.PostRes;
+import com.homecook.ai_recipe.repo.CommunityCommentRepository;
+import com.homecook.ai_recipe.repo.CommunityPostBookmarkRepository;
+import com.homecook.ai_recipe.repo.CommunityPostLikeRepository; // ✅ Optional 주입 대비
 import com.homecook.ai_recipe.repo.CommunityPostRepository;
 import com.homecook.ai_recipe.repo.UserAccountRepository;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.*;
 import org.springframework.http.HttpStatus;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
 public class CommunityService {
 
-    private final CommunityPostRepository repo;
+    private final CommunityPostRepository postRepo;
+    private final CommunityCommentRepository commentRepo;
+    private final CommunityPostBookmarkRepository bookmarkRepo;
+    private final Optional<CommunityPostLikeRepository> likeRepoOpt; // ✅ 선택 주입
     private final UserAccountRepository userRepo;
 
-    public CommunityService(CommunityPostRepository repo,
+    public CommunityService(CommunityPostRepository postRepo,
+                            CommunityCommentRepository commentRepo,
+                            CommunityPostBookmarkRepository bookmarkRepo,
+                            Optional<CommunityPostLikeRepository> likeRepoOpt,
                             UserAccountRepository userRepo) {
-        this.repo = repo;
+        this.postRepo = postRepo;
+        this.commentRepo = commentRepo;
+        this.bookmarkRepo = bookmarkRepo;
+        this.likeRepoOpt = likeRepoOpt == null ? Optional.empty() : likeRepoOpt;
         this.userRepo = userRepo;
     }
 
-    // 마이페이지 - 내가쓴글 - 삭제
-    @Transactional
-    public void delete(long userId, long postId) {
-        var post = repo.findById(postId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "post_not_found"));
-        if (!Objects.equals(post.getAuthorId(), userId)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "not_author");
-        }
-        repo.delete(post);
-    }
-
     /* ---------------- 목록 ---------------- */
+
+    /**
+     * @param sort "new" | "popular"
+     */
     @Transactional(readOnly = true)
-    public List<PostRes> list(String category, int page, int size) {
-        PageRequest pr = PageRequest.of(Math.max(0, page), Math.max(1, size),
-                Sort.by(Sort.Direction.DESC, "createdAt"));
+    public List<PostRes> list(@Nullable String category, int page, int size, String sort) {
+        int p = Math.max(0, page);
+        int s = Math.max(1, size);
 
+        Pageable pageable = PageRequest.of(p, s, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<CommunityPost> result = (category == null || category.isBlank())
-                ? repo.findAll(pr)
-                : repo.findByCategory(category, pr);
+                ? postRepo.findAll(pageable)
+                : postRepo.findByCategory(category, pageable);
 
-        var posts = result.getContent();
+        List<CommunityPost> posts = result.getContent();
+        if (posts.isEmpty()) return List.of();
 
-        // ✅ 작성자 배치 조회(N+1 회피)
-        var authorIds = posts.stream()
-                .map(CommunityPost::getAuthorId)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
+        // 작성자 배치조회
+        Map<Long, UserAccount> userById = loadAuthors(posts);
 
-        Map<Long, UserAccount> userById = userRepo.findAllById(authorIds).stream()
-                .collect(Collectors.toMap(UserAccount::getId, u -> u));
+        // 인기 정렬(페이지 내에서만)
+        if ("popular".equalsIgnoreCase(sort)) {
+            Map<Long, Long> likeCnt = countLikesByPostIds(posts);
+            Map<Long, Long> bmCnt   = countBookmarksByPostIds(posts);
+            Map<Long, Long> cmtCnt  = countCommentsByPostIds(posts);
 
-        return posts.stream().map(p -> toRes(p, userById.get(p.getAuthorId()))).toList();
+            Instant now = Instant.now();
+            Comparator<CommunityPost> byHot = Comparator.comparingDouble(pst -> {
+                long L = likeCnt.getOrDefault(pst.getId(), 0L);
+                long C = cmtCnt.getOrDefault(pst.getId(), 0L);
+                long B = bmCnt.getOrDefault(pst.getId(), 0L);
+                double engagement = (3 * L) + (2 * C) + (1 * B);
+                Instant created = (pst.getCreatedAt() != null)
+                        ? pst.getCreatedAt().atZone(ZoneId.systemDefault()).toInstant()
+                        : now; // ✅ LocalDateTime → Instant
+                double ageHours = Math.max(1.0, Duration.between(created, now).toHours());
+                return engagement / Math.pow(ageHours, 0.6);
+            });
+            posts = new ArrayList<>(posts);
+            posts.sort(byHot.reversed());
+        }
+
+        // 응답 매핑(+ 집계 숫자 포함)
+        Map<Long, Long> likeCnt = countLikesByPostIds(posts);
+        Map<Long, Long> bmCnt   = countBookmarksByPostIds(posts);
+        Map<Long, Long> cmtCnt  = countCommentsByPostIds(posts);
+
+        List<PostRes> res = new ArrayList<>(posts.size());
+        for (CommunityPost p0 : posts) {
+            UserAccount u = userById.get(p0.getAuthorId());
+            long L = likeCnt.getOrDefault(p0.getId(), 0L);
+            long B = bmCnt.getOrDefault(p0.getId(), 0L);
+            long C = cmtCnt.getOrDefault(p0.getId(), 0L);
+            res.add(toRes(p0, u, L, B, C)); // ✅ like, bookmark, comment 순서 보장
+        }
+        return res;
     }
 
     /* ---------------- 내가 쓴 글 최근 N개 ---------------- */
     @Transactional(readOnly = true)
     public List<PostRes> findLatestByAuthor(Long authorId, int size) {
         var pr = PageRequest.of(0, Math.max(1, size), Sort.by(Sort.Direction.DESC, "createdAt"));
-        var page = repo.findByAuthorId(authorId, pr);
+        var page = postRepo.findByAuthorId(authorId, pr);
 
-        // 동일 작성자라 한 번만 조회
         UserAccount u = userRepo.findById(authorId).orElse(null);
 
-        return page.map(p -> toRes(p, u)).getContent();
+        List<CommunityPost> posts = page.getContent();
+        Map<Long, Long> likeCnt = countLikesByPostIds(posts);
+        Map<Long, Long> bmCnt   = countBookmarksByPostIds(posts);
+        Map<Long, Long> cmtCnt  = countCommentsByPostIds(posts);
+
+        List<PostRes> out = new ArrayList<>(posts.size());
+        for (CommunityPost p : posts) {
+            out.add(toRes(
+                    p, u,
+                    likeCnt.getOrDefault(p.getId(), 0L),
+                    bmCnt.getOrDefault(p.getId(), 0L),
+                    cmtCnt.getOrDefault(p.getId(), 0L)
+            ));
+        }
+        return out;
     }
 
     /* ---------------- 작성 ---------------- */
@@ -86,15 +138,15 @@ public class CommunityService {
         p.setTags(req.tags() == null ? List.of() : req.tags());
         p.setAuthorId(authorId);
         p.setYoutubeId(toYoutubeId(req.youtubeUrl()));
-        p.setRepImageUrl(req.repImageUrl());
-        repo.save(p);
+        p.setRepImageUrl(safeUrl(req.repImageUrl()));
+        postRepo.save(p);
         return p.getId();
     }
 
     /* ---------------- 수정 (작성자만) ---------------- */
     @Transactional
     public Long update(Long authorId, Long postId, CreatePostReq req) {
-        CommunityPost p = repo.findById(postId)
+        CommunityPost p = postRepo.findById(postId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "post_not_found"));
 
         if (p.getAuthorId() == null || !Objects.equals(p.getAuthorId(), authorId)) {
@@ -106,25 +158,118 @@ public class CommunityService {
         p.setContent((req.content() == null ? "" : req.content()).trim());
         p.setTags(req.tags() == null ? List.of() : req.tags());
         p.setYoutubeId(toYoutubeId(req.youtubeUrl()));
-        p.setRepImageUrl((req.repImageUrl() == null || req.repImageUrl().isBlank()) ? null : req.repImageUrl());
+        p.setRepImageUrl(safeUrl(req.repImageUrl()));
 
-        repo.save(p);
+        postRepo.save(p);
         return p.getId();
     }
 
     /* ---------------- 단건 조회 ---------------- */
     @Transactional(readOnly = true)
     public PostRes getOne(Long id) {
-        CommunityPost p = repo.findById(id)
+        CommunityPost p = postRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "post_not_found"));
 
         UserAccount u = (p.getAuthorId() != null) ? userRepo.findById(p.getAuthorId()).orElse(null) : null;
 
-        return toRes(p, u);
+        long likeCount = likeRepoOpt.map(r -> r.countByPostId(p.getId())).orElse(0L);
+        long bmCount   = bookmarkRepo.countByPostId(p.getId());
+        long cmtCount  = commentRepo.countByPost_IdAndDeletedFalse(p.getId());
+
+        return toRes(p, u, likeCount, bmCount, cmtCount);
     }
 
-    /* ---- 매핑/유틸 ---- */
-    private PostRes toRes(CommunityPost p, UserAccount u) {
+    /* ---------------- 삭제(마이페이지) ---------------- */
+    @Transactional
+    public void delete(long userId, long postId) {
+        var post = postRepo.findById(postId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "post_not_found"));
+        if (!Objects.equals(post.getAuthorId(), userId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "not_author");
+        }
+        postRepo.delete(post);
+        // 좋아요/북마크/댓글은 FK cascade 또는 별도 정리 정책 적용
+    }
+
+    /* ---------------- 좋아요/북마크 토글 ---------------- */
+
+    /** @return 현재 likeCount */
+    @Transactional
+    public long setLike(long userId, long postId, boolean on) {
+        ensurePostExists(postId);
+        var repo = likeRepoOpt.orElseThrow(() ->
+                new ResponseStatusException(HttpStatus.NOT_IMPLEMENTED, "like_not_supported"));
+        boolean exists = repo.existsByPostIdAndUserId(postId, userId);
+        if (on) {
+            if (!exists) repo.insertIgnore(postId, userId); // native upsert(중복 무시)
+        } else {
+            if (exists) repo.deleteByPostIdAndUserId(postId, userId);
+        }
+        return repo.countByPostId(postId);
+    }
+
+    /** @return 현재 bookmarkCount */
+    @Transactional
+    public long setBookmark(long userId, long postId, boolean on) {
+        ensurePostExists(postId);
+        boolean exists = bookmarkRepo.existsByPostIdAndUserId(postId, userId);
+        if (on) {
+            if (!exists) bookmarkRepo.insertIgnore(postId, userId);
+        } else {
+            if (exists) bookmarkRepo.deleteByPostIdAndUserId(postId, userId);
+        }
+        return bookmarkRepo.countByPostId(postId);
+    }
+
+    /* ---------------- 내부 유틸 ---------------- */
+
+    private void ensurePostExists(long postId) {
+        if (!postRepo.existsById(postId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "post_not_found");
+        }
+    }
+
+    private Map<Long, UserAccount> loadAuthors(List<CommunityPost> posts) {
+        var authorIds = posts.stream()
+                .map(CommunityPost::getAuthorId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (authorIds.isEmpty()) return Map.of();
+        return userRepo.findAllById(authorIds).stream()
+                .collect(Collectors.toMap(UserAccount::getId, u -> u));
+    }
+
+    private Map<Long, Long> countLikesByPostIds(List<CommunityPost> posts) {
+        if (likeRepoOpt.isEmpty()) {
+            Map<Long, Long> zeros = new HashMap<>();
+            for (CommunityPost p : posts) zeros.put(p.getId(), 0L);
+            return zeros;
+        }
+        var repo = likeRepoOpt.get();
+        Map<Long, Long> map = new HashMap<>();
+        for (CommunityPost p : posts) {
+            map.put(p.getId(), repo.countByPostId(p.getId()));
+        }
+        return map;
+    }
+
+    private Map<Long, Long> countBookmarksByPostIds(List<CommunityPost> posts) {
+        Map<Long, Long> map = new HashMap<>();
+        for (CommunityPost p : posts) {
+            map.put(p.getId(), bookmarkRepo.countByPostId(p.getId()));
+        }
+        return map;
+    }
+
+    private Map<Long, Long> countCommentsByPostIds(List<CommunityPost> posts) {
+        Map<Long, Long> map = new HashMap<>();
+        for (CommunityPost p : posts) {
+            map.put(p.getId(), commentRepo.countByPost_IdAndDeletedFalse(p.getId()));
+        }
+        return map;
+    }
+
+    private PostRes toRes(CommunityPost p, UserAccount u, long likeCount, long bookmarkCount, long commentCount) {
         String authorName   = displayName(u, p.getAuthorId());
         String authorAvatar = (u != null && notBlank(u.getAvatar())) ? u.getAvatar() : null;
         String authorHandle = handleOf(u);
@@ -142,8 +287,15 @@ public class CommunityService {
                 p.getCreatedAt(),
                 p.getUpdatedAt(),
                 p.getYoutubeId(),
-                p.getRepImageUrl()
+                p.getRepImageUrl(),
+                toInt(likeCount),      // ✅ likeCount
+                toInt(commentCount),   // ✅ commentCount  ← 순서 주의!
+                toInt(bookmarkCount)   // ✅ bookmarkCount ← 순서 주의!    // ✅ 순서: comment
         );
+    }
+
+    private static int toInt(long n) {
+        return (n < 0) ? 0 : (n > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) n);
     }
 
     private static String toYoutubeId(String url) {
@@ -170,6 +322,11 @@ public class CommunityService {
         }
         if (u.length() >= 8 && u.length() <= 32 && !u.contains("/") && !u.contains(" ")) return u;
         return null;
+    }
+
+    private static String safeUrl(String url) {
+        if (url == null || url.isBlank()) return null;
+        return url.trim();
     }
 
     private static boolean notBlank(String s) { return s != null && !s.isBlank(); }
