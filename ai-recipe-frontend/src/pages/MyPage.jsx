@@ -6,16 +6,12 @@ import { apiFetch } from '../lib/http';
 import { listFavoritesSimple, removeFavorite } from '../lib/wishlist';
 import { getMyPosts } from '../api/community';
 import {
-  listActivities,           // ✅ 추가
   listActivitiesPaged,
   subscribeActivity,
   formatActivityText,
   formatActivityHref,
-  logActivity,
-  getDailyActivityStreak
+  logActivity, // ✅ 누락 복구
 } from '../lib/activity';
-
-
 
 /* 숫자 ID만 허용(최대 19자리: Long 범위) */
 function isNumericId(id) {
@@ -82,7 +78,7 @@ const PASTELS = [
 ];
 function hashCode(str) { let h = 0; for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0; return Math.abs(h); }
 
-/* 썸네일 */
+/* 썸네일 (현재 화면에선 미사용이지만 남겨둠) */
 function SmartThumb({ src, seed = 'fallback', alt = 'thumbnail', width = 80, height = 56, rounded = true, className = '' }) {
   const [loaded, setLoaded] = useState(false);
   const [broken, setBroken] = useState(false);
@@ -143,7 +139,7 @@ async function deleteCommunityPost(id) {
 function normalizePostMeta(p) {
   if (!p) return null;
   const youtubeId = p.youtubeId ?? p.youtube_id ?? null;
-  const repImageUrlRaw = p.repImageUrl ?? p.rep_image_url ?? null;
+  const repImageUrlRaw = p.repImageUrl ?? p.rep_image_url ?? p.image ?? null;
   const updatedAt = p.updatedAt ?? p.updated_at ?? p.createdAt ?? p.created_at ?? null;
   const repImageUrl = withVersion(normalizeCoverUrl(repImageUrlRaw), updatedAt);
   const yt = ytThumb(youtubeId);
@@ -154,7 +150,30 @@ function normalizePostMeta(p) {
 const bmKey = (uid, provider, id) => `postBookmark:${uid}:${provider}:${id}`;
 const bmDataKey = (uid, provider, id) => `postBookmarkData:${uid}:${provider}:${id}`;
 
-/* 레거시 마이그레이션 */
+/* ─── 네임스페이스 접두어들 ─── */
+const ns4  = (uid, provider) => `postBookmark:${uid}:${provider}:`;     // postBookmark:uid:provider:id
+const ns3  = (uid)            => `postBookmark:${uid}:`;                 // postBookmark:uid:id
+const ns2  =                   'postBookmark:';                          // postBookmark:id
+const ns4d = (uid, provider) => `postBookmarkData:${uid}:${provider}:`;
+const ns3d = (uid)            => `postBookmarkData:${uid}:`;
+const ns2d =                   'postBookmarkData:';
+
+/* 로컬스토리지에서 주어진 prefix로 id 추출 */
+function collectIdsByPrefix(prefix) {
+  const out = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith(prefix)) continue;
+      if (localStorage.getItem(k) !== '1') continue;
+      const id = k.slice(prefix.length);
+      if (isNumericId(id)) out.push(id);
+    }
+  } catch {}
+  return out;
+}
+
+/* 레거시 → 새 포맷으로 이관 (필요 시) */
 function adoptLegacyBookmarks(uid, provider) {
   if (!uid || !provider) return;
   try {
@@ -164,6 +183,7 @@ function adoptLegacyBookmarks(uid, provider) {
       if (!k) continue;
       if (k.startsWith('postBookmark:') || k.startsWith('postBookmarkData:')) {
         const parts = k.split(':');
+        // 2단계(키: id) 또는 3단계(키: uid:id)만 대상
         if (parts.length === 2 || parts.length === 3) toMove.push(k);
       }
     }
@@ -172,8 +192,8 @@ function adoptLegacyBookmarks(uid, provider) {
       const parts = k.split(':');
       const prefix = parts[0];
       let id = null;
-      if (parts.length === 2) id = parts[1];
-      else if (parts.length === 3) id = parts[2];
+      if (parts.length === 2) id = parts[1];       // postBookmark:id
+      else if (parts.length === 3) id = parts[2];  // postBookmark:uid:id
       if (id && isNumericId(String(id))) {
         const newKey = `${prefix}:${uid}:${provider}:${id}`;
         if (v != null) localStorage.setItem(newKey, v);
@@ -183,43 +203,59 @@ function adoptLegacyBookmarks(uid, provider) {
   } catch {}
 }
 
-/* 현재 사용자 네임스페이스에서 북마크 읽기 */
+/* 현재 사용자 네임스페이스에서 북마크 읽기 — 4/3/2 단계 전부 병합 */
 function loadBookmarksFromLS(uid, provider) {
-  if (!uid || !provider) return [];
-  const list = [];
+  if (!uid) return [];
+  const listMap = new Map(); // id -> meta
+
   try {
-    const ns = `postBookmark:${uid}:${provider}:`;
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key || !key.startsWith(ns)) continue;
-      if (localStorage.getItem(key) !== '1') continue;
-
-      const parts = key.split(':');
-      if (parts.length !== 4) continue;
-      const id = parts[3];
-      if (!isNumericId(String(id))) continue;
-
-      const dataKey = bmDataKey(uid, provider, id);
-      let meta = null;
-      const raw = localStorage.getItem(dataKey);
-      if (raw) {
-        try { meta = JSON.parse(raw); } catch {}
-      }
-      list.push({ id: String(id), ...(meta || {}) });
+    // 1) 4단계(권장)
+    if (provider) {
+      const ids4 = collectIdsByPrefix(ns4(uid, provider));
+      ids4.forEach((id) => {
+        const raw = localStorage.getItem(bmDataKey(uid, provider, id)) ||
+                    localStorage.getItem(ns4d(uid, provider) + id) || null;
+        let meta = null;
+        if (raw) { try { meta = JSON.parse(raw); } catch {} }
+        listMap.set(String(id), { id: String(id), ...(meta || {}) });
+      });
     }
+
+    // 2) 3단계(이전 프론트 포맷)
+    const ids3 = collectIdsByPrefix(ns3(uid));
+    ids3.forEach((id) => {
+      if (listMap.has(String(id))) return;
+      const raw = localStorage.getItem(ns3d(uid) + id);
+      let meta = null;
+      if (raw) { try { meta = JSON.parse(raw); } catch {} }
+      listMap.set(String(id), { id: String(id), ...(meta || {}) });
+    });
+
+    // 3) 2단계(레거시)
+    const ids2 = collectIdsByPrefix(ns2);
+    ids2.forEach((id) => {
+      if (listMap.has(String(id))) return;
+      const raw = localStorage.getItem(ns2d + id);
+      let meta = null;
+      if (raw) { try { meta = JSON.parse(raw); } catch {} }
+      listMap.set(String(id), { id: String(id), ...(meta || {}) });
+    });
+
+    const list = Array.from(listMap.values());
     list.sort((a, b) => {
       const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
       const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
       return tb - ta;
     });
-  } catch {}
-  return list;
+    return list;
+  } catch {
+    return Array.from(listMap.values());
+  }
 }
 
 export default function MyPage() {
   const navigate = useNavigate();
   useEffect(() => { window.scrollTo(0, 0); }, []);
-  const [streak, setStreak] = useState(0);
 
   /* 세션 */
   const [me, setMe] = useState(null);
@@ -246,9 +282,6 @@ export default function MyPage() {
   /* 북마크(로컬) */
   const [bookmarks, setBookmarks] = useState([]);
   const [bmLoading, setBmLoading] = useState(false);
-
-  /* ✅ 내 댓글 수 (활동 로그 기반) */
-  const [myCommentCount, setMyCommentCount] = useState(0);
 
   /* me 먼저 로드 */
   useEffect(() => {
@@ -312,31 +345,26 @@ export default function MyPage() {
     return () => { aborted = true; };
   }, [navigate]);
 
-/* 찜 해제 */
-async function onRemove(e, recipeId) {
-  if (e) { e.preventDefault(); e.stopPropagation(); }
-  const rid = Number(recipeId);
-  if (!Number.isFinite(rid) || rid <= 0) return;
+  /* 찜 해제 */
+  async function onRemove(e, recipeId) {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    const rid = Number(recipeId);
+    if (!Number.isFinite(rid) || rid <= 0) return;
 
-  const prev = wishlist;
-  setWishlist((arr) => arr.filter((it) => Number(it.recipeId) !== rid));
-  try {
-    await removeFavorite(rid);
-    const removed = prev.find((it) => Number(it.recipeId) === rid);
+    const prev = wishlist;
+    setWishlist((arr) => arr.filter((it) => Number(it.recipeId) !== rid));
     try {
-      // ✅ 활동로그: 제목 키를 recipeTitle로 통일
-      logActivity('favorite_remove', {
-        recipeId: rid,
-        recipeTitle: removed?.title || `#${rid}`,
-      });
-      // (선택) 같은 탭 즉시 갱신이 필요하면 아래 라인 활성화
-      // window.dispatchEvent(new Event("activity:changed"));
-    } catch {}
-  } catch {
-    alert('삭제에 실패했어요.');
-    setWishlist(prev);
+      await removeFavorite(rid);
+      const removed = prev.find((it) => Number(it.recipeId) === rid);
+      try {
+        logActivity('favorite_remove', { recipeId: rid, recipeTitle: removed?.title || `#${rid}` });
+      } catch {}
+    } catch {
+      alert('삭제에 실패했어요.');
+      setWishlist(prev);
+    }
   }
-}
+
   /* ✅ 내가 쓴 글 삭제 */
   const onDeletePost = async (e, post) => {
     if (e) { e.preventDefault(); e.stopPropagation(); }
@@ -359,16 +387,13 @@ async function onRemove(e, recipeId) {
     }
   };
 
-  /* 북마크 로드/동기화 */
+  /* 북마크 로드/동기화 — provider 없어도 동작 */
   useEffect(() => {
-    if (!currentUid || !currentProvider) {
-      setBookmarks([]);
-      return;
-    }
+    if (!currentUid) { setBookmarks([]); return; }
     const uid = String(currentUid);
-    const provider = String(currentProvider);
+    const provider = currentProvider ? String(currentProvider) : null;
 
-    adoptLegacyBookmarks(uid, provider);
+    adoptLegacyBookmarks(uid, provider || 'local');
 
     const pull = () => {
       setBmLoading(true);
@@ -380,38 +405,47 @@ async function onRemove(e, recipeId) {
     };
     pull();
 
+    /* 메타 최신화 */
     (async () => {
       try {
         const raw = loadBookmarksFromLS(uid, provider);
         const ids = raw.slice(0, 20).map((b) => b.id);
         if (!ids.length) return;
+
         for (let i = 0; i < ids.length; i += 4) {
           const chunk = ids.slice(i, i + 4);
           const results = await Promise.allSettled(chunk.map((id) => getPostById(id)));
           results.forEach((r, idx) => {
             const thisId = String(chunk[idx]);
             if (r.status !== 'fulfilled' || !r.value) {
+              // 글이 없어졌으면 모든 네임스페이스에서 정리
               try {
-                localStorage.setItem(bmKey(uid, provider, thisId), '0');
-                localStorage.removeItem(bmDataKey(uid, provider, thisId));
+                if (provider) {
+                  localStorage.setItem(bmKey(uid, provider, thisId), '0');
+                  localStorage.removeItem(bmDataKey(uid, provider, thisId));
+                }
+                localStorage.setItem(`${ns3(uid)}${thisId}`, '0');
+                localStorage.removeItem(`${ns3d(uid)}${thisId}`);
+                localStorage.setItem(`${ns2}${thisId}`, '0');
+                localStorage.removeItem(`${ns2d}${thisId}`);
               } catch {}
               return;
             }
             const p = r.value;
             const updatedAt = p.updatedAt ?? p.updated_at ?? p.createdAt ?? p.created_at ?? null;
             try {
-              localStorage.setItem(
-                bmDataKey(uid, provider, p.id),
-                JSON.stringify({
-                  id: String(p.id),
-                  title: p.title,
-                  category: p.category,
-                  createdAt: p.createdAt ?? p.created_at,
-                  updatedAt,
-                  repImageUrl: withVersion(normalizeCoverUrl(p.repImageUrl ?? p.rep_image_url ?? null), updatedAt),
-                  youtubeId: p.youtubeId ?? p.youtube_id ?? null,
-                })
-              );
+              const meta = JSON.stringify({
+                id: String(p.id),
+                title: p.title,
+                category: p.category,
+                createdAt: p.createdAt ?? p.created_at,
+                updatedAt,
+                repImageUrl: withVersion(normalizeCoverUrl(p.repImageUrl ?? p.rep_image_url ?? p.image ?? null), updatedAt),
+                youtubeId: p.youtubeId ?? p.youtube_id ?? null,
+              });
+              if (provider) localStorage.setItem(bmDataKey(uid, provider, p.id), meta);
+              localStorage.setItem(`${ns3d(uid)}${p.id}`, meta);
+              localStorage.setItem(`${ns2d}${p.id}`, meta);
             } catch {}
           });
         }
@@ -421,10 +455,10 @@ async function onRemove(e, recipeId) {
 
     const onStorage = (e) => {
       if (!e || !e.key) return;
-      if (e.key.startsWith(`postBookmark:${uid}:${provider}:`) || e.key.startsWith(`postBookmarkData:${uid}:${provider}:`)) {
-        pull();
-      } else if (e.key.startsWith('postBookmark:') || e.key.startsWith('postBookmarkData:')) {
-        adoptLegacyBookmarks(uid, provider);
+      const hit4 = provider && (e.key.startsWith(ns4(uid, provider)) || e.key.startsWith(ns4d(uid, provider)));
+      const hit3 = e.key.startsWith(ns3(uid)) || e.key.startsWith(ns3d(uid));
+      const hit2 = e.key.startsWith(ns2) || e.key.startsWith(ns2d);
+      if (hit4 || hit3 || hit2) {
         pull();
       }
     };
@@ -433,40 +467,34 @@ async function onRemove(e, recipeId) {
 
     window.addEventListener('storage', onStorage);
     window.addEventListener('bookmark-changed', onBookmarkChanged);
-
     return () => {
       window.removeEventListener('storage', onStorage);
       window.removeEventListener('bookmark-changed', onBookmarkChanged);
     };
   }, [currentUid, currentProvider]);
 
-  function onUnbookmark(e, postId, postTitle = "")  {
+  function onUnbookmark(e, postId) {
     if (e) { e.preventDefault(); e.stopPropagation(); }
     const id = String(postId);
     try {
-      if (currentUid && currentProvider) {
-        const uid = String(currentUid);
-        const provider = String(currentProvider);
+      const uid = currentUid ? String(currentUid) : null;
+      const provider = currentProvider ? String(currentProvider) : null;
+      if (uid && provider) {
         localStorage.setItem(bmKey(uid, provider, id), '0');
         localStorage.removeItem(bmDataKey(uid, provider, id));
       }
-      localStorage.setItem(`postBookmark:${id}`, '0');
-      localStorage.removeItem(`postBookmarkData:${id}`);
-      localStorage.setItem(`postBookmark:${currentUid}:${id}`, '0');
-      localStorage.removeItem(`postBookmarkData:${currentUid}:${id}`);
+      if (uid) {
+        localStorage.setItem(`${ns3(uid)}${id}`, '0');
+        localStorage.removeItem(`${ns3d(uid)}${id}`);
+      }
+      localStorage.setItem(`${ns2}${id}`, '0');
+      localStorage.removeItem(`${ns2d}${id}`);
     } catch {}
     setBookmarks((arr) => arr.filter((b) => String(b.id) !== id));
-   // 제목 전달 없으면 북마크 목록에서 보강
-    const title =
-      postTitle ||
-      bookmarks.find((x) => String(x.id) === id)?.title ||
-      `게시글 #${id}`;
-    try { logActivity('post_bookmark', { postId: Number(id), postTitle: title, on: false }); } catch {}
-    try { window.dispatchEvent(new Event('activity:changed')); } catch {}
-
+    try { window.dispatchEvent(new Event('bookmark-changed')); } catch {}
   }
 
-  /* ✅ 최근 활동(상단 프리뷰 & 댓글 수 동시 갱신) */
+  /* 최근 활동: 상위 3개만 */
   useEffect(() => {
     const pull = () => {
       setActLoading(true);
@@ -474,11 +502,6 @@ async function onRemove(e, recipeId) {
         const { items, total } = listActivitiesPaged(0, 3);
         setActivities(items);
         setActTotal(total);
-        setStreak(getDailyActivityStreak({ includeToday: true }));  
-        // 댓글 수(로컬 활동 기준)
-        const all = listActivities(300);
-        const cnt = all.filter(a => a?.type === 'comment_create' || a?.type === 'comment_add').length;
-        setMyCommentCount(cnt);
       } finally {
         setActLoading(false);
       }
@@ -526,18 +549,21 @@ async function onRemove(e, recipeId) {
     );
   }
 
-  /* 사용자 표시 */
-  const demoUser = { name: '레시프리', handle: '@recipfree', bio: '레시프리와 함께, 자유롭게 창작하는 맞춤형 건강 레시피.' };
+  /* 데모 유저 */
+  const demoUser = { name: '레시프리', handle: '@recipfree', bio: '레시프리와 함께, 자유롭게 창작하는 맞춤형 건강 레시피.', avatar: 'https://picsum.photos/seed/recipfree/200/200' };
+
+  /* 실제 로그인 정보 */
   const user = me
     ? {
         name: me.name || (me.email ? me.email.split('@')[0] : '회원'),
         handle: me.email ? `@${me.email.split('@')[0]}` : '@member',
         bio: demoUser.bio,
+        avatar: me.avatar || me.picture || demoUser.avatar,
       }
     : demoUser;
 
-  /* ✅ 동적 통계 */
-  const stats = { recipes: myPosts.length, saved: wishlist.length, comments: myCommentCount, streak };
+  const stats = { recipes: myPosts.length, saved: wishlist.length, comments: 67, streak: 6 };
+  const oneLine = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
 
   return (
     <div className="container-xxl py-3 mypage">
@@ -614,10 +640,10 @@ async function onRemove(e, recipeId) {
                     <Link key={key} to={to} className="list-group-item list-group-item-action">
                       <div className="d-flex align-items-center gap-3">
                         <div className="flex-grow-1" style={{ minWidth: 0 }}>
-                          <div className="fw-semibold" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <div className="fw-semibold" style={oneLine}>
                             {w.title ?? `레시피 #${w.recipeId}`}
                           </div>
-                          {w.meta && <div className="small text-secondary" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{w.meta}</div>}
+                          {w.meta && <div className="small text-secondary" style={oneLine}>{w.meta}</div>}
                           {w.summary && <div className="small text-secondary" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{w.summary}</div>}
                         </div>
                         <div className="d-flex gap-2 flex-shrink-0">
@@ -635,8 +661,10 @@ async function onRemove(e, recipeId) {
           <div className="card shadow-sm mb-3">
             <div className="card-header d-flex justify-content-between align-items-center">
               <h5 className="m-0">북마크한 글</h5>
-              <span className="text-secondary small">{bookmarks.length}개</span>
-              <Link className="btn btn-sm btn-outline-primary" to="/bookmarks">전체보기</Link>
+              <div className="d-flex align-items-center gap-2">
+                <span className="text-secondary small">{bookmarks.length}개</span>
+                <Link className="btn btn-sm btn-outline-primary" to="/bookmarks">전체보기</Link>
+              </div>
             </div>
 
             {bmLoading && (
@@ -664,10 +692,10 @@ async function onRemove(e, recipeId) {
                     <Link key={b.id} to={to} className="list-group-item list-group-item-action">
                       <div className="d-flex align-items-center gap-3">
                         <div className="flex-grow-1" style={{ minWidth: 0 }}>
-                          <div className="fw-semibold" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <div className="fw-semibold" style={oneLine}>
                             {b.title || `게시글 #${b.id}`}
                           </div>
-                          <div className="small text-secondary" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <div className="small text-secondary" style={oneLine}>
                             {(b.category || '커뮤니티')}{b.createdAt ? ` · ${formatDate(b.createdAt)}` : ''}
                           </div>
                         </div>
@@ -675,7 +703,7 @@ async function onRemove(e, recipeId) {
                           <button
                             className="btn btn-sm btn-outline-danger"
                             style={{ minWidth: 72, height: 32, padding: '0 12px' }}
-                            onClick={(e) => onUnbookmark(e, b.id, b.title)}
+                            onClick={(e) => onUnbookmark(e, b.id)}
                             title="북마크 해제"
                           >
                             해제
@@ -727,8 +755,8 @@ async function onRemove(e, recipeId) {
                     <Link key={p.id} to={to} className="list-group-item list-group-item-action">
                       <div className="d-flex align-items-center gap-3">
                         <div className="flex-grow-1" style={{ minWidth: 0 }}>
-                          <div className="fw-semibold" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.title}</div>
-                          <div className="small text-secondary" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <div className="fw-semibold" style={oneLine}>{p.title}</div>
+                          <div className="small text-secondary" style={oneLine}>
                             {p.category}{p.createdAt ? ` · ${formatDate(p.createdAt)}` : ''}
                           </div>
                         </div>

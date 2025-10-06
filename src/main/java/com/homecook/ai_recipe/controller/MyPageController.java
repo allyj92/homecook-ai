@@ -170,7 +170,7 @@ public class MyPageController {
         if (prov == null) prov = "community"; // ✅ 기본값
 
         var f = favoriteService.add(me.getId(), recipeId, title, summary, image, meta);
-
+        
         return new FavoriteDto(f.getId(), f.getRecipeId(), f.getTitle(), f.getSummary(),
                 f.getImage(), f.getMeta(), toIso(f.getCreatedAt()));
     }
