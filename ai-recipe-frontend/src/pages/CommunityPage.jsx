@@ -6,17 +6,37 @@ import 'bootstrap/dist/css/bootstrap.min.css';
 import BottomNav from '../components/BottomNav';
 import '../index.css';
 
-/* ---- 이미지 URL 정리/대체 ---- */
+/* ------------ 이미지 URL 유틸 ------------- */
+// 로그인 래퍼 URL에서 실제 목적지 꺼내기
+function unwrapLoginUrl(url) {
+  try {
+    const u = new URL(url, window.location.origin);
+    const host = u.host.toLowerCase();
+    const path = u.pathname.toLowerCase();
+    if (host.startsWith('login.') || /\/(auth|login)/i.test(path)) {
+      const keys = ['url','next','redirect','continue','rd','r','to','dest','destination','u','returnUrl','return_to'];
+      for (const k of keys) {
+        const v = u.searchParams.get(k);
+        if (v) {
+          const inner = decodeURIComponent(v);
+          if (/^https?:\/\//i.test(inner)) return inner;
+        }
+      }
+      if (u.hash && /^#https?:\/\//i.test(u.hash)) return u.hash.slice(1);
+    }
+  } catch { /* ignore */ }
+  return url;
+}
+
 function normalizeCoverUrl(url) {
   if (!url) return null;
   try {
-    if (url.startsWith('/')) return url; // 같은 도메인 상대경로 그대로 (// 포함)
-    const u = new URL(url, window.location.origin);
-    // https 페이지에 http 이미지면 업그레이드(혼합콘텐츠 방지)
+    let raw = unwrapLoginUrl(url);
+    if (raw.startsWith('/')) return raw;
+    const u = new URL(raw, window.location.origin);
     if (window.location.protocol === 'https:' && u.protocol === 'http:') {
       u.protocol = 'https:';
     }
-    // 같은 호스트면 경로만 사용(쿠키/리다이렉션 이슈 최소화)
     if (u.host === window.location.host) return u.pathname + u.search + u.hash;
     return u.toString();
   } catch {
@@ -30,7 +50,6 @@ function withVersion(url, ver) {
     const u = new URL(url, window.location.origin);
     const sameHost = (u.host === window.location.host);
     const hasQuery = !!u.search && u.search.length > 1;
-    // 서명/토큰 붙은 URL은 절대 건드리면 안 됨
     const looksSigned = /X-Amz-|Signature=|X-Goog-Signature=|token=|expires=|CloudFront/i.test(u.search);
     if (sameHost && !hasQuery && !looksSigned) {
       const v = ver != null ? (typeof ver === 'number' ? ver : Date.parse(ver) || Date.now()) : Date.now();
@@ -43,51 +62,13 @@ function withVersion(url, ver) {
 
 const ytThumb = (id) => (id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : null);
 
-// 본문에서 이미지 후보 모두 뽑기 (MD/HTML/data-src/srcset)
-function extractImagesFromContent(p) {
-  const s = String(p?.content ?? p?.body ?? p?.html ?? '').trim();
-  const out = [];
-  if (!s) return out;
-
-  // Markdown: ![alt](url "title")
-  s.replace(/!\[[^\]]*]\(([^)]+)\)/g, (_m, u) => {
-    const cleaned = (u || '').split('"')[0].trim();
-    if (cleaned) out.push(cleaned);
-  });
-
-  // HTML: <img src="...">, data-src="..."
-  s.replace(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi, (_m, u) => u && out.push(u));
-  s.replace(/<img[^>]+data-src=["']([^"']+)["'][^>]*>/gi, (_m, u) => u && out.push(u));
-
-  // srcset의 첫 번째 후보
-  s.replace(/<img[^>]+srcset=["']([^"']+)["'][^>]*>/gi, (_m, list) => {
-    const first = String(list || '').split(',')[0].trim().split(' ')[0];
-    if (first) out.push(first);
-  });
-
-  return out;
-}
-
-// 첨부(images/photos/attachments 등)에서도 후보 추출
-function extractImagesFromAttachments(p) {
-  const arr = p?.attachments ?? p?.images ?? p?.photos ?? [];
-  const out = [];
-  for (const it of (Array.isArray(arr) ? arr : [])) {
-    const u = it?.url ?? it?.src ?? it?.imageUrl ?? it?.downloadUrl;
-    if (u) out.push(u);
-  }
-  return out;
-}
-
-// 로그인/인증/혼합콘텐츠 등 썸네일로 부적절한 URL 걸러내기
+// 로그인/혼합콘텐츠/형식 등 필터
 function isUsableImageUrl(url) {
   try {
     const u = new URL(url, window.location.origin);
     const host = u.host.toLowerCase();
     const path = u.pathname.toLowerCase();
-    // 로그인/인증 경로는 배제
     if (host.startsWith('login.') || /\/(auth|login)/i.test(path)) return false;
-    // http 이미지는 https 페이지에서 배제(혼합콘텐츠)
     if (window.location.protocol === 'https:' && u.protocol === 'http:') return false;
     return /^https?:|^\//.test(u.href) || /^data:/.test(u.href);
   } catch {
@@ -95,29 +76,68 @@ function isUsableImageUrl(url) {
   }
 }
 
-function buildCover(post) {
-  const updatedAt = post.updatedAt ?? post.updated_at ?? post.createdAt ?? post.created_at ?? null;
+/* ---- 본문/첨부에서 이미지 후보 추출 ---- */
+function extractImagesFromContent(p) {
+  const s = String(p?.content ?? p?.body ?? p?.html ?? '').trim();
+  const out = [];
+  if (!s) return out;
 
-  const candidates = [
+  s.replace(/!\[[^\]]*]\(([^)]+)\)/g, (_m, u) => {
+    const cleaned = (u || '').split('"')[0].trim();
+    if (cleaned) out.push(unwrapLoginUrl(cleaned));
+  });
+
+  s.replace(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi, (_m, u) => u && out.push(unwrapLoginUrl(u)));
+  s.replace(/<img[^>]+data-src=["']([^"']+)["'][^>]*>/gi, (_m, u) => u && out.push(unwrapLoginUrl(u)));
+  s.replace(/<img[^>]+srcset=["']([^"']+)["'][^>]*>/gi, (_m, list) => {
+    const first = String(list || '').split(',')[0].trim().split(' ')[0];
+    if (first) out.push(unwrapLoginUrl(first));
+  });
+
+  return out;
+}
+function extractImagesFromAttachments(p) {
+  const arr = p?.attachments ?? p?.images ?? p?.photos ?? [];
+  const out = [];
+  for (const it of (Array.isArray(arr) ? arr : [])) {
+    const u = it?.url ?? it?.src ?? it?.imageUrl ?? it?.downloadUrl;
+    if (u) out.push(unwrapLoginUrl(u));
+  }
+  return out;
+}
+
+// 후보들을 정리해서 배열로 반환
+function collectCoverCandidates(post) {
+  const updatedAt = post.updatedAt ?? post.updated_at ?? post.createdAt ?? post.created_at ?? null;
+  const candidatesRaw = [
     post.coverUrl ?? post.cover_url ?? null,
     post.repImageUrl ?? post.rep_image_url ?? null,
-    ...(extractImagesFromAttachments(post)),
-    ...(extractImagesFromContent(post)),
+    ...extractImagesFromAttachments(post),
+    ...extractImagesFromContent(post),
     ytThumb(post.youtubeId ?? post.youtube_id ?? null),
   ].filter(Boolean);
 
-  const chosen = candidates.find(isUsableImageUrl);
-  const normalized = withVersion(normalizeCoverUrl(chosen), updatedAt);
-  // 1순위: 대표/첨부/본문 이미지, 2순위: 유튜브 썸네일
-  return normalized || null;
+  const normalized = candidatesRaw
+    .map((u) => withVersion(normalizeCoverUrl(u), updatedAt))
+    .filter(Boolean)
+    .filter(isUsableImageUrl);
+
+  // 중복 제거
+  const seen = new Set();
+  const unique = [];
+  for (const u of normalized) {
+    const key = u.toLowerCase();
+    if (!seen.has(key)) { seen.add(key); unique.push(u); }
+  }
+  return unique;
 }
 
-/* ---------------- 목록 프리뷰 전용 텍스트 정리 ---------------- */
+/* ------------ 프리뷰 텍스트 ------------ */
 function makePreviewText(input, maxLen = 120) {
   if (!input) return '';
   let s = String(input);
-  s = s.replace(/!\[([^\]]*)]\(([^)]+)\)/g, (_m, alt) => (alt || '').trim());       // MD 이미지 alt
-  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, text) => (text || '').trim());     // MD 링크 텍스트
+  s = s.replace(/!\[([^\]]*)]\(([^)]+)\)/g, (_m, alt) => (alt || '').trim());
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, text) => (text || '').trim());
   s = s.replace(/<img[^>]*alt=["']?([^"'>]*)["']?[^>]*>/gi, (_m, alt) => (alt || '').trim());
   s = s.replace(/<a[^>]*>(.*?)<\/a>/gi, (_m, inner) => (inner || '').trim());
   s = s.replace(/\bhttps?:\/\/[^\s)]+/gi, '');
@@ -130,6 +150,7 @@ function makePreviewText(input, maxLen = 120) {
   return s;
 }
 
+/* ------------ 단순 광고 슬롯 ------------ */
 function AdSlot({ id, height = 250, label = 'AD', sticky = false }) {
   return (
     <div
@@ -154,7 +175,6 @@ function Badge({ children, tone = 'gray' }) {
   return <span className={`badge rounded-pill ${cls}`}>{children}</span>;
 }
 
-/** 숫자 포맷 (k/M 축약) */
 const fmtNum = (n) => {
   const x = Number(n || 0);
   if (x >= 1_000_000) return (x / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
@@ -162,7 +182,6 @@ const fmtNum = (n) => {
   return String(x);
 };
 
-/** 서버에서 내려오는 다양한 키들을 흡수해서 count 정규화 */
 function extractCounts(p) {
   const likeCount =
     p.likeCount ?? p.like_count ?? p.likes ?? p.hearts ?? p.metrics?.likes ?? p.metrics?.hearts ?? 0;
@@ -177,10 +196,33 @@ function extractCounts(p) {
   };
 }
 
+/* ------------ 이미지 후보 자동 폴백 ------------ */
+function SmartImg({ sources, alt = '', className = '', onHide }) {
+  const [idx, setIdx] = useState(0);
+  const src = sources?.[idx] || null;
+
+  if (!src) return null;
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className={className}
+      loading="lazy"
+      decoding="async"
+      onError={() => {
+        if (idx + 1 < (sources?.length || 0)) setIdx(idx + 1);
+        else if (onHide) onHide();
+      }}
+    />
+  );
+}
+
 function PostCard({ post, onOpen }) {
   const rawForPreview = post.preview || post.bodyPreview || post.content || post.body || '';
   const preview = makePreviewText(rawForPreview, 100);
   const when = new Date(post.createdAt || post.updatedAt || Date.now()).toLocaleString();
+  const [showImg, setShowImg] = useState(true);
 
   return (
     <article className="card shadow-sm mb-3">
@@ -218,14 +260,11 @@ function PostCard({ post, onOpen }) {
         </div>
       </div>
 
-      {post.__cover && (
-        <img
-          src={post.__cover}
-          alt=""
+      {showImg && post.__covers?.length > 0 && (
+        <SmartImg
+          sources={post.__covers}
           className="card-img-bottom"
-          loading="lazy"
-          decoding="async"
-          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+          onHide={() => setShowImg(false)}
         />
       )}
     </article>
@@ -238,21 +277,19 @@ export default function CommunityPage() {
 
   const [q, setQ] = useState(params.get('q') ?? '');
   const [tab, setTab] = useState(params.get('tab') ?? 'all');
-  const [sort, setSort] = useState(params.get('sort') ?? 'new'); // 서버 기준: 최신순
+  const [sort, setSort] = useState(params.get('sort') ?? 'new');
 
-  // 서버 데이터 상태
   const [posts, setPosts] = useState([]);
   const [page, setPage] = useState(0);
   const size = 12;
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
 
-  // 탭→카테고리 매핑
   const tabToCategory = (t) => {
     if (t === 'question') return '질문';
     if (t === 'review') return '후기';
     if (t === 'recipe') return '레시피';
-    return ''; // all은 전체
+    return '';
   };
 
   const load = useCallback(async (pageToLoad = 0, tabToLoad = tab) => {
@@ -271,11 +308,15 @@ export default function CommunityPage() {
       });
       const list = await res.json();
       const arr = Array.isArray(list) ? list : (Array.isArray(list?.items) ? list.items : []);
-      const fixed = arr.map(p => ({
-        ...p,
-        ...extractCounts(p),
-        __cover: buildCover(p),
-      }));
+
+      const fixed = arr.map(p => {
+        const covers = collectCoverCandidates(p);
+        return {
+          ...p,
+          ...extractCounts(p),
+          __covers: covers,
+        };
+      });
 
       if (pageToLoad === 0) setPosts(fixed);
       else setPosts(prev => [...prev, ...fixed]);
@@ -289,18 +330,15 @@ export default function CommunityPage() {
     }
   }, [tab]);
 
-  // 최초 로드
   useEffect(() => { window.scrollTo(0, 0); }, []);
   useEffect(() => { load(0, tab); }, [load, tab]);
 
-  // 탭/검색/정렬 쿼리 동기화 헬퍼
   function syncQuery(next = {}) {
     const merged = new URLSearchParams(params);
     Object.entries(next).forEach(([k, v]) => (v == null ? merged.delete(k) : merged.set(k, String(v))));
     setParams(merged, { replace: true });
   }
 
-  // 같은/다른 탭 활동 발생 시 목록 갱신 (좋아요/북마크/댓글)
   useEffect(() => {
     const refresh = () => load(0, tab);
     const onVisible = () => { if (document.visibilityState === 'visible') refresh(); };
@@ -316,20 +354,19 @@ export default function CommunityPage() {
     };
   }, [load, tab]);
 
-  // 클라이언트 측 필터/정렬(서버는 최신순 반환)
   const filtered = useMemo(() => {
     let arr = posts;
-
     if (q) {
       const k = q.toLowerCase();
       arr = arr.filter((p) =>
         [p.title, p.content, ...(p.tags || [])].join(' ').toLowerCase().includes(k)
       );
     }
-
     if (sort === 'new') {
       arr = [...arr].sort(
-        (a, b) => new Date(b.createdAt || b.updatedAt || 0).getTime() - new Date(a.createdAt || a.updatedAt || 0).getTime()
+        (a, b) =>
+          new Date(b.createdAt || b.updatedAt || 0).getTime() -
+          new Date(a.createdAt || a.updatedAt || 0).getTime()
       );
     }
     return arr;
