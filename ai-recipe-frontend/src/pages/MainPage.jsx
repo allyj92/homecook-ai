@@ -149,50 +149,25 @@ const toArr = (data) => {
 
 /** 최신 레시피(최신순) */
 async function loadDailyNewRecipe(size = 8) {
-  // 1) 정식: /api/recipes (Page)
-  try {
-    const qs = new URLSearchParams({ page:'0', size:String(size), sort:'createdAt,desc' });
-    const res = await fetch(`/api/recipes?${qs}`, { credentials:'include', cache:'no-store', headers:{Accept:'application/json'} });
-    if (res.ok) {
-      const j = await res.json();
-      const arr = toArr(j);
-      if (arr.length) return arr;
-    }
-  } catch {}
-
-  // 2) 폴백: /api/recipes/latest (List)
-  try {
-    const qs = new URLSearchParams({ size:String(size) });
-    const res = await fetch(`/api/recipes/latest?${qs}`, { credentials:'include', cache:'no-store', headers:{Accept:'application/json'} });
-    if (res.ok) {
-      const j = await res.json();
-      const arr = toArr(j);
-      if (arr.length) return arr;
-    }
-  } catch {}
-
-  // 3) 최종 폴백: 커뮤니티 최신글을 레시피 카드 모양으로 매핑해서 보여주기
-  try {
-    // createdAt 내림차순
-    const res = await fetch(`/api/community/posts?page=0&size=${size}&sort=createdAt,desc`, {
-      credentials:'include', cache:'no-store', headers:{Accept:'application/json'}
-    });
-    if (res.ok) {
-      const j = await res.json();
-      const posts = toArr(j);
-      return posts.map(p => ({
-        id: p.id,
-        title: p.title,
-        createdAt: p.createdAt ?? p.created_at ?? null,
-        likeCount: p.likeCount ?? p.metrics?.likes ?? 0,
-        commentCount: p.commentCount ?? p.metrics?.comments ?? 0,
-        repImageUrl: p.coverUrl ?? p.cover_url ?? p.repImageUrl ?? p.rep_image_url ?? null,
-        __asPost: true,  // 있으면 썸네일로
-      }));
-    }
-  } catch {}
-
-  return [];
+  const qs = new URLSearchParams({ page: '0', size: String(size), sort: 'createdAt,desc' });
+  const res = await fetch(`/api/community/posts?${qs}`, {
+    credentials: 'include',
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) return [];
+  const j = await res.json();
+  const posts = toArr(j);
+  return posts.map((p) => ({
+    id: p.id,
+    title: p.title,
+    createdAt: p.createdAt ?? p.created_at ?? null,
+    likeCount: p.likeCount ?? p.metrics?.likes ?? 0,
+    commentCount: p.commentCount ?? p.metrics?.comments ?? 0,
+    // buildCover가 coverUrl도 처리하므로 굳이 이름 바꿔 넣지 않아도 됨
+    coverUrl: p.coverUrl ?? p.cover_url ?? null,
+    __asPost: true,
+  }));
 }
 /** 인기 커뮤니티(백엔드 sort=popular 우선, 폴백 클라이언트 점수) */
 async function loadPopularCommunity(size = 8) {

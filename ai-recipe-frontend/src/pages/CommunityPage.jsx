@@ -37,7 +37,7 @@ const ytThumb = (id) => (id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : nul
 
 function buildCover(post) {
   const updatedAt = post.updatedAt ?? post.updated_at ?? post.createdAt ?? post.created_at ?? null;
-  const raw = post.repImageUrl ?? post.rep_image_url ?? null;
+  const raw = post.coverUrl ?? post.cover_url ?? post.repImageUrl ?? post.rep_image_url ?? null;
   const normalized = withVersion(normalizeCoverUrl(raw), updatedAt);
   // 1순위: 대표이미지, 2순위: 유튜브 썸네일
   return normalized || ytThumb(post.youtubeId ?? post.youtube_id ?? null) || null;
