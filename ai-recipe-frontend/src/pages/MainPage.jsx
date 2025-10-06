@@ -299,8 +299,9 @@ export default function MainPage() {
    
     setDailyNewLoading(true);
     try {
-      console.debug('[dailyNewRecipe]', arr);
+      
       const arr = await loadDailyNewRecipe(8);
+      console.debug('[dailyNewRecipe]', arr);
       const fixed = (Array.isArray(arr) ? arr : []).map(r => ({
         ...r,
         __cover: buildCover(r),
