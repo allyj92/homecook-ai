@@ -318,27 +318,31 @@ export default function PostDetailPage() {
       }
     });
 
- const onToggleBookmark = () =>
+const onToggleBookmark = () =>
   requireAuth(async () => {
-    if (!uid || !post?.id) return;
-    await apiToggleBookmark(post.id, next);
-      // 서버가 본문을 안 주므로 로컬에서 안전하게 증감
-      try{
+    if (!post?.id) return;
+
+    const next = !bookmarked;     // ✅ 토글값 먼저 계산
+    setBookmarked(next);          // ✅ UI 낙관적 반영
+
+    try {
+      await apiToggleBookmark(post.id, next);   // ✅ 서버 반영
+
+      // ✅ 서버가 카운트를 안 주면 로컬에서 안전하게 증감
       setPost((prev) => {
         if (!prev) return prev;
-        const cur = Number(prev.bookmarkCount) || 0;
+        const cur = Number(prev.bookmarkCount ?? 0);
         const delta = next ? 1 : -1;
-       return { ...prev, bookmarkCount: Math.max(0, cur + delta) };
+        return { ...prev, bookmarkCount: Math.max(0, cur + delta) };
       });
-      // 로컬 기록 및 다른 탭 갱신
-     // 로컬 기록 및 다른 탭 갱신
-       try { window.dispatchEvent(new Event('bookmark-changed')); } catch {}
-     } catch {
-       setBookmarked(!next); // 롤백
-       alert('북마크 처리에 실패했어요.');
-     }
-   });
 
+      // (옵션) 다른 탭/화면 갱신 신호
+      try { window.dispatchEvent(new Event('bookmark-changed')); } catch {}
+    } catch {
+      setBookmarked(!next);       // ✅ 실패 시 롤백
+      alert('북마크 처리에 실패했어요.');
+    }
+  });
   // 편집 권한
   const canEdit =
     !!auth.user?.authenticated &&
