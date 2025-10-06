@@ -666,8 +666,8 @@ export default function MainPage() {
                       role="listitem"
                       style={{ scrollSnapAlign: 'start' }}
                       tabIndex={0}
-                      onClick={() => r.id && navigate(`/recipe/${r.id}`)}
-                      onKeyDown={(e)=> r.id && onCardKey(e, `/recipe/${r.id}`)}
+                      onClick={() => r.id && navigate(r.__asPost ? `/community/${r.id}` : `/recipe/${r.id}`)}
+                      onKeyDown={(e)=> r.id && onCardKey(e, r.__asPost ? `/community/${r.id}` : `/recipe/${r.id}`)}
                       aria-label={`${r.title || '레시피'} 보기`}
                     >
                       <div className="position-relative">
