@@ -157,6 +157,7 @@ public class MyPageController {
     /** 기존 규격: /favorites/{recipeId} */
     @PostMapping("/favorites/{recipeId}")
     public FavoriteDto addFavoriteByPath(@PathVariable Long recipeId,
+                                         @RequestParam(required = false) String provider,
                                          @RequestBody(required = false) Map<String, Object> body,
                                          HttpSession session,
                                          Authentication auth) {
@@ -165,8 +166,11 @@ public class MyPageController {
         String summary = body != null ? strOrNull(body.get("summary")) : null;
         String image   = body != null ? strOrNull(body.get("image"))   : null;
         String meta    = body != null ? strOrNull(body.get("meta"))    : null;
+        String prov    = strOrNull(provider);
+        if (prov == null) prov = "community"; // ✅ 기본값
 
         var f = favoriteService.add(me.getId(), recipeId, title, summary, image, meta);
+
         return new FavoriteDto(f.getId(), f.getRecipeId(), f.getTitle(), f.getSummary(),
                 f.getImage(), f.getMeta(), toIso(f.getCreatedAt()));
     }
