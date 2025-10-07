@@ -14,6 +14,7 @@ import {
   logActivity,
 } from '../lib/activity';
 
+
 /* 숫자 ID만 허용(최대 19자리: Long 범위) */
 function isNumericId(id) {
   return typeof id === 'string' && /^[0-9]{1,19}$/.test(id);
@@ -176,6 +177,10 @@ function normalizePostMeta(p) {
 }
 
 export default function MyPage() {
+  const DEBUG = /\bdebug=1\b/.test(window.location.search) || localStorage.getItem('rf:debug') === '1';
+  const dlog = (...a) => { if (DEBUG) console.log('%c[MyPage]', 'color:#09f', ...a); };
+
+
   const navigate = useNavigate();
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -334,9 +339,13 @@ export default function MyPage() {
     setBmLoading(true);
     try {
       // 캐시버스터 & 캐시 비활성화
-      const res = await apiFetch(`/api/community/bookmarks?page=0&size=5&_=${Date.now()}`, { cache: 'no-store' });
+      const url = `/api/community/bookmarks?page=0&size=5&_=${Date.now()}`;
+      dlog('fetchBookmarks →', url, { me });
+      const res = await apiFetch(url, { cache: 'no-store' });
+      dlog('fetchBookmarks status', res.status);
       if (!res.ok) throw new Error('bookmark_list_failed');
       const page = await res.json();
+      dlog('fetchBookmarks page keys', Object.keys(page || {}), 'count=', page?.content?.length);
       setBookmarks((page?.content ?? []).map(normalizePostMeta));
     } catch {
       setBookmarks([]);
@@ -353,9 +362,11 @@ export default function MyPage() {
   useEffect(() => {
     const onBM = () => fetchBookmarks();
     const onVis = () => { if (document.visibilityState === 'visible') fetchBookmarks(); };
+    dlog('attach bookmark-changed/visibility listeners');
     window.addEventListener('bookmark-changed', onBM);
     document.addEventListener('visibilitychange', onVis);
     return () => {
+      dlog('detach bookmark-changed/visibility listeners');
       window.removeEventListener('bookmark-changed', onBM);
       document.removeEventListener('visibilitychange', onVis);
     };
@@ -791,6 +802,15 @@ export default function MyPage() {
       </footer>
 
       <BottomNav />
+      {DEBUG && (
+       <pre className="mt-3 p-2 border rounded bg-light small" style={{whiteSpace:'pre-wrap'}}>
+         <b>DEBUG</b>
+         {"\n"}me.authenticated: {String(!!me?.authenticated)}
+         {"\n"}bookmarks: {bookmarks.length}
+         {"\n"}first: {bookmarks[0] ? JSON.stringify(bookmarks[0], null, 2) : '-'}
+         {"\n"}(buttons) <button className="btn btn-sm btn-outline-primary" onClick={fetchBookmarks}>북마크 재로딩</button>
+       </pre>
+     )}
     </div>
   );
 }
