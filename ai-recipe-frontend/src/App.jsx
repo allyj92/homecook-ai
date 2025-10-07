@@ -32,6 +32,7 @@ export default function App() {
 
         {/* 홈 */}
         <Route index element={<MainPage />} />
+        <Route path="/search" element={<SearchPage />} />
 
         {/* ✅ 레시피 상세 */}
         <Route path="/recipe/:id" element={<RecipeDetailPage />} />
