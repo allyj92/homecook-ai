@@ -505,6 +505,7 @@ export default function CommunityPage() {
       {/* 본문: 사이드 영역/인피드 광고 제거, 단일 컬럼 */}
       <main className="row g-4">
         <section className="col-12">
+         <div className="content-narrow">
           {filtered.length === 0 && !loading && (
             <div className="alert alert-secondary" role="status">
               게시글이 없습니다. 먼저 글을 작성해 보세요!
@@ -529,6 +530,7 @@ export default function CommunityPage() {
             >
               {loading ? '불러오는 중…' : hasMore ? '더 불러오기' : '더 이상 없음'}
             </button>
+          </div>
           </div>
         </section>
       </main>
