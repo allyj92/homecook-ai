@@ -1,3 +1,4 @@
+// src/main/java/com/homecook/ai_recipe/repo/CommunityPostBookmarkRepository.java
 package com.homecook.ai_recipe.repo;
 
 import com.homecook.ai_recipe.domain.CommunityPost;
@@ -10,15 +11,10 @@ import org.springframework.data.repository.query.Param;
 public interface CommunityPostBookmarkRepository
         extends JpaRepository<CommunityPostBookmark, CommunityPostBookmark.PK> {
 
-    // 집계
     long countByPostId(Long postId);
-
-    // 토글 시 사용
     boolean existsByPostIdAndUserId(Long postId, Long userId);
-
     void deleteByPostIdAndUserId(Long postId, Long userId);
 
-    // 중복 삽입 무시(UPSERT)
     @Modifying
     @Query(value = """
         insert into community_post_bookmark (post_id, user_id, created_at)
@@ -27,22 +23,20 @@ public interface CommunityPostBookmarkRepository
     """, nativeQuery = true)
     void insertIgnore(@Param("postId") Long postId, @Param("userId") Long userId);
 
-    // 마이페이지: 내가 북마크한 글 목록 (엔티티로 바로 매핑)
+    // ✅ JPQL로 엔티티 매핑 + 카운트 쿼리 분리 (매핑 안전)
     @Query(value = """
-        select p.* 
-        from community_post p
-        join community_post_bookmark b on b.post_id = p.id
-        where b.user_id = :uid
-        order by b.created_at desc
+        select p
+        from CommunityPostBookmark b
+          join CommunityPost p on p.id = b.postId
+        where b.userId = :uid
+        order by b.createdAt desc
         """,
             countQuery = """
-        select count(*) 
-        from community_post_bookmark 
-        where user_id = :uid
-        """,
-            nativeQuery = true)
+        select count(b)
+        from CommunityPostBookmark b
+        where b.userId = :uid
+        """)
     Page<CommunityPost> findBookmarkedPosts(@Param("uid") Long uid, Pageable pageable);
 
-    // (선택) 북마크 행 자체를 최근순으로
     Page<CommunityPostBookmark> findByUserIdOrderByCreatedAtDesc(Long userId, Pageable pageable);
 }

@@ -2,46 +2,52 @@
 package com.homecook.ai_recipe.service;
 
 import com.homecook.ai_recipe.domain.CommunityPost;
+import com.homecook.ai_recipe.domain.CommunityPostBookmark;
 import com.homecook.ai_recipe.repo.CommunityPostBookmarkRepository;
+import com.homecook.ai_recipe.repo.CommunityPostRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 @Transactional
 public class BookmarkService {
 
-    private final CommunityPostBookmarkRepository repo;
+    private final CommunityPostBookmarkRepository bookmarkRepo;
+    private final CommunityPostRepository postRepo;
 
-    /** 북마크 추가 (중복 무시) */
-    public void add(Long uid, Long postId) {
-        // native upsert (중복시 NO-OP)
-        repo.insertIgnore(postId, uid);
-    }
+    public void add(Long uid, Long postId) { bookmarkRepo.insertIgnore(postId, uid); }
+    public void remove(Long uid, Long postId) { bookmarkRepo.deleteByPostIdAndUserId(postId, uid); }
 
-    /** 북마크 제거 */
-    public void remove(Long uid, Long postId) {
-        repo.deleteByPostIdAndUserId(postId, uid);
-    }
-
-    /** 내가 북마크한 글 목록 */
     @Transactional(readOnly = true)
     public Page<CommunityPost> listPosts(Long uid, int page, int size) {
-        return repo.findBookmarkedPosts(uid, PageRequest.of(Math.max(0, page), Math.max(1, size)));
+        Pageable pageable = PageRequest.of(Math.max(0, page), Math.max(1, size));
+        Page<CommunityPostBookmark> rows = bookmarkRepo.findByUserIdOrderByCreatedAtDesc(uid, pageable);
+
+        List<Long> ids = rows.getContent().stream().map(CommunityPostBookmark::getPostId).toList();
+        if (ids.isEmpty()) return new PageImpl<>(List.of(), pageable, rows.getTotalElements());
+
+        Map<Long, CommunityPost> map = postRepo.findAllById(ids).stream()
+                .collect(Collectors.toMap(CommunityPost::getId, Function.identity()));
+
+        List<CommunityPost> ordered = ids.stream()
+                .map(map::get).filter(Objects::nonNull).toList();
+
+        return new PageImpl<>(ordered, pageable, rows.getTotalElements());
     }
 
-    /** 특정 글의 북마크 수 */
     @Transactional(readOnly = true)
-    public long countForPost(Long postId) {
-        return repo.countByPostId(postId);
-    }
+    public long countForPost(Long postId) { return bookmarkRepo.countByPostId(postId); }
 
-    /** 내가 북마크했는지 여부 */
     @Transactional(readOnly = true)
-    public boolean isBookmarked(Long uid, Long postId) {
-        return repo.existsByPostIdAndUserId(postId, uid);
-    }
+    public boolean isBookmarked(Long uid, Long postId) { return bookmarkRepo.existsByPostIdAndUserId(postId, uid); }
 }

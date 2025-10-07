@@ -375,24 +375,38 @@ export default function MyPage() {
 
   /* 북마크 해제(서버 호출) */
   async function onUnbookmark(e, postId) {
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-    const id = String(postId);
-    const prev = bookmarks;
-    // UI 즉시 반영(낙관적)
-    setBookmarks((arr) => arr.filter((b) => String(b.id) !== id));
-
-    try {
-      const res = await apiFetch(`/api/community/bookmarks/${encodeURIComponent(id)}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('bookmark_remove_failed');
-    } catch {
-      // 실패 시 복구
-      setBookmarks(prev);
-      alert('북마크 해제에 실패했어요.');
-    }
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
   }
+  const id = String(postId);
+  const prev = bookmarks;
+
+  // UI 낙관적 업데이트
+  setBookmarks(arr => arr.filter(b => String(b.id) !== id));
+
+  try {
+    // ✅ 서버 호출 (실패 시 예외로 처리)
+    const res = await apiFetch(`/api/community/bookmarks/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error('bookmark_remove_failed');
+
+    // ✅ 성공 시만 활동 로그 + 이벤트 브로드캐스트
+    try {
+      const removed = prev.find(b => String(b.id) === id);
+      logActivity('bookmark_remove', {
+        postId: Number(id),
+        postTitle: removed?.title || `#${id}`,
+      });
+    } catch {}
+    window.dispatchEvent(new Event('bookmark-changed'));
+  } catch (err) {
+    // 실패 시 UI 복구
+    setBookmarks(prev);
+    alert('북마크 해제에 실패했어요.');
+  }
+}
 
   /* 최근 활동: 상위 3개만 */
   useEffect(() => {
@@ -645,7 +659,7 @@ export default function MyPage() {
 
             {!bmLoading && bookmarks.length > 0 && (
               <div className="list-group list-group-flush">
-                {bookmarks.slice(0, 5).map((b) => {
+                {bookmarks.slice(0, 3).map((b) => {
                   const to = `/community/${b.id}`;
                   return (
                     <Link key={b.id} to={to} className="list-group-item list-group-item-action">
