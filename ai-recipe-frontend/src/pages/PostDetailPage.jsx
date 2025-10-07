@@ -5,7 +5,7 @@ import "bootstrap/dist/css/bootstrap.min.css";
 import BottomNav from "../components/BottomNav";
 import { ensureLogin, fetchMe } from "../lib/auth";
 import { getCommunityPost } from "../api/community";
-import { logActivity } from "../lib/activity";
+import { logActivity, ensureActivityNs } from "../lib/activity";
 
 
 
@@ -210,6 +210,11 @@ export default function PostDetailPage() {
     setProvider(u?.provider ?? null);
   }, []);
 
+   // ✅ 활동 로그용 네임스페이스 동기화 (authUser 세팅)
+ useEffect(() => {
+   ensureActivityNs();
+ }, []);
+
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -328,6 +333,25 @@ const onToggleBookmark = () =>
     try {
       await apiToggleBookmark(post.id, next);   // ✅ 서버 반영
 
+       // ✅ 활동 로그 (추가/삭제)
+     try {
+       logActivity(next ? "bookmark_add" : "bookmark_remove", {
+         postId: post.id,
+         postTitle: post.title,
+       });
+     } catch {}
+
+     // ✅ 로컬 키도 계정별로 저장(초기 진입 표시 일관성)
+     try {
+       if (uid && provider) {
+         localStorage.setItem(bmKey(uid, provider, post.id), next ? "1" : "0");
+         localStorage.setItem(
+           bmDataKey(uid, provider, post.id),
+           JSON.stringify({ postId: post.id, postTitle: post.title })
+         );
+       }
+     } catch {}
+
       // ✅ 서버가 카운트를 안 주면 로컬에서 안전하게 증감
       setPost((prev) => {
         if (!prev) return prev;
@@ -340,6 +364,11 @@ const onToggleBookmark = () =>
       try { window.dispatchEvent(new Event('bookmark-changed')); } catch {}
     } catch {
       setBookmarked(!next);       // ✅ 실패 시 롤백
+       try {
+       if (uid && provider) {
+         localStorage.setItem(bmKey(uid, provider, post.id), !next ? "1" : "0");
+       }
+     } catch {}
       alert('북마크 처리에 실패했어요.');
     }
   });
