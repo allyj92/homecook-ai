@@ -278,11 +278,13 @@ function PostCard({ post, onOpen, priority = false, dateFmt }) {
 }
 
 /* ------------ 하단 고정 광고 (메인과 동일 스타일) ------------ */
-function StickyBottomAd({ id = 'ad-sticky-bottom', height = 70, label = 'AD' }) {
-  // 화면 가림 방지를 위한 스페이서
+function StickyBottomAd({ id = 'ad-sticky-bottom', height = 140, label = 'AD' }) {
+  const navHeight = 60; // BottomNav 높이 (대략)
   return (
     <>
-      <div style={{ height }} aria-hidden />
+      {/* 광고 + 네비 높이만큼 콘텐츠 여백 확보 */}
+      <div style={{ height: height + navHeight }} aria-hidden />
+
       <div
         id={id}
         className="border-top bg-light d-flex align-items-center justify-content-center"
@@ -290,9 +292,10 @@ function StickyBottomAd({ id = 'ad-sticky-bottom', height = 70, label = 'AD' }) 
           position: 'fixed',
           left: 0,
           right: 0,
-          bottom: 0,
+          bottom: navHeight, // 네비 위로 띄움
           height,
-          zIndex: 1040, // BottomNav(기본 zIndex 1030대)보다 살짝 위/아래 조정 필요시 바꿔도 됨
+          zIndex: 1035, // BottomNav(1030대)보다 살짝 낮게
+          boxShadow: '0 -2px 8px rgba(0,0,0,0.08)',
         }}
         role="complementary"
         aria-label="하단 광고영역"
