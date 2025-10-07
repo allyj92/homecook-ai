@@ -12,8 +12,13 @@ const toArr = (data) => {
   return Array.isArray(firstArray) ? firstArray : [];
 };
 
-const stripHtml = (s) => String(s || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+const stripHtml = (s) => String(s || '')
+  .replace(/<[^>]+>/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
+
 const norm = (s) => stripHtml(s).toLowerCase();
+
 const textOf = (p) =>
   [p.title, p.subtitle, p.content, p.body, p.summary, Array.isArray(p.tags) ? p.tags.join(' ') : '']
     .map(stripHtml)
@@ -58,12 +63,28 @@ function normalizeCoverUrl(url) {
     let raw = unwrapLoginUrl(url);
     if (raw.startsWith('/')) return raw;
     const u = new URL(raw, window.location.origin);
-    if (window.location.protocol === 'https:' && u.protocol === 'http:') {
+    const isHttpsPage = window.location.protocol === 'https:';
+    const sameHost    = u.host === window.location.host;
+
+    // sameHost일 때만 http→https 업그레이드 (외부는 건드리지 않음)
+    if (isHttpsPage && sameHost && u.protocol === 'http:') {
       try { u.protocol = 'https:'; } catch {}
     }
-    if (u.host === window.location.host) return u.pathname + u.search + u.hash;
-    return u.toString();
+    return sameHost ? (u.pathname + u.search + u.hash) : u.toString();
   } catch { return url; }
+}
+
+/** 혼합콘텐츠 회피: 외부 http 이미지는 프록시로 래핑 */
+function wrapHttpImageIfNeeded(u) {
+  try {
+    const url = new URL(u, window.location.origin);
+    const httpsPage = window.location.protocol === 'https:';
+    const external  = url.host !== window.location.host;
+    if (httpsPage && external && url.protocol === 'http:') {
+      return `/api/img-proxy?u=${encodeURIComponent(url.toString())}`;
+    }
+    return u;
+  } catch { return u; }
 }
 
 function withVersion(url, ver) {
@@ -141,6 +162,7 @@ function collectCoverCandidates(p) {
   const normalized = candidatesRaw
     .map((u) => withVersion(normalizeCoverUrl(u), updatedAt))
     .filter(Boolean)
+    .map(wrapHttpImageIfNeeded) // ★ 핵심: 외부 http → 프록시 래핑
     .filter(isUsableImageUrl);
 
   // 중복 제거
