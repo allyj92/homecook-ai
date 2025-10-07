@@ -934,3 +934,11 @@ body{
   object-fit: cover;
   display: block;
 }
+
+.card img {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1 / 1; /* 정사각형 비율로 */
+  object-fit: cover;
+  border-radius: 10px;
+}
