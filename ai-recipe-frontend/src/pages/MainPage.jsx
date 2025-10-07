@@ -94,16 +94,52 @@ const BrandBadge = ({ tone = 'soft', children, className = '' }) => {
   );
 };
 
+/* ------------ URL 유틸 & 이미지 선택 ------------ */
+// 로그인 래퍼 URL에서 실제 목적지 꺼내기 (CommunityPage와 동등)
+function unwrapLoginUrl(url) {
+  try {
+    const u = new URL(url, window.location.origin);
+    const host = u.host.toLowerCase();
+    const path = u.pathname.toLowerCase();
+    if (host.startsWith('login.') || /\/(auth|login)/i.test(path)) {
+      const keys = ['url','next','redirect','continue','rd','r','to','dest','destination','u','returnUrl','return_to'];
+      for (const k of keys) {
+        const v = u.searchParams.get(k);
+        if (v) {
+          const inner = decodeURIComponent(v);
+          if (/^https?:\/\//i.test(inner)) return inner;
+        }
+      }
+      if (u.hash && /^#https?:\/\//i.test(u.hash)) return u.hash.slice(1);
+    }
+  } catch {}
+  return url;
+}
+
+// 이미지로 써도 되는 URL만 통과
+function isUsableImageUrl(url) {
+  try {
+    const u = new URL(url, window.location.origin);
+    const path = u.pathname.toLowerCase();
+    if (/\/(auth|login)/i.test(path)) return false; // 로그인/인증 경로 제외
+    const isHttpsPage = window.location.protocol === 'https:';
+    const isExternal = u.host !== window.location.host;
+    if (isHttpsPage && isExternal && u.protocol === 'http:') return false; // 혼합콘텐츠 차단
+    return /^https?:/.test(u.href) || u.href.startsWith('data:') || u.href.startsWith('/');
+  } catch { return false; }
+}
+
 /* ---------------- 이미지 URL 정리 ---------------- */
 function normalizeCoverUrl(url) {
   if (!url) return null;
   if (/^(data:|blob:)/i.test(url)) return url;
   try {
-    if (url.startsWith('/')) return url;
-    const u = new URL(url, window.location.origin);
+    let raw = unwrapLoginUrl(url);
+    if (raw.startsWith('/')) return raw;
+    const u = new URL(raw, window.location.origin);
     if (window.location.protocol === 'https:' && u.protocol === 'http:') {
-     u.protocol = 'https:';
-   }
+      try { u.protocol = 'https:'; } catch {}
+    }
     if (u.host === window.location.host) return u.pathname + u.search + u.hash;
     return u.toString();
   } catch { return url; }
@@ -130,35 +166,48 @@ const ytThumb = (id) => (id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : nul
 function firstImageFromContent(p) {
   const s = String(p?.content ?? p?.body ?? p?.html ?? '').trim();
   if (!s) return null;
-  // Markdown 이미지 ![alt](url "title")  — 공백/괄호 일부 허용
- let m = /!\[[^\]]*]\(([^)]+)\)/.exec(s);
-  if (m?.[1]) return m[1].split('"')[0].trim();
+
+  // Markdown 이미지 ![alt](url "title")
+  let m = /!\[[^\]]*]\(([^)]+)\)/.exec(s);
+  if (m?.[1]) {
+    const u = unwrapLoginUrl(m[1].split('"')[0].trim());
+    return isUsableImageUrl(u) ? u : null;
+  }
+
   // HTML 이미지 <img src="...">
   m = /<img[^>]+src=["']([^"']+)["'][^>]*>/i.exec(s);
-  if (m?.[1]) return m[1];
- // 지연로딩 data-src
- m = /<img[^>]+data-src=["']([^"']+)["'][^>]*>/i.exec(s);
- if (m?.[1]) return m[1];
- // srcset의 첫 번째 소스
- m = /<img[^>]+srcset=["']([^"']+)["'][^>]*>/i.exec(s);
- if (m?.[1]) {
-   const first = m[1].split(',')[0].trim().split(' ')[0];
-   if (first) return first;
- }
-  if (m?.[1]) return m[1];
-  // HTML 이미지 <img src="...">
-  m = /<img[^>]+src=["']([^"']+)["'][^>]*>/i.exec(s);
-  if (m?.[1]) return m[1];
+  if (m?.[1]) {
+    const u = unwrapLoginUrl(m[1].trim());
+    return isUsableImageUrl(u) ? u : null;
+  }
+
+  // 지연로딩 data-src
+  m = /<img[^>]+data-src=["']([^"']+)["'][^>]*>/i.exec(s);
+  if (m?.[1]) {
+    const u = unwrapLoginUrl(m[1].trim());
+    return isUsableImageUrl(u) ? u : null;
+  }
+
+  // srcset의 첫 번째 소스
+  m = /<img[^>]+srcset=["']([^"']+)["'][^>]*>/i.exec(s);
+  if (m?.[1]) {
+    const first = m[1].split(',')[0].trim().split(' ')[0];
+    if (first) {
+      const u = unwrapLoginUrl(first);
+      return isUsableImageUrl(u) ? u : null;
+    }
+  }
+
   return null;
 }
-
 
 function pick(obj, keys) { for (const k of keys) { if (obj && obj[k]) return obj[k]; } return null; }
 function firstAttachmentUrl(p) {
   const cand = p?.attachments ?? p?.images ?? p?.photos ?? [];
   for (const it of cand) {
-    const u = it?.url ?? it?.src ?? it?.imageUrl ?? it?.downloadUrl;
-    if (u) return u;
+    const raw = it?.url ?? it?.src ?? it?.imageUrl ?? it?.downloadUrl;
+    const u = raw ? unwrapLoginUrl(String(raw)) : null;
+    if (u && isUsableImageUrl(u)) return u;
   }
   return null;
 }
@@ -169,9 +218,10 @@ function buildCover(p) {
     'repImageUrl','rep_image_url',
     'imageUrl','image_url',
     'thumbnailUrl','thumbnail_url','thumbnail'
-  ]) ?? firstAttachmentUrl(p) ?? firstImageFromContent(p); 
-  const normalized = withVersion(normalizeCoverUrl(raw), updatedAt);
-  return normalized || ytThumb(p.youtubeId ?? p.youtube_id ?? null) || null;
+  ]) ?? firstAttachmentUrl(p) ?? firstImageFromContent(p);
+  const normalized = raw ? withVersion(normalizeCoverUrl(raw), updatedAt) : null;
+  const finalUrl = normalized && isUsableImageUrl(normalized) ? normalized : null;
+  return finalUrl || ytThumb(p.youtubeId ?? p.youtube_id ?? null) || null;
 }
 
 /* ---------------- 유틸 ---------------- */
@@ -212,6 +262,7 @@ async function loadDailyNewRecipe(size = 8) {
   // ⚠️ 원본을 그대로 유지해야 buildCover가 content/attachments/repImageUrl 등을 읽을 수 있음
   return posts.map((p) => ({ ...p, __asPost: true }));
 }
+
 /** 인기 커뮤니티(백엔드 sort=popular 우선, 폴백 클라이언트 점수) */
 async function loadPopularCommunity(size = 8) {
   try {
@@ -252,6 +303,49 @@ async function loadPopularCommunity(size = 8) {
   }
 }
 
+/* ---------------- 오늘의 맞춤 ---------------- */
+// 오늘 날짜 동일 여부 (로컬 기준)
+function isSameLocalDay(ts, base = new Date()) {
+  const d = new Date(ts);
+  return d.getFullYear() === base.getFullYear()
+    && d.getMonth() === base.getMonth()
+    && d.getDate() === base.getDate();
+}
+
+// 오늘의 맞춤: 오늘 올라온 글 중 (좋아요 + 댓글) 최댓값 1개
+async function loadBestOfToday() {
+  const res = await fetch(`/api/community/posts?page=0&size=200&sort=createdAt,desc`, {
+    credentials: 'include',
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+  });
+  if (!res.ok) return null;
+  const j = await res.json();
+  const items = toArr(j);
+
+  const today = items.filter((p) => {
+    const t = p.createdAt ?? p.created_at ?? p.updatedAt ?? p.updated_at;
+    return t && isSameLocalDay(t);
+  });
+  if (!today.length) return null;
+
+  const scored = today.map((p) => {
+    const likeCount = Number(p.likeCount ?? p.like_count ?? p.likes ?? p.hearts ?? p.metrics?.likes ?? p.metrics?.hearts ?? 0);
+    const commentCount = Number(p.commentCount ?? p.comment_count ?? p.comments ?? p.metrics?.comments ?? 0);
+    const score = likeCount + commentCount;
+    return {
+      ...p,
+      __cover: buildCover(p),
+      __likes: likeCount,
+      __comments: commentCount,
+      __score: score,
+      __asPost: true,
+    };
+  }).sort((a,b) => b.__score - a.__score);
+
+  return scored[0] || null;
+}
+
 export default function MainPage() {
   const navigate = useNavigate();
   const [modalOpen, setModalOpen] = useState(false);
@@ -264,6 +358,10 @@ export default function MainPage() {
   // ✅ 매일매일 새로운 레시피 섹션 상태
   const [dailyNewLoading, setDailyNewLoading] = useState(true);
   const [dailyNewRecipe, setDailyNewRecipe] = useState([]);
+
+  // 🌟 오늘의 맞춤
+  const [bestLoading, setBestLoading] = useState(true);
+  const [bestToday, setBestToday] = useState(null);
 
   useEffect(() => { window.scrollTo(0, 0); }, []);
 
@@ -314,56 +412,64 @@ export default function MainPage() {
 
   /* ✅ 최신 레시피 로딩 */
   const reloadDailyNew = useCallback(async () => {
-   
     setDailyNewLoading(true);
     try {
-      
       const arr = await loadDailyNewRecipe(8);
-      console.debug('[dailyNewRecipe]', arr);
       const fixed = (Array.isArray(arr) ? arr : []).map(r => ({
-           ...r,
-    __cover: buildCover(r),
-    __likes: Number(r.likeCount ?? r.like_count ?? r.likes ?? r.hearts ?? r.metrics?.likes ?? r.metrics?.hearts ?? 0),
-    __comments: Number(r.commentCount ?? r.comment_count ?? r.comments ?? r.metrics?.comments ?? 0),
-   }));
+        ...r,
+        __cover: buildCover(r),
+        __likes: Number(r.likeCount ?? r.like_count ?? r.likes ?? r.hearts ?? r.metrics?.likes ?? r.metrics?.hearts ?? 0),
+        __comments: Number(r.commentCount ?? r.comment_count ?? r.comments ?? r.metrics?.comments ?? 0),
+      }));
       setDailyNewRecipe(fixed);
     } finally {
       setDailyNewLoading(false);
     }
   }, []);
 
+  const reloadBestToday = useCallback(async () => {
+    setBestLoading(true);
+    try {
+      const best = await loadBestOfToday();
+      setBestToday(best);
+    } finally {
+      setBestLoading(false);
+    }
+  }, []);
+
   useEffect(() => { reloadPopular(); }, [reloadPopular]);
   useEffect(() => { reloadDailyNew(); }, [reloadDailyNew]);
+  useEffect(() => { reloadBestToday(); }, [reloadBestToday]);
 
   // 같은/다른 탭에서 좋아요/북마크/댓글/레시피가 생기면 새로고침
   useEffect(() => {
-    const refreshBoth = () => { reloadPopular(); reloadDailyNew(); };
-    const onVisible = () => { if (document.visibilityState === 'visible') refreshBoth(); };
-    const onFocus = () => refreshBoth();
+    const refreshAll = () => { reloadPopular(); reloadDailyNew(); reloadBestToday(); };
+    const onVisible = () => { if (document.visibilityState === 'visible') refreshAll(); };
+    const onFocus = () => refreshAll();
     const onStorage = (e) => {
       if (!e?.key) return;
       if (
         e.key.startsWith('rf:activity:') ||
         e.key.startsWith('postBookmark:') ||
         e.key.startsWith('postBookmarkData:') ||
-        e.key.startsWith('recipe:') // 여유 키워드
-      ) refreshBoth();
+        e.key.startsWith('recipe:')
+      ) refreshAll();
     };
 
-    window.addEventListener('activity:changed', refreshBoth);
-    window.addEventListener('bookmark-changed', refreshBoth);
+    window.addEventListener('activity:changed', refreshAll);
+    window.addEventListener('bookmark-changed', refreshAll);
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('focus', onFocus);
     window.addEventListener('storage', onStorage);
 
     return () => {
-      window.removeEventListener('activity:changed', refreshBoth);
-      window.removeEventListener('bookmark-changed', refreshBoth);
+      window.removeEventListener('activity:changed', refreshAll);
+      window.removeEventListener('bookmark-changed', refreshAll);
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('storage', onStorage);
     };
-  }, [reloadPopular, reloadDailyNew]);
+  }, [reloadPopular, reloadDailyNew, reloadBestToday]);
 
   return (
     <div className="container-xxl py-3">
@@ -408,22 +514,50 @@ export default function MainPage() {
               </div>
 
               <div className="col-12 col-lg-5">
-                <div className="card shadow-sm border-0">
+                <div
+                  className="card shadow-sm border-0"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => bestToday && navigate(`/community/${bestToday.id}`)}
+                  onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && bestToday) { e.preventDefault(); navigate(`/community/${bestToday.id}`); } }}
+                  aria-label="오늘의 맞춤 보기"
+                >
                   <div className="card-header bg-white border-0 d-flex align-items-center gap-2">
                     <BrandBadge tone="solid">오늘의 맞춤</BrandBadge>
-                    <span className="small" style={{ color: BRAND.mute }}>목표·재료·시간 반영</span>
+                    <span className="small" style={{ color: BRAND.mute }}>
+                      오늘 가장 반응이 좋은 글
+                    </span>
                   </div>
                   <div className="ratio ratio-4x3 bg-light position-relative rounded-top">
-                    <img
-                      src="/images/chicken-broccoli.jpg"
-                      alt="저염 닭가슴살 볶음"
-                      className="position-absolute top-0 start-0 w-100 h-100 rounded-top"
-                      style={{ objectFit: 'cover' }}
-                    />
+                    {bestLoading ? (
+                      <div className="w-100 h-100 rounded-top placeholder" />
+                    ) : bestToday?.__cover ? (
+                      <img
+                        src={bestToday.__cover}
+                        alt=""
+                        className="position-absolute top-0 start-0 w-100 h-100 rounded-top"
+                        style={{ objectFit: 'cover' }}
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        crossOrigin="anonymous"
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                      />
+                    ) : null}
+                    {bestToday?.__likes >= 0 && bestToday?.__comments >= 0 && (
+                      <BrandBadge tone="teal" className="position-absolute top-0 start-0 m-2">
+                        ❤ {fmtNum(bestToday.__likes)} · 💬 {fmtNum(bestToday.__comments)}
+                      </BrandBadge>
+                    )}
                   </div>
                   <div className="card-body">
-                    <h3 className="h5 fw-semibold mb-1" style={{ color: BRAND.ink }}>저염 닭가슴살 볶음</h3>
-                    <div className="small" style={{ color: BRAND.mute }}>단백질 35g · 나트륨 480mg · 18분</div>
+                    <h3 className="h5 fw-semibold mb-1" style={{ color: BRAND.ink }}>
+                      {bestLoading
+                        ? <span className="placeholder col-8" style={{ display:'inline-block', height:22 }} />
+                        : ellipsis(bestToday?.title || '오늘의 추천', 48)}
+                    </h3>
+                    <div className="small" style={{ color: BRAND.mute }}>
+                      {bestToday ? '좋아요+댓글 합산 최다' : '최근 반응 기반 추천'}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -554,19 +688,19 @@ export default function MainPage() {
                     >
                       <div className="position-relative">
                         <div className="ratio ratio-4x3 bg-light rounded-top">
-                      {r.__cover && (
-                        <img
-                          src={r.__cover}
-                          alt=""
-                          className="position-absolute top-0 start-0 w-100 h-100 rounded-top"
-                          style={{ objectFit: 'cover' }}
-                          loading="lazy"
-                          referrerPolicy="no-referrer"                
-                          crossOrigin="anonymous"
-                          onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                        />
-                      )}
-                    </div>
+                          {r.__cover && (
+                            <img
+                              src={r.__cover}
+                              alt=""
+                              className="position-absolute top-0 start-0 w-100 h-100 rounded-top"
+                              style={{ objectFit: 'cover' }}
+                              loading="lazy"
+                              referrerPolicy="no-referrer"
+                              crossOrigin="anonymous"
+                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                            />
+                          )}
+                        </div>
                       </div>
                       <div className="card-body">
                         <h3 className="h6 fw-semibold mb-1" style={{ color: BRAND.ink }}>
@@ -694,21 +828,21 @@ export default function MainPage() {
                       aria-label={`${r.title || '레시피'} 보기`}
                     >
                       <div className="position-relative">
-                      <div className="ratio ratio-4x3 bg-light rounded-top">
-                        {r.__cover && (
-                          <img
-                            src={r.__cover}
-                            alt=""
-                            className="position-absolute top-0 start-0 w-100 h-100 rounded-top"
-                            style={{ objectFit: 'cover' }}
-                            loading="lazy"
-                            referrerPolicy="no-referrer"
-                            crossOrigin="anonymous"
-                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                          />
-                        )}
+                        <div className="ratio ratio-4x3 bg-light rounded-top">
+                          {r.__cover && (
+                            <img
+                              src={r.__cover}
+                              alt=""
+                              className="position-absolute top-0 start-0 w-100 h-100 rounded-top"
+                              style={{ objectFit: 'cover' }}
+                              loading="lazy"
+                              referrerPolicy="no-referrer"
+                              crossOrigin="anonymous"
+                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                            />
+                          )}
+                        </div>
                       </div>
-                    </div>
                       <div className="card-body">
                         <h3 className="h6 fw-semibold mb-1" style={{ color: BRAND.ink }}>
                           {r.title ? ellipsis(r.title, 48) : <span className="placeholder col-8" style={{ display:'inline-block', height:18 }} />}
