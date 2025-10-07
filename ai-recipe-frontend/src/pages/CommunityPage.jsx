@@ -82,9 +82,7 @@ const ytThumb = (id) => (id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : nul
 function isUsableImageUrl(url) {
   try {
     const u = new URL(url, window.location.origin);
-    // 로그인 래퍼 자체 URL 제외
     if (/\/(auth|login)/i.test(u.pathname.toLowerCase())) return false;
-    // 혼합 콘텐츠 방지
     const isHttpsPage = window.location.protocol === 'https:';
     const isExternal = u.host !== window.location.host;
     if (isHttpsPage && isExternal && u.protocol === 'http:') return false;
@@ -95,7 +93,6 @@ function isUsableImageUrl(url) {
 }
 
 /* ---- 본문/첨부에서 이미지 후보 추출 ---- */
-// 본문 파싱은 앞부분만 + 최대 N장만
 function extractImagesFromContent(p, maxChars = 32 * 1024, maxImages = 3) {
   let s = String(p?.content ?? p?.body ?? p?.html ?? '').trim();
   if (!s) return [];
@@ -131,7 +128,6 @@ function extractImagesFromAttachments(p, maxImages = 3) {
   return out;
 }
 
-// 후보들을 정리해서 배열로 반환
 function collectCoverCandidates(post) {
   const updatedAt = post.updatedAt ?? post.updated_at ?? post.createdAt ?? post.created_at ?? null;
   const candidatesRaw = [
@@ -147,7 +143,6 @@ function collectCoverCandidates(post) {
     .filter(Boolean)
     .filter(isUsableImageUrl);
 
-  // 중복 제거
   const seen = new Set();
   const unique = [];
   for (const u of normalized) {
@@ -175,21 +170,7 @@ function makePreviewText(input, maxLen = 120) {
   return s;
 }
 
-/* ------------ 단순 광고 슬롯 ------------ */
-function AdSlot({ id, height = 250, label = 'AD', sticky = false }) {
-  return (
-    <div
-      id={id}
-      className={`adslot border border-dashed rounded-3 d-grid place-items-center text-uppercase text-secondary ${sticky ? 'adslot--sticky' : ''} my-3`}
-      style={{ height }}
-      role="complementary"
-      aria-label={`${label} 광고영역`}
-    >
-      <span className="small">{label}</span>
-    </div>
-  );
-}
-
+/* ------------ 배지 ------------ */
 function Badge({ children, tone = 'gray' }) {
   const map = {
     brand: 'text-bg-primary',
@@ -220,8 +201,7 @@ function SmartImg({ sources, alt = '', className = '', onHide, priority = false 
   const src = sources?.[idx] || null;
   if (!src) return null;
 
-  // 4:3 카드 기준 크기 힌트(레이아웃 안정)
-  const width = 800;
+  const width = 800;  // 레이아웃 안정 힌트
   const height = 600;
 
   return (
@@ -297,6 +277,32 @@ function PostCard({ post, onOpen, priority = false, dateFmt }) {
   );
 }
 
+/* ------------ 하단 고정 광고 (메인과 동일 스타일) ------------ */
+function StickyBottomAd({ id = 'ad-sticky-bottom', height = 70, label = 'AD' }) {
+  // 화면 가림 방지를 위한 스페이서
+  return (
+    <>
+      <div style={{ height }} aria-hidden />
+      <div
+        id={id}
+        className="border-top bg-light d-flex align-items-center justify-content-center"
+        style={{
+          position: 'fixed',
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height,
+          zIndex: 1040, // BottomNav(기본 zIndex 1030대)보다 살짝 위/아래 조정 필요시 바꿔도 됨
+        }}
+        role="complementary"
+        aria-label="하단 광고영역"
+      >
+        <span className="small text-secondary text-uppercase">{label}</span>
+      </div>
+    </>
+  );
+}
+
 export default function CommunityPage() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -311,7 +317,6 @@ export default function CommunityPage() {
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
 
-  // 날짜 포맷터 메모이즈
   const dateFmt = useMemo(() => new Intl.DateTimeFormat(undefined, {
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit'
@@ -415,11 +420,10 @@ export default function CommunityPage() {
 
   return (
     <div className="container-xxl py-3">
-      <AdSlot id="ad-comm-top" height={90} label="Top Banner (728/970×90)" />
-
+      {/* 헤더: 검색/필터만 유지 (탑 배너 제거) */}
       <header className="mb-3">
         <div className="row g-2 align-items-center">
-          <div className="col-12 col-lg-4">
+          <div className="col-12 col-lg-6">
             <div className="input-group">
               <input
                 className="form-control"
@@ -439,7 +443,7 @@ export default function CommunityPage() {
             </div>
           </div>
 
-          <div className="col-6 col-lg-2">
+          <div className="col-6 col-lg-3">
             <select
               className="form-select"
               value={sort}
@@ -450,7 +454,7 @@ export default function CommunityPage() {
             </select>
           </div>
 
-          <div className="col-6 col-lg-2">
+          <div className="col-6 col-lg-3">
             <select
               className="form-select"
               value={tab}
@@ -458,53 +462,17 @@ export default function CommunityPage() {
               aria-label="탭"
             >
               <option value="all">전체</option>
-              {/* <option value="popular">인기</option> */}
               <option value="question">질문</option>
               <option value="review">후기</option>
               <option value="recipe">레시피</option>
             </select>
           </div>
-
-          <div className="col-12 col-lg-4 text-lg-end">
-            <button
-              className="btn btn-success"
-              onClick={async () => {
-                // 쓰기는 로그인 필요하면 여기서 확인 유지
-                const user = await ensureLogin('/write');
-                if (user) navigate('/write');
-              }}
-            >
-              글쓰기
-            </button>
-          </div>
         </div>
       </header>
 
+      {/* 본문: 사이드 영역/인피드 광고 제거, 단일 컬럼 */}
       <main className="row g-4">
-        <aside className="col-12 col-lg-3 order-lg-2">
-          <div className="card mb-3">
-            <div className="card-body">
-              <h5 className="card-title h6 text-secondary fw-semibold">인기 태그</h5>
-              <div className="d-flex flex-wrap gap-2">
-                {['저염', '다이어트', '레시피', '질문', '후기', '에어프라이어', '닭가슴살', '곤약'].map((t) => (
-                  <button
-                    key={t}
-                    className="badge rounded-pill bg-light text-dark border btn"
-                    onClick={() => { setQ(t); syncQuery({ q: t }); }}
-                  >
-                    #{t}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <AdSlot id="ad-comm-side" height={600} label="Skyscraper 300×600" sticky />
-        </aside>
-
-        <section className="col-12 col-lg-9 order-lg-1">
-          <AdSlot id="ad-comm-native" height={120} label="네이티브 인라인 (반응형)" />
-
+        <section className="col-12">
           {filtered.length === 0 && !loading && (
             <div className="alert alert-secondary" role="status">
               게시글이 없습니다. 먼저 글을 작성해 보세요!
@@ -512,24 +480,13 @@ export default function CommunityPage() {
           )}
 
           {filtered.map((p, i) => (
-            <div key={p.id}>
-              <PostCard
-                post={p}
-                priority={i < 3} // 첫 3개는 eager + fetchpriority=high
-                dateFmt={dateFmt}
-                onOpen={() => {
-                  // 읽기는 즉시 이동(UX 지연 최소화). 상세에서 401 시 로그인 처리.
-                  navigate(`/community/${p.id}`);
-                }}
-              />
-              {(i + 1) % 3 === 0 && (
-                <div className="card shadow-sm my-3">
-                  <div className="card-body">
-                    <AdSlot id={`ad-infeed-${i}`} height={250} label="In-Feed 336×280 / 반응형" />
-                  </div>
-                </div>
-              )}
-            </div>
+            <PostCard
+              key={p.id}
+              post={p}
+              priority={i < 3}
+              dateFmt={dateFmt}
+              onOpen={() => navigate(`/community/${p.id}`)}
+            />
           ))}
 
           <div className="d-flex justify-content-center my-3">
@@ -551,6 +508,8 @@ export default function CommunityPage() {
         <div className="small">© {new Date().getFullYear()} RecipFree</div>
       </footer>
 
+      {/* 하단 고정 광고 + 네비게이션 */}
+      <StickyBottomAd label="Bottom Sticky 320×50 / 728×90" />
       <BottomNav />
     </div>
   );
