@@ -16,7 +16,6 @@ const BRAND = {
 
 function TopSearchBar({ onSearch }) {
   const [q, setQ] = useState('');
-
   const submit = (e) => {
     e.preventDefault();
     const v = q.trim();
@@ -31,7 +30,7 @@ function TopSearchBar({ onSearch }) {
         zIndex: 1030,
         background: 'rgba(255,255,255,0.9)',
         backdropFilter: 'blur(6px)',
-        borderBottom: `1px solid ${BRAND.softBd}`
+        borderBottom: `1px solid ${BRAND.softBd}`,
       }}
     >
       <div className="container-xxl py-2">
@@ -43,7 +42,7 @@ function TopSearchBar({ onSearch }) {
               borderRadius: 9999,
               background: '#fff',
               padding: '6px 8px',
-              gap: 8
+              gap: 8,
             }}
           >
             <input
@@ -54,8 +53,6 @@ function TopSearchBar({ onSearch }) {
               style={{ boxShadow: 'none', height: 44, fontSize: '1rem' }}
               aria-label="레시피 검색"
             />
-
-            {/* 아이콘만 있는 검색 버튼 */}
             <button
               type="submit"
               className="btn p-0"
@@ -67,7 +64,7 @@ function TopSearchBar({ onSearch }) {
                 borderRadius: '50%',
                 display: 'grid',
                 placeItems: 'center',
-                background: BRAND.orange
+                background: BRAND.orange,
               }}
             >
               <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
