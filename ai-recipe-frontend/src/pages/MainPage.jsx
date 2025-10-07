@@ -295,11 +295,23 @@ async function loadPopularCommunity(size = 8) {
 }
 
 /* ---------------- 오늘의 맞춤 ---------------- */
+function toDate(ts) {
+  if (!ts) return null;
+  if (ts instanceof Date) return ts;
+  if (typeof ts === 'number') return new Date(ts > 1e12 ? ts : ts * 1000); // sec/ms 둘 다 처리
+  const s = String(ts).trim();
+  if (/^\d{10}$/.test(s)) return new Date(parseInt(s, 10) * 1000);
+  if (/^\d{13}$/.test(s)) return new Date(parseInt(s, 10));
+  // 'YYYY-MM-DD HH:mm:ss' → 'YYYY-MM-DDTHH:mm:ss' (로컬 타임으로 인식)
+  if (s.includes(' ') && !s.includes('T')) return new Date(s.replace(' ', 'T'));
+  return new Date(s);
+}
 function isSameLocalDay(ts, base = new Date()) {
-  const d = new Date(ts);
+  const d = toDate(ts);
+  if (!d || isNaN(d)) return false;
   return d.getFullYear() === base.getFullYear()
-    && d.getMonth() === base.getMonth()
-    && d.getDate() === base.getDate();
+      && d.getMonth() === base.getMonth()
+      && d.getDate() === base.getDate();
 }
 
 async function loadBestOfToday() {
@@ -310,29 +322,47 @@ async function loadBestOfToday() {
   });
   if (!res.ok) return null;
   const j = await res.json();
-  const items = toArr(j);
+ const items = toArr(j);
+  const now = Date.now();
 
-  const today = items.filter((p) => {
+  const enrich = (p) => {
+    const likes = Number(p.likeCount ?? p.like_count ?? p.likes ?? p.hearts ?? p.metrics?.likes ?? p.metrics?.hearts ?? 0);
+    const comments = Number(p.commentCount ?? p.comment_count ?? p.comments ?? p.metrics?.comments ?? 0);
+    const bookmarks = Number(p.bookmarkCount ?? p.bookmark_count ?? p.bookmarks ?? p.metrics?.bookmarks ?? 0);
     const t = p.createdAt ?? p.created_at ?? p.updatedAt ?? p.updated_at;
-    return t && isSameLocalDay(t);
-  });
-  if (!today.length) return null;
-
-  const scored = today.map((p) => {
-    const likeCount = Number(p.likeCount ?? p.like_count ?? p.likes ?? p.hearts ?? p.metrics?.likes ?? p.metrics?.hearts ?? 0);
-    const commentCount = Number(p.commentCount ?? p.comment_count ?? p.comments ?? p.metrics?.comments ?? 0);
-    const score = likeCount + commentCount;
+    const dt = toDate(t);
+    const createdMs = dt && !isNaN(dt) ? dt.getTime() : 0;
+    // 가벼운 시간감쇠 점수 (최근일수록 가산)
+    const ageHours = Math.max(1, (now - createdMs) / 36e5);
+    const engagement = likes * 3 + comments * 2 + bookmarks * 1;
+    const score = engagement / Math.pow(ageHours, 0.6);
     return {
       ...p,
       __cover: buildCover(p),
-      __likes: likeCount,
-      __comments: commentCount,
+      __likes: likes,
+      __comments: comments,
       __score: score,
+      __createdMs: createdMs,
       __asPost: true,
     };
-  }).sort((a,b) => b.__score - a.__score);
+  };
 
-  return scored[0] || null;
+  const enriched = items.map(enrich);
+  const today = enriched.filter((p) => {
+    const t = p.createdAt ?? p.created_at ?? p.updatedAt ?? p.updated_at;
+    return t && isSameLocalDay(t);
+  });
+  if (today.length) return { ...today.sort((a,b)=>b.__score - a.__score)[0], __origin: 'today' };
+
+  // 🔁 Fallback 1: 최근 24시간
+  const last24Cut = now - 24 * 3600 * 1000;
+  const last24 = enriched.filter(p => p.__createdMs >= last24Cut);
+  if (last24.length) return { ...last24.sort((a,b)=>b.__score - a.__score)[0], __origin: '24h' };
+
+  // 🔁 Fallback 2: 전체 최근 중 최상위
+  if (enriched.length) return { ...enriched.sort((a,b)=>b.__score - a.__score)[0], __origin: 'all' };
+
+  return null;
 }
 
 /* ---------------- 이미지 컴포넌트: 우선순위 제어 ---------------- */
