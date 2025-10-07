@@ -6,6 +6,22 @@ import 'bootstrap/dist/css/bootstrap.min.css';
 import BottomNav from '../components/BottomNav';
 import '../index.css';
 
+/* ------------ 공통 유틸 ------------- */
+const fmtNum = (n) => {
+  const x = Number(n || 0);
+  if (x >= 1_000_000) return (x / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (x >= 1_000) return (x / 1_000).toFixed(1).replace(/\.0$/, '') + 'k';
+  return String(x);
+};
+
+function debounce(fn, ms = 300) {
+  let t;
+  return (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), ms);
+  };
+}
+
 /* ------------ 이미지 URL 유틸 ------------- */
 // 로그인 래퍼 URL에서 실제 목적지 꺼내기
 function unwrapLoginUrl(url) {
@@ -35,12 +51,8 @@ function normalizeCoverUrl(url) {
     if (raw.startsWith('/')) return raw;
     const u = new URL(raw, window.location.origin);
     if (window.location.protocol === 'https:' && u.protocol === 'http:') {
-     try {
-       u.protocol = 'https:';
-     } catch {
-       // 승격 실패 시 원본으로 두고 SmartImg onError에 맡김
-     }
-   }
+      try { u.protocol = 'https:'; } catch { /* ignore */ }
+    }
     if (u.host === window.location.host) return u.pathname + u.search + u.hash;
     return u.toString();
   } catch {
@@ -70,44 +82,51 @@ const ytThumb = (id) => (id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : nul
 function isUsableImageUrl(url) {
   try {
     const u = new URL(url, window.location.origin);
-       // 로그인 래퍼 자체 URL만 1차 제외 (실제 이미지 src로 쓰일 일 거의 없음)
-  if (/\/(auth|login)/i.test(u.pathname.toLowerCase())) return false;
-   // 혼합 콘텐츠 방지: https 페이지에서 외부 http 이미지는 제외
-   const isHttpsPage = window.location.protocol === 'https:';
-   const isExternal = u.host !== window.location.host;
-   if (isHttpsPage && isExternal && u.protocol === 'http:') return false;
-   return /^https?:/.test(u.href) || u.href.startsWith('data:') || u.href.startsWith('/');
+    // 로그인 래퍼 자체 URL 제외
+    if (/\/(auth|login)/i.test(u.pathname.toLowerCase())) return false;
+    // 혼합 콘텐츠 방지
+    const isHttpsPage = window.location.protocol === 'https:';
+    const isExternal = u.host !== window.location.host;
+    if (isHttpsPage && isExternal && u.protocol === 'http:') return false;
+    return /^https?:/.test(u.href) || u.href.startsWith('data:') || u.href.startsWith('/');
   } catch {
     return false;
   }
 }
 
 /* ---- 본문/첨부에서 이미지 후보 추출 ---- */
-function extractImagesFromContent(p) {
-  const s = String(p?.content ?? p?.body ?? p?.html ?? '').trim();
+// 본문 파싱은 앞부분만 + 최대 N장만
+function extractImagesFromContent(p, maxChars = 32 * 1024, maxImages = 3) {
+  let s = String(p?.content ?? p?.body ?? p?.html ?? '').trim();
+  if (!s) return [];
+  if (s.length > maxChars) s = s.slice(0, maxChars);
+
   const out = [];
-  if (!s) return out;
+  const push = (u) => {
+    if (!u || out.length >= maxImages) return;
+    const cleaned = unwrapLoginUrl(String(u).trim());
+    if (isUsableImageUrl(cleaned)) out.push(cleaned);
+  };
 
-  s.replace(/!\[[^\]]*]\(([^)]+)\)/g, (_m, u) => {
-    const cleaned = (u || '').split('"')[0].trim();
-    if (cleaned) out.push(unwrapLoginUrl(cleaned));
-  });
-
-  s.replace(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi, (_m, u) => u && out.push(unwrapLoginUrl(u)));
-  s.replace(/<img[^>]+data-src=["']([^"']+)["'][^>]*>/gi, (_m, u) => u && out.push(unwrapLoginUrl(u)));
+  s.replace(/!\[[^\]]*]\(([^)]+)\)/g, (_m, u) => push((u || '').split('"')[0]));
+  s.replace(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi, (_m, u) => push(u));
+  s.replace(/<img[^>]+data-src=["']([^"']+)["'][^>]*>/gi, (_m, u) => push(u));
   s.replace(/<img[^>]+srcset=["']([^"']+)["'][^>]*>/gi, (_m, list) => {
     const first = String(list || '').split(',')[0].trim().split(' ')[0];
-    if (first) out.push(unwrapLoginUrl(first));
+    push(first);
   });
 
   return out;
 }
-function extractImagesFromAttachments(p) {
+
+function extractImagesFromAttachments(p, maxImages = 3) {
   const arr = p?.attachments ?? p?.images ?? p?.photos ?? [];
   const out = [];
   for (const it of (Array.isArray(arr) ? arr : [])) {
+    if (out.length >= maxImages) break;
     const u = it?.url ?? it?.src ?? it?.imageUrl ?? it?.downloadUrl;
-    if (u) out.push(unwrapLoginUrl(u));
+    const cleaned = u ? unwrapLoginUrl(u) : null;
+    if (cleaned && isUsableImageUrl(cleaned)) out.push(cleaned);
   }
   return out;
 }
@@ -118,8 +137,8 @@ function collectCoverCandidates(post) {
   const candidatesRaw = [
     post.coverUrl ?? post.cover_url ?? null,
     post.repImageUrl ?? post.rep_image_url ?? null,
-    ...extractImagesFromAttachments(post),
-    ...extractImagesFromContent(post),
+    ...extractImagesFromAttachments(post, 3),
+    ...extractImagesFromContent(post, 32 * 1024, 3),
     ytThumb(post.youtubeId ?? post.youtube_id ?? null),
   ].filter(Boolean);
 
@@ -181,13 +200,6 @@ function Badge({ children, tone = 'gray' }) {
   return <span className={`badge rounded-pill ${cls}`}>{children}</span>;
 }
 
-const fmtNum = (n) => {
-  const x = Number(n || 0);
-  if (x >= 1_000_000) return (x / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
-  if (x >= 1_000) return (x / 1_000).toFixed(1).replace(/\.0$/, '') + 'k';
-  return String(x);
-};
-
 function extractCounts(p) {
   const likeCount =
     p.likeCount ?? p.like_count ?? p.likes ?? p.hearts ?? p.metrics?.likes ?? p.metrics?.hearts ?? 0;
@@ -202,32 +214,39 @@ function extractCounts(p) {
   };
 }
 
-/* ------------ 이미지 후보 자동 폴백 ------------ */
-function SmartImg({ sources, alt = '', className = '', onHide }) {
+/* ------------ 이미지 후보 자동 폴백 + 성능 힌트 ------------ */
+function SmartImg({ sources, alt = '', className = '', onHide, priority = false }) {
   const [idx, setIdx] = useState(0);
   const src = sources?.[idx] || null;
-
   if (!src) return null;
+
+  // 4:3 카드 기준 크기 힌트(레이아웃 안정)
+  const width = 800;
+  const height = 600;
 
   return (
     <img
       src={src}
       alt={alt}
       className={className}
-      loading="lazy"
+      width={width}
+      height={height}
       decoding="async"
+      loading={priority ? 'eager' : 'lazy'}
+      fetchpriority={priority ? 'high' : 'low'}
       onError={() => {
         if (idx + 1 < (sources?.length || 0)) setIdx(idx + 1);
         else if (onHide) onHide();
       }}
+      style={{ objectFit: 'cover' }}
     />
   );
 }
 
-function PostCard({ post, onOpen }) {
+function PostCard({ post, onOpen, priority = false, dateFmt }) {
   const rawForPreview = post.preview || post.bodyPreview || post.content || post.body || '';
   const preview = makePreviewText(rawForPreview, 100);
-  const when = new Date(post.createdAt || post.updatedAt || Date.now()).toLocaleString();
+  const when = dateFmt.format(new Date(post.createdAt || post.updatedAt || Date.now()));
   const [showImg, setShowImg] = useState(true);
 
   return (
@@ -271,6 +290,7 @@ function PostCard({ post, onOpen }) {
           sources={post.__covers}
           className="card-img-bottom"
           onHide={() => setShowImg(false)}
+          priority={priority}
         />
       )}
     </article>
@@ -290,6 +310,12 @@ export default function CommunityPage() {
   const size = 12;
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+
+  // 날짜 포맷터 메모이즈
+  const dateFmt = useMemo(() => new Intl.DateTimeFormat(undefined, {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit'
+  }), []);
 
   const tabToCategory = (t) => {
     if (t === 'question') return '질문';
@@ -345,17 +371,26 @@ export default function CommunityPage() {
     setParams(merged, { replace: true });
   }
 
+  // refresh 이벤트 필터링 + 디바운스
   useEffect(() => {
-    const refresh = () => load(0, tab);
+    const refresh = debounce(() => load(0, tab), 300);
+
+    const onStorage = (e) => {
+      const k = e?.key || '';
+      if (k.startsWith('rf:activity:') || k.startsWith('postBookmark:') || k.startsWith('postBookmarkData:')) {
+        refresh();
+      }
+    };
     const onVisible = () => { if (document.visibilityState === 'visible') refresh(); };
+
     window.addEventListener('activity:changed', refresh);
     window.addEventListener('bookmark-changed', refresh);
-    window.addEventListener('storage', refresh);
+    window.addEventListener('storage', onStorage);
     document.addEventListener('visibilitychange', onVisible);
     return () => {
       window.removeEventListener('activity:changed', refresh);
       window.removeEventListener('bookmark-changed', refresh);
-      window.removeEventListener('storage', refresh);
+      window.removeEventListener('storage', onStorage);
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, [load, tab]);
@@ -434,6 +469,7 @@ export default function CommunityPage() {
             <button
               className="btn btn-success"
               onClick={async () => {
+                // 쓰기는 로그인 필요하면 여기서 확인 유지
                 const user = await ensureLogin('/write');
                 if (user) navigate('/write');
               }}
@@ -479,10 +515,11 @@ export default function CommunityPage() {
             <div key={p.id}>
               <PostCard
                 post={p}
-                onOpen={async () => {
-                  const backTo = `/community/${p.id}`;
-                  const user = await ensureLogin(backTo);
-                  if (user) navigate(backTo);
+                priority={i < 3} // 첫 3개는 eager + fetchpriority=high
+                dateFmt={dateFmt}
+                onOpen={() => {
+                  // 읽기는 즉시 이동(UX 지연 최소화). 상세에서 401 시 로그인 처리.
+                  navigate(`/community/${p.id}`);
                 }}
               />
               {(i + 1) % 3 === 0 && (
