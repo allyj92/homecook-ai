@@ -81,16 +81,28 @@ const BrandButton = ({ outline = false, className = '', style = {}, ...props }) 
   />
 );
 
-const BrandBadge = ({ tone = 'soft', children, className = '' }) => {
+const BrandBadge = ({ tone = 'soft', size = 'sm', children, className = '' }) => {
   const styles = useMemo(() => {
     if (tone === 'solid') return { background: BRAND.orange, color: '#fff', borderColor: BRAND.orange };
     if (tone === 'teal')  return { background: BRAND.teal,   color: '#fff', borderColor: BRAND.teal };
     return { background: BRAND.softBg, color: BRAND.ink, borderColor: BRAND.softBd };
   }, [tone]);
   return (
-    <span className={`badge border ${className}`} style={{ ...styles, borderWidth: 1.5 }}>
-      {children}
-    </span>
+    <span
+      className={`badge border d-inline-flex align-items-center ${className}`}
+      style={{
+        ...styles,
+        borderWidth: 1.5,
+        borderRadius: 8,
+        // 컴팩트 사이즈 기본
+        padding: size === 'sm' ? '2px 6px' : '4px 8px',
+        fontSize: size === 'sm' ? '0.8rem' : '0.9rem',
+        lineHeight: 1.1,
+        width: 'auto'
+      }}
+    >
+       {children}
+     </span>
   );
 };
 
@@ -585,7 +597,7 @@ export default function MainPage() {
                       />
                     ) : null}
                     {bestToday?.__likes >= 0 && bestToday?.__comments >= 0 && (
-                      <BrandBadge tone="teal" className="position-absolute top-0 start-0 m-2">
+                      <BrandBadge tone="teal" size="sm" className="position-absolute top-0 start-0 m-2 px-2 py-1">
                         ❤ {fmtNum(bestToday.__likes)} · 💬 {fmtNum(bestToday.__comments)}
                       </BrandBadge>
                     )}
