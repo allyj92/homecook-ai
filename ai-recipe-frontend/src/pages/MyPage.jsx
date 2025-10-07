@@ -707,12 +707,10 @@ export default function MyPage() {
         © {new Date().getFullYear()} <span className="fw-semibold">RECIP</span><span className="text-primary fw-semibold">FREE</span>
       </footer>
 
-      {/* 커뮤니티처럼 하단 스티키 바 */}
-      <StickyBottomAd />
-
-      {/* 이미 쓰고 있는 하단 내비(없애고 싶으면 제거 가능) */}
+      <StickyBottomAd label="Bottom Sticky 320×50 / 728×90" />
       <BottomNav />
       <div className="bottom-nav-spacer" aria-hidden="true" />
+      
       {DEBUG && (
         <pre className="mt-3 p-2 border rounded bg-light small" style={{whiteSpace:'pre-wrap'}}>
           <b>DEBUG</b>
