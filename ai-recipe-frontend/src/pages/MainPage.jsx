@@ -14,6 +14,104 @@ const BRAND = {
   softBd: '#ffd7bf',
 };
 
+function TopSearchBar({ onSearch, suggestions = [] }) {
+  const [q, setQ] = useState('');
+  const submit = (value) => {
+    const v = (value ?? q).trim();
+    if (!v) return;
+    onSearch?.(v);
+  };
+
+  return (
+    <div
+      className="position-sticky top-0"
+      style={{
+        zIndex: 1030,
+        background: 'rgba(255,255,255,0.85)',
+        backdropFilter: 'blur(6px)'
+      }}
+    >
+      <div className="container-xxl py-3">
+        {/* 검색 박스 */}
+        <form
+          onSubmit={(e)=>{ e.preventDefault(); submit(); }}
+          className="mx-auto"
+          style={{ maxWidth: 880 }}
+          role="search"
+          aria-label="레시피 검색"
+        >
+          <div
+            className="d-flex align-items-center shadow-sm"
+            style={{
+              border: `1px solid ${BRAND.softBd}`,
+              borderRadius: 9999,
+              background: '#fff',
+              padding: '8px 10px',
+              gap: 8
+            }}
+          >
+            {/* 돋보기 아이콘 (SVG) */}
+            <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15z"
+                    fill="none" stroke="#888" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+
+            <input
+              value={q}
+              onChange={(e)=>setQ(e.target.value)}
+              placeholder="예: 김치찌개, 닭가슴살, 다이어트, 에어프라이어…"
+              className="form-control border-0"
+              style={{ boxShadow: 'none', height: 48, fontSize: '1rem' }}
+            />
+
+            {q && (
+              <button
+                type="button"
+                className="btn btn-sm btn-light border"
+                onClick={()=>setQ('')}
+                aria-label="지우기"
+                title="지우기"
+                style={{ borderColor: BRAND.softBd }}
+              >×</button>
+            )}
+
+            <button
+              type="submit"
+              className="btn"
+              style={{
+                background: BRAND.orange,
+                color: '#fff',
+                borderRadius: 9999,
+                padding: '10px 18px'
+              }}
+              aria-label="검색"
+            >
+              검색
+            </button>
+          </div>
+        </form>
+
+        {/* 인기/추천 키워드 칩 */}
+        {!!suggestions.length && (
+          <div className="d-flex gap-2 flex-wrap justify-content-center mt-2">
+            {suggestions.slice(0, 8).map((s, i) => (
+              <button
+                key={i}
+                type="button"
+                className="btn btn-light btn-sm border"
+                style={{ borderColor: BRAND.softBd, borderRadius: 9999 }}
+                onClick={()=>submit(s)}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 
 function StickyBottomAd({
   id = 'sticky-bottom-ad',
@@ -604,7 +702,21 @@ export default function MainPage() {
 
   return (
     <div className="container-xxl py-3">
-      <AdSlot id="ad-top-banner" height={96} label="Top Banner (728/970×90)" fullBleed />
+     + <TopSearchBar
+   onSearch={(keyword) => {
+     // 검색 결과 페이지로 이동 (라우트에 맞게 바꿔도 됨)
+     // 예: /search?q=, 또는 /community?query=
+     navigate(`/search?q=${encodeURIComponent(keyword)}`);
+   }}
+   suggestions={Array.from(
+     new Set(
+       [...popular, ...dailyNewRecipe]
+         .map(x => String(x?.title || '').trim())
+         .filter(Boolean)
+         .map(t => (t.length > 18 ? t.slice(0, 18) + '…' : t))
+     )
+   )}
+/>
 
       <main className="row g-4 mt-1">
         <section className="col-12">
