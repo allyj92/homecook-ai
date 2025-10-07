@@ -14,10 +14,12 @@ const BRAND = {
   softBd: '#ffd7bf',
 };
 
-function TopSearchBar({ onSearch, suggestions = [] }) {
+function TopSearchBar({ onSearch }) {
   const [q, setQ] = useState('');
-  const submit = (value) => {
-    const v = (value ?? q).trim();
+
+  const submit = (e) => {
+    e.preventDefault();
+    const v = q.trim();
     if (!v) return;
     onSearch?.(v);
   };
@@ -27,69 +29,63 @@ function TopSearchBar({ onSearch, suggestions = [] }) {
       className="position-sticky top-0"
       style={{
         zIndex: 1030,
-        background: 'rgba(255,255,255,0.85)',
-        backdropFilter: 'blur(6px)'
+        background: 'rgba(255,255,255,0.9)',
+        backdropFilter: 'blur(6px)',
+        borderBottom: `1px solid ${BRAND.softBd}`
       }}
     >
-      <div className="container-xxl py-3">
-        {/* 검색 박스 */}
-        <form
-          onSubmit={(e)=>{ e.preventDefault(); submit(); }}
-          className="mx-auto"
-          style={{ maxWidth: 880 }}
-          role="search"
-          aria-label="레시피 검색"
-        >
+      <div className="container-xxl py-2">
+        <form onSubmit={submit} className="mx-auto" style={{ maxWidth: 880 }}>
           <div
-            className="d-flex align-items-center shadow-sm"
+            className="d-flex align-items-center"
             style={{
               border: `1px solid ${BRAND.softBd}`,
               borderRadius: 9999,
               background: '#fff',
-              padding: '8px 10px',
+              padding: '6px 8px',
               gap: 8
             }}
           >
-            {/* 돋보기 아이콘 (SVG) */}
-            <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15z"
-                    fill="none" stroke="#888" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-
             <input
               value={q}
-              onChange={(e)=>setQ(e.target.value)}
-              placeholder="예: 김치찌개, 닭가슴살, 다이어트, 에어프라이어…"
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="레시피를 검색하세요"
               className="form-control border-0"
-              style={{ boxShadow: 'none', height: 48, fontSize: '1rem' }}
+              style={{ boxShadow: 'none', height: 44, fontSize: '1rem' }}
+              aria-label="레시피 검색"
             />
 
-            {q && (
-              <button
-                type="button"
-                className="btn btn-sm btn-light border"
-                onClick={()=>setQ('')}
-                aria-label="지우기"
-                title="지우기"
-                style={{ borderColor: BRAND.softBd }}
-              >×</button>
-            )}
-
+            {/* 아이콘만 있는 검색 버튼 */}
             <button
               type="submit"
-              className="btn"
-              style={{
-                background: BRAND.orange,
-                color: '#fff',
-                borderRadius: 9999,
-                padding: '10px 18px'
-              }}
+              className="btn p-0"
               aria-label="검색"
+              title="검색"
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: '50%',
+                display: 'grid',
+                placeItems: 'center',
+                background: BRAND.orange
+              }}
             >
-              검색
+              <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15z"
+                  fill="none"
+                  stroke="#fff"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              </svg>
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
 
         {/* 인기/추천 키워드 칩 */}
         {!!suggestions.length && (
@@ -702,7 +698,7 @@ export default function MainPage() {
 
   return (
     <div className="container-xxl py-3">
-     + <TopSearchBar
+      <TopSearchBar
    onSearch={(keyword) => {
      // 검색 결과 페이지로 이동 (라우트에 맞게 바꿔도 됨)
      // 예: /search?q=, 또는 /community?query=
