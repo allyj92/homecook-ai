@@ -543,6 +543,7 @@ export default function CommunityPage() {
       {/* 하단 고정 광고 + 네비게이션 */}
       <StickyBottomAd label="Bottom Sticky 320×50 / 728×90" />
       <BottomNav />
+      <div className="bottom-nav-spacer" aria-hidden="true" />
     </div>
   );
 }
