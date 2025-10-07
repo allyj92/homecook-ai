@@ -451,7 +451,7 @@ export default function CommunityPage() {
   }, [posts, q, sort]);
 
   return (
-    <div className="container-xxl py-3">
+    <div className="container-xxl py-3 community-page">
       {/* 헤더: 검색/필터만 유지 (탑 배너 제거) */}
       <header className="mb-3">
         <div className="row g-2 align-items-center">

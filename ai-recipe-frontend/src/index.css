@@ -944,3 +944,22 @@ body{
 }
 
 .card-body { min-height: 160px }
+
+
+/* 커뮤니티 목록 본문을 중앙에 좁게 */
+.content-narrow {
+  margin: 0 auto;
+  padding: 0 12px;          /* 모바일 사이드 여백 */
+  max-width: 880px;         /* ✅ 여기 숫자로 폭 조절 (예: 760~920px) */
+}
+
+/* 카드도 살짝 여백 */
+.content-narrow .card {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* 아주 넓은 화면에서 더 좁게 하고 싶다면 (선택) */
+@media (min-width: 1400px) {
+  .content-narrow { max-width: 840px; }
+}
