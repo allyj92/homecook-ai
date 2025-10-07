@@ -17,6 +17,13 @@ function toInt(n, min, max) {
   if (typeof max === "number") x = Math.min(max, x);
   return x;
 }
+function normalizeType(str) {
+  return String(str ?? "unknown")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")   // zero-width 제거
+    .trim()
+    .toLowerCase()
+    .replace(/[\s\-]+/g, "_");
+}
 
 /** 길면 … 처리 */
 export function ellipsis(s, max = 36) {
@@ -103,7 +110,7 @@ function migrateLegacyIfAny(nsStr) {
 /* 서버 전송 (fire-and-forget) */
 function sendActivityToServer(type, data) {
   try {
-    const body = JSON.stringify({ type: String(type || "unknown"), data: (data && typeof data === "object") ? data : {} });
+    const body = JSON.stringify({ type: normalizeType(type), data: (data && typeof data === "object") ? data : {} });
     // 같은 오리진이면 쿠키 동반
     if (navigator?.sendBeacon) {
       const ok = navigator.sendBeacon("/api/activity", new Blob([body], { type: "application/json" }));
@@ -160,9 +167,10 @@ export function logActivity(type, payload = {}) {
   migrateLegacyIfAny(n);
 
   const ts = nowMs();
+  const normType = normalizeType(type);
   const item = {
     id: `${ts}-${Math.random().toString(36).slice(2, 8)}`,
-    type: String(type || "unknown"),
+    type: normType,
     ts,
     data: (payload && typeof payload === "object") ? payload : {},
   };
@@ -226,10 +234,23 @@ export async function listActivitiesPagedAsync(page = 0, size = 20) {
 
     if (res.ok) {
       const data = await res.json();
-      // 서버 스키마: { items: [{id,type,ts,data}], total }
-      const items = Array.isArray(data?.items) ? data.items : [];
-      const total = Number(data?.total ?? 0);
-      return { items, total };
+      // 서버 스키마: { content: [...], totalElements: n } (신규)
+      // 과거 호환:   { items:   [...], total:         n }
+      const items =
+        Array.isArray(data?.content) ? data.content :
+        Array.isArray(data?.items) ? data.items : [];
+      const total =
+        Number.isFinite(data?.totalElements) ? Number(data.totalElements) :
+        Number.isFinite(data?.total) ? Number(data.total) : 0;
+
+      // 서버에서 온 아이템의 타입도 방어적으로 정규화
+      const normItems = items.map(it => ({
+        ...it,
+        type: normalizeType(it?.type),
+        ts: Number(it?.ts ?? 0)
+      }));
+
+      return { items: normItems, total };
     }
     // 401 등은 로컬 폴백
   } catch {
@@ -259,7 +280,8 @@ export function subscribeActivity(handler) {
 
 /** UI용 텍스트 (제목 + 동사, 길면 …) */
 export function formatActivityText(a) {
-  const t = a?.type;
+  // 타입 정규화: 양끝공백 제거, 소문자, 연속공백/하이픈→언더스코어
+  const t = normalizeType(a?.type);
   const d = a?.data || {};
 
   // 제목 소스 우선순위
@@ -279,6 +301,31 @@ export function formatActivityText(a) {
   const recipeTitle = ellipsis(rawRecipeTitle || rawPostTitle, 36); // 레시피 없으면 포스트 제목으로 대체
 
   switch (t) {
+    // ── 북마크 ──────────────────────────────────────────────
+    case "bookmark_add":
+    case "post_bookmark_add":
+    case "bookmark_on":
+      return `${postTitle} 북마크 추가`;
+    case "bookmark_remove":
+    case "post_bookmark_remove":
+    case "bookmark_off":
+      return `${postTitle} 북마크 삭제`;
+    case "post_bookmark": // on 플래그를 쓰는 구형 이벤트
+      return d.on ? `${postTitle} 북마크 추가` : `${postTitle} 북마크 삭제`;
+
+    // ── 좋아요 ──────────────────────────────────────────────
+    case "post_like_add":
+    case "like_add":
+    case "like_on":
+      return `${postTitle} 좋아요`;
+    case "post_like_remove":
+    case "like_remove":
+    case "like_off":
+      return `${postTitle} 좋아요 취소`;
+    case "post_like":
+      return d.on ? `${postTitle} 좋아요` : `${postTitle} 좋아요 취소`;
+
+    // ── 글/댓글 ────────────────────────────────────────────
     case "post_create":
       return `${postTitle} 작성`;
     case "post_update":
@@ -288,17 +335,13 @@ export function formatActivityText(a) {
     case "comment_create":
     case "comment_add":
       return `${postTitle} 댓글 작성`;
-    case "post_like":
-      return d.on ? `${postTitle} 좋아요` : `${postTitle} 좋아요 취소`;
-    case "post_bookmark":
-      return d.on ? `${postTitle} 북마크` : `${postTitle} 북마크 해제`;
-    case "bookmark_remove":
-      // 제목 + 한국어 동사 형태로 표시
-      return `${postTitle} 북마크 삭제`;  
+
+    // ── 레시피 저장 ────────────────────────────────────────
     case "favorite_add":
       return `${recipeTitle} 저장`;
     case "favorite_remove":
       return `${recipeTitle} 저장 해제`;
+
     default:
       return `${postTitle} · ${String(t || "활동")}`;
   }
