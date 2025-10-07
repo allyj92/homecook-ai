@@ -12,6 +12,7 @@ import {
   formatActivityText,
   formatActivityHref,
   logActivity,
+  ensureActivityNs,
 } from '../lib/activity';
 
 
@@ -209,6 +210,12 @@ export default function MyPage() {
   /* 북마크(서버) */
   const [bookmarks, setBookmarks] = useState([]);
   const [bmLoading, setBmLoading] = useState(false);
+
+
+   // ✅ 활동 로그 네임스페이스 보정 (authUser 자동 채움)
+ useEffect(() => {
+   ensureActivityNs();
+ }, []);
 
 
   /* me 먼저 로드 */
