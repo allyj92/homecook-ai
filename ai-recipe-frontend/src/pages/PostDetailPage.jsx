@@ -208,6 +208,7 @@ export default function PostDetailPage() {
     setAuth({ loading: false, user: u ?? null });
     setUid(u?.uid ?? null);
     setProvider(u?.provider ?? null);
+    try { ensureActivityNs(); } catch {}
   }, []);
 
    // ✅ 활동 로그용 네임스페이스 동기화 (authUser 세팅)
@@ -315,6 +316,10 @@ export default function PostDetailPage() {
         await apiToggleLike(post.id, nextOn);
         logActivity("post_like", { postId: post.id, postTitle: post.title, on: nextOn });
         try { window.dispatchEvent(new Event("activity:changed")); } catch {}
+        try {
+       window.dispatchEvent(new Event('bookmark-changed'));   // 북마크 목록 재로딩
+      window.dispatchEvent(new Event('activity:changed'));   // 최근 활동 재로딩 ← 요게 핵심!
+     } catch {}
       } catch (e) {
         // 롤백
         setLiked(!nextOn);
@@ -535,6 +540,7 @@ const onToggleBookmark = () =>
                     });
                   } catch {}
                   setCommentsVersion((v) => v + 1);
+                  try { window.dispatchEvent(new Event('activity:changed')); } catch {}
                 }}
               />
             ) : (
