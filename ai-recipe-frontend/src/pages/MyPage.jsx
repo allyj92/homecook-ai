@@ -164,14 +164,20 @@ function StickyBottom() {
   return (
     <div
       id="sticky-bottom"
-      className="position-fixed bottom-0 start-0 end-0 bg-white border-top shadow-sm d-lg-none"
-      style={{ zIndex: 1030 }}
+      className="position-fixed bottom-0 start-0 end-0 bg-white border-top shadow-sm"
+      style={{ zIndex: 1050 }}  // BottomNav보다 높게
       role="complementary"
       aria-label="sticky-bottom"
     >
       <div className="container-xxl py-2 d-flex justify-content-center">
-        {/* 필요 시 광고/CTA/고정버튼 배치 */}
-        <div id="sticky-bottom-slot" className="w-100" style={{ maxWidth: 728, minHeight: 60 }} />
+        {/* 데모용: 바로 보이도록 박스 표시 */}
+        <div
+          id="sticky-bottom-slot"
+          className="w-100 d-flex align-items-center justify-content-center"
+          style={{ maxWidth: 728, minHeight: 64 }}
+        >
+          <span className="text-secondary small">[Sticky Bottom Slot]</span>
+        </div>
       </div>
     </div>
   );
@@ -396,7 +402,7 @@ export default function MyPage() {
   /* 로딩 스켈레톤 (me) */
   if (meLoading) {
     return (
-      <div className="container-xxl py-3" style={{ paddingBottom: 84 }}>
+      <div className="container-xxl py-3" style={{ paddingBottom: 160 }}>
         <div className="row g-4">
           <aside className="col-12 col-lg-4">
             <div className="card shadow-sm mb-3">
