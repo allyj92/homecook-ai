@@ -84,27 +84,6 @@ function TopSearchBar({ onSearch }) {
   );
 }
 
-        {/* 인기/추천 키워드 칩 */}
-        {!!suggestions.length && (
-          <div className="d-flex gap-2 flex-wrap justify-content-center mt-2">
-            {suggestions.slice(0, 8).map((s, i) => (
-              <button
-                key={i}
-                type="button"
-                className="btn btn-light btn-sm border"
-                style={{ borderColor: BRAND.softBd, borderRadius: 9999 }}
-                onClick={()=>submit(s)}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 
 function StickyBottomAd({
   id = 'sticky-bottom-ad',
