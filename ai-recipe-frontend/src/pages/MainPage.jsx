@@ -329,53 +329,56 @@ function isSameLocalDay(ts, base = new Date()) {
 }
 
 async function loadBestOfToday() {
-  const res = await fetch(`/api/community/posts?page=0&size=200&sort=createdAt,desc`, {
+    const res = await fetch(`/api/community/posts?page=0&size=200&sort=createdAt,desc`, {
     credentials: 'include',
     cache: 'no-store',
     headers: { Accept: 'application/json' },
   });
   if (!res.ok) return null;
   const j = await res.json();
- const items = toArr(j);
+  const items = toArr(j);
   const now = Date.now();
 
+  // 좋아요 + 댓글만 “합산” (요구사항대로)
   const enrich = (p) => {
     const likes = Number(p.likeCount ?? p.like_count ?? p.likes ?? p.hearts ?? p.metrics?.likes ?? p.metrics?.hearts ?? 0);
     const comments = Number(p.commentCount ?? p.comment_count ?? p.comments ?? p.metrics?.comments ?? 0);
-    const bookmarks = Number(p.bookmarkCount ?? p.bookmark_count ?? p.bookmarks ?? p.metrics?.bookmarks ?? 0);
     const t = p.createdAt ?? p.created_at ?? p.updatedAt ?? p.updated_at;
     const dt = toDate(t);
     const createdMs = dt && !isNaN(dt) ? dt.getTime() : 0;
-    // 가벼운 시간감쇠 점수 (최근일수록 가산)
-    const ageHours = Math.max(1, (now - createdMs) / 36e5);
-    const engagement = likes * 3 + comments * 2 + bookmarks * 1;
-    const score = engagement / Math.pow(ageHours, 0.6);
     return {
       ...p,
       __cover: buildCover(p),
       __likes: likes,
       __comments: comments,
-      __score: score,
+      __sum: likes + comments,
       __createdMs: createdMs,
       __asPost: true,
     };
   };
 
   const enriched = items.map(enrich);
+
+  // 1) 오늘 올라온 것들 중 합산 최댓값
   const today = enriched.filter((p) => {
     const t = p.createdAt ?? p.created_at ?? p.updatedAt ?? p.updated_at;
     return t && isSameLocalDay(t);
   });
-  if (today.length) return { ...today.sort((a,b)=>b.__score - a.__score)[0], __origin: 'today' };
+  if (today.length) {
+    return { ...today.sort((a,b)=> b.__sum - a.__sum || b.__createdMs - a.__createdMs)[0], __origin: 'today' };
+  }
 
-  // 🔁 Fallback 1: 최근 24시간
+  // 2) (백업) 최근 24시간 중 합산 최댓값
   const last24Cut = now - 24 * 3600 * 1000;
   const last24 = enriched.filter(p => p.__createdMs >= last24Cut);
-  if (last24.length) return { ...last24.sort((a,b)=>b.__score - a.__score)[0], __origin: '24h' };
+  if (last24.length) {
+    return { ...last24.sort((a,b)=> b.__sum - a.__sum || b.__createdMs - a.__createdMs)[0], __origin: '24h' };
+  }
 
-  // 🔁 Fallback 2: 전체 최근 중 최상위
-  if (enriched.length) return { ...enriched.sort((a,b)=>b.__score - a.__score)[0], __origin: 'all' };
-
+  // 3) (백업) 전체 중 합산 최댓값
+  if (enriched.length) {
+    return { ...enriched.sort((a,b)=> b.__sum - a.__sum || b.__createdMs - a.__createdMs)[0], __origin: 'all' };
+  }
   return null;
 }
 
