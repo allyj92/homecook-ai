@@ -23,7 +23,6 @@ function debounce(fn, ms = 300) {
 }
 
 /* ------------ 이미지 URL 유틸 ------------- */
-// 로그인 래퍼 URL에서 실제 목적지 꺼내기
 function unwrapLoginUrl(url) {
   try {
     const u = new URL(url, window.location.origin);
@@ -40,7 +39,7 @@ function unwrapLoginUrl(url) {
       }
       if (u.hash && /^#https?:\/\//i.test(u.hash)) return u.hash.slice(1);
     }
-  } catch { /* ignore */ }
+  } catch {}
   return url;
 }
 
@@ -51,7 +50,7 @@ function normalizeCoverUrl(url) {
     if (raw.startsWith('/')) return raw;
     const u = new URL(raw, window.location.origin);
     if (window.location.protocol === 'https:' && u.protocol === 'http:') {
-      try { u.protocol = 'https:'; } catch { /* ignore */ }
+      try { u.protocol = 'https:'; } catch {}
     }
     if (u.host === window.location.host) return u.pathname + u.search + u.hash;
     return u.toString();
@@ -78,7 +77,6 @@ function withVersion(url, ver) {
 
 const ytThumb = (id) => (id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : null);
 
-// 로그인/혼합콘텐츠/형식 등 필터
 function isUsableImageUrl(url) {
   try {
     const u = new URL(url, window.location.origin);
@@ -201,7 +199,7 @@ function SmartImg({ sources, alt = '', className = '', onHide, priority = false 
   const src = sources?.[idx] || null;
   if (!src) return null;
 
-  const width = 800;  // 레이아웃 안정 힌트
+  const width = 800;
   const height = 600;
 
   return (
@@ -277,14 +275,14 @@ function PostCard({ post, onOpen, priority = false, dateFmt }) {
   );
 }
 
-/* ------------ 하단 고정 광고 (메인과 동일 스타일) ------------ */
+/* ------------ 하단 고정 광고 ------------ */
 function StickyBottomAd({
   id = 'ad-sticky-bottom',
   heightMobile = 80,
   heightDesktop = 120,
   label = 'Bottom Sticky 320×50 / 728×90',
 }) {
-  const [offset, setOffset] = useState(0);        // BottomNav 높이만큼 올림
+  const [offset, setOffset] = useState(0);
   const [height, setHeight] = useState(heightDesktop);
 
   const recompute = useCallback(() => {
@@ -308,9 +306,7 @@ function StickyBottomAd({
 
   return (
     <>
-      {/* 본문 가림 방지용 여백(광고 높이만큼) */}
       <div style={{ height: height + 8 }} aria-hidden="true" />
-
       <div
         id={id}
         className="position-fixed border-top bg-light d-flex align-items-center justify-content-center"
@@ -321,7 +317,7 @@ function StickyBottomAd({
           right: 0,
           bottom: `calc(${offset}px + env(safe-area-inset-bottom))`,
           minHeight: height,
-          zIndex: 1040, // 커뮤니티와 동일
+          zIndex: 1040,
           boxShadow: '0 -2px 10px rgba(0,0,0,0.08)',
         }}
       >
@@ -330,6 +326,29 @@ function StickyBottomAd({
     </>
   );
 }
+
+/* ------------ FAB (모바일 전용) ------------ */
+function WriteFab({ onClick }) {
+  return (
+    <button
+      type="button"
+      className="btn btn-success shadow-lg d-lg-none"
+      onClick={onClick}
+      aria-label="글쓰기"
+      style={{
+        position: 'fixed',
+        right: '12px',
+        bottom: 'calc(12px + env(safe-area-inset-bottom))',
+        zIndex: 1100, // BottomNav/Ad보다 위
+        borderRadius: 9999,
+        padding: '12px 16px'
+      }}
+    >
+      ✏️ 글쓰기
+    </button>
+  );
+}
+
 export default function CommunityPage() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -355,6 +374,13 @@ export default function CommunityPage() {
     if (t === 'recipe') return '레시피';
     return '';
   };
+
+  // ✅ 글쓰기: 로그인 요구 후 /write 이동
+  const onWrite = useCallback(async () => {
+    const me = await ensureLogin('/community');
+    if (!me) return;
+    navigate('/write');
+  }, [navigate]);
 
   const load = useCallback(async (pageToLoad = 0, tabToLoad = tab) => {
     setLoading(true);
@@ -403,7 +429,6 @@ export default function CommunityPage() {
     setParams(merged, { replace: true });
   }
 
-  // refresh 이벤트 필터링 + 디바운스
   useEffect(() => {
     const refresh = debounce(() => load(0, tab), 300);
 
@@ -447,7 +472,7 @@ export default function CommunityPage() {
 
   return (
     <div className="container-xxl py-3 community-page">
-      {/* 헤더: 검색/필터만 유지 (탑 배너 제거) */}
+      {/* 헤더 */}
       <header className="mb-3">
         <div className="row g-2 align-items-center">
           <div className="col-12 col-lg-6">
@@ -470,7 +495,7 @@ export default function CommunityPage() {
             </div>
           </div>
 
-          <div className="col-6 col-lg-3">
+          <div className="col-6 col-lg-2">
             <select
               className="form-select"
               value={sort}
@@ -481,7 +506,7 @@ export default function CommunityPage() {
             </select>
           </div>
 
-          <div className="col-6 col-lg-3">
+          <div className="col-6 col-lg-2">
             <select
               className="form-select"
               value={tab}
@@ -494,38 +519,47 @@ export default function CommunityPage() {
               <option value="recipe">레시피</option>
             </select>
           </div>
+
+          {/* ✅ 글쓰기 버튼 (데스크톱 표시) */}
+          <div className="col-12 col-lg-2 d-none d-lg-block">
+            <div className="d-grid">
+              <button type="button" className="btn btn-success" onClick={onWrite}>
+                ✏️ 글쓰기
+              </button>
+            </div>
+          </div>
         </div>
       </header>
 
-      {/* 본문: 사이드 영역/인피드 광고 제거, 단일 컬럼 */}
+      {/* 본문 */}
       <main className="row g-4">
         <section className="col-12">
-         <div className="content-narrow">
-          {filtered.length === 0 && !loading && (
-            <div className="alert alert-secondary" role="status">
-              게시글이 없습니다. 먼저 글을 작성해 보세요!
+          <div className="content-narrow">
+            {filtered.length === 0 && !loading && (
+              <div className="alert alert-secondary" role="status">
+                게시글이 없습니다. 먼저 글을 작성해 보세요!
+              </div>
+            )}
+
+            {filtered.map((p, i) => (
+              <PostCard
+                key={p.id}
+                post={p}
+                priority={i < 3}
+                dateFmt={dateFmt}
+                onOpen={() => navigate(`/community/${p.id}`)}
+              />
+            ))}
+
+            <div className="d-flex justify-content-center my-3">
+              <button
+                className="btn btn-outline-secondary"
+                disabled={loading || !hasMore}
+                onClick={() => load(page + 1, tab)}
+              >
+                {loading ? '불러오는 중…' : hasMore ? '더 불러오기' : '더 이상 없음'}
+              </button>
             </div>
-          )}
-
-          {filtered.map((p, i) => (
-            <PostCard
-              key={p.id}
-              post={p}
-              priority={i < 3}
-              dateFmt={dateFmt}
-              onOpen={() => navigate(`/community/${p.id}`)}
-            />
-          ))}
-
-          <div className="d-flex justify-content-center my-3">
-            <button
-              className="btn btn-outline-secondary"
-              disabled={loading || !hasMore}
-              onClick={() => load(page + 1, tab)}
-            >
-              {loading ? '불러오는 중…' : hasMore ? '더 불러오기' : '더 이상 없음'}
-            </button>
-          </div>
           </div>
         </section>
       </main>
@@ -536,6 +570,9 @@ export default function CommunityPage() {
         </div>
         <div className="small">© {new Date().getFullYear()} RecipFree</div>
       </footer>
+
+      {/* ✅ 모바일 FAB */}
+      <WriteFab onClick={onWrite} />
 
       {/* 하단 고정 광고 + 네비게이션 */}
       <StickyBottomAd label="Bottom Sticky 320×50 / 728×90" />
