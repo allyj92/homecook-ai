@@ -708,7 +708,7 @@ export default function MyPage() {
       </footer>
 
       {/* 커뮤니티처럼 하단 스티키 바 */}
-      <StickyBottom />
+      <StickyBottomAd />
 
       {/* 이미 쓰고 있는 하단 내비(없애고 싶으면 제거 가능) */}
       <BottomNav />
