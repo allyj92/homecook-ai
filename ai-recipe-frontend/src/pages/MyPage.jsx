@@ -602,6 +602,87 @@ export default function MyPage() {
             )}
           </div>
 
+          {/* 내가 쓴 글 */}
+          <div className="card shadow-sm mb-3">
+            <div className="card-header d-flex justify-content-between align-items-center">
+              <h5 className="m-0">내가 쓴 글</h5>
+              <div className="d-flex align-items-center gap-2">
+                <span className="text-secondary small">{myPosts.length}개</span>
+                <button
+                  className="btn btn-sm btn-primary"
+                  onClick={() => navigate('/community/new')}
+                >
+                 글 쓰기
+                </button>
+                <Link className="btn btn-sm btn-outline-secondary" to="/community?tab=all&mine=1">
+                  전체보기
+                </Link>
+              </div>
+            </div>
+
+            {myLoading && (
+              <div className="p-3">
+                <div className="placeholder-glow">
+                  <div className="placeholder col-12 mb-2" style={{ height: 18 }} />
+                  <div className="placeholder col-10 mb-2" style={{ height: 18 }} />
+                  <div className="placeholder col-8" style={{ height: 18 }} />
+                </div>
+              </div>
+            )}
+
+            {!myLoading && myErr && (
+              <div className="alert alert-danger m-3" role="alert">{myErr}</div>
+            )}
+
+            {!myLoading && !myErr && myPosts.length === 0 && (
+              <div className="p-4 text-center text-secondary">
+                아직 작성한 글이 없어요.
+                <div className="mt-2">
+                  <button className="btn btn-sm btn-primary" onClick={() => navigate('/community/new')}>
+                    글 쓰기
+                  </button>
+               </div>
+              </div>
+            )}
+
+            {!myLoading && !myErr && myPosts.length > 0 && (
+              <div className="list-group list-group-flush">
+                {myPosts.slice(0, 3).map((p) => (
+                  <Link
+                    key={p.id}
+                    to={`/community/${p.id}`}
+                    className="list-group-item list-group-item-action"
+                  >
+                    <div className="d-flex align-items-center gap-3">
+                      <SmartThumb
+                        src={p.__cover}
+                        seed={String(p.id)}
+                        width={80}
+                        height={56}
+                        className="flex-shrink-0"
+                      />
+                      <div className="flex-grow-1" style={{ minWidth: 0 }}>
+                        <div className="fw-semibold" style={oneLine}>{p.title || `게시글 #${p.id}`}</div>
+                        <div className="small text-secondary" style={oneLine}>
+                          {(p.category || '커뮤니티')}{p.createdAt ? ` · ${formatDate(p.createdAt)}` : ''}
+                        </div>
+                      </div>
+                      <div className="d-flex gap-2 flex-shrink-0">
+                        <button
+                          className="btn btn-sm btn-outline-danger"
+                          disabled={deletingId === String(p.id)}
+                          onClick={(e) => onDeletePost(e, p)}
+                        >
+                          {deletingId === String(p.id) ? '삭제중…' : '삭제'}
+                        </button>
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+         </div>
+
           {/* 북마크한 글 */}
           <div className="card shadow-sm mb-3">
             <div className="card-header d-flex justify-content-between align-items-center">
