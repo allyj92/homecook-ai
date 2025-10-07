@@ -20,7 +20,7 @@ import ActivityPage from './pages/ActivityPage'
 import BookmarksPage from './pages/BookmarksPage'
 import MyPostsPage from './pages/MyPostsPage'
 import RecipeDetailPage from './pages/RecipeDetailPage'
-import SearchPage from '/.pages/SearchPage'
+import SearchPage from './pages/SearchPage.jsx'
 
 // ✅ 레시피 상세 페이지가 있다면 임포트(없으면 임시 컴포넌트 만들어도 OK)
 // import RecipeDetailPage from './pages/RecipeDetailPage'
