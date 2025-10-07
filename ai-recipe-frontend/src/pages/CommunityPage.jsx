@@ -282,17 +282,15 @@ function StickyBottomAd({
   id = 'ad-sticky-bottom',
   heightMobile = 80,
   heightDesktop = 120,
-  label = 'Bottom Sticky',
+  label = 'Bottom Sticky 320×50 / 728×90',
 }) {
-  const [offset, setOffset] = useState(0);        // 하단 네비 높이(보일 때만)
+  const [offset, setOffset] = useState(0);        // BottomNav 높이만큼 올림
   const [height, setHeight] = useState(heightDesktop);
 
   const recompute = useCallback(() => {
-    // Bootstrap 기준: lg(>=992px)부터 데스크탑
     const isDesktop = window.matchMedia('(min-width: 992px)').matches;
     setHeight(isDesktop ? heightDesktop : heightMobile);
 
-    // 하단 네비가 있다면 spacer 높이로 오프셋 계산 (없으면 0)
     const sp = document.querySelector('.bottom-nav-spacer');
     const spH = sp ? sp.getBoundingClientRect().height : 0;
     setOffset(isDesktop ? 0 : spH);
@@ -313,7 +311,6 @@ function StickyBottomAd({
       {/* 본문 가림 방지용 여백(광고 높이만큼) */}
       <div style={{ height: height + 8 }} aria-hidden="true" />
 
-      {/* 풀블리드 하단 고정 */}
       <div
         id={id}
         className="position-fixed border-top bg-light d-flex align-items-center justify-content-center"
@@ -322,10 +319,9 @@ function StickyBottomAd({
         style={{
           left: 0,
           right: 0,
-          // 모바일: 네비 높이만큼 올림, 데스크탑: 0으로 바닥에 딱
           bottom: `calc(${offset}px + env(safe-area-inset-bottom))`,
           minHeight: height,
-          zIndex: 1040,
+          zIndex: 1040, // 커뮤니티와 동일
           boxShadow: '0 -2px 10px rgba(0,0,0,0.08)',
         }}
       >
@@ -334,7 +330,6 @@ function StickyBottomAd({
     </>
   );
 }
-
 export default function CommunityPage() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
