@@ -7,6 +7,60 @@ import AdCarousel from '../components/AdCarousel';
 import { ensureLogin } from '../auth/ensureLogin';
 
 
+/* ── 하단 고정 광고 (커뮤니티와 동일) ───────────────── */
+function StickyBottomAd({
+  id = 'ad-sticky-bottom',
+  heightMobile = 80,
+  heightDesktop = 120,
+  label = 'Bottom Sticky 320×50 / 728×90',
+}) {
+  const [offset, setOffset] = useState(0); // BottomNav 높이만큼 띄움
+  const [height, setHeight] = useState(heightDesktop);
+
+  const recompute = useCallback(() => {
+    const isDesktop = window.matchMedia('(min-width: 992px)').matches;
+    setHeight(isDesktop ? heightDesktop : heightMobile);
+
+    const sp = document.querySelector('.bottom-nav-spacer');
+    const spH = sp ? sp.getBoundingClientRect().height : 0;
+    setOffset(isDesktop ? 0 : spH);
+  }, [heightDesktop, heightMobile]);
+
+  useEffect(() => {
+    recompute();
+    window.addEventListener('resize', recompute);
+    window.addEventListener('orientationchange', recompute);
+    return () => {
+      window.removeEventListener('resize', recompute);
+      window.removeEventListener('orientationchange', recompute);
+    };
+  }, [recompute]);
+
+  return (
+    <>
+      {/* 본문 가림 방지 여백 */}
+      <div style={{ height: height + 8 }} aria-hidden="true" />
+
+      <div
+        id={id}
+        className="position-fixed border-top bg-light d-flex align-items-center justify-content-center"
+        role="complementary"
+        aria-label="하단 광고영역"
+        style={{
+          left: 0,
+          right: 0,
+          bottom: `calc(${offset}px + env(safe-area-inset-bottom))`,
+          minHeight: height,
+          zIndex: 1040,
+          boxShadow: '0 -2px 10px rgba(0,0,0,0.08)',
+        }}
+      >
+        <span className="fw-semibold text-secondary text-uppercase small">{label}</span>
+      </div>
+    </>
+  );
+}
+
 /* ── 간단 광고 슬롯 ───────────────────────────── */
 function AdSlot({ id, label = 'AD', variant = 'leaderboard', fullBleed = false, width = '100%', height }) {
   const style = {};
@@ -517,7 +571,7 @@ export default function ShopPage() {
                           </button>
                           <button
                             type="button"
-                            className="btn btn成功 text-white btn-success"
+                            className="btn btn-success text-white"
                             onClick={(e) => { e.stopPropagation(); requireLogin(() => alert('세트 구매(데모)')); }}
                           >
                             구매
@@ -550,7 +604,9 @@ export default function ShopPage() {
         <div className="copy small">© {new Date().getFullYear()} RecipFree</div>
       </footer>
 
+      <StickyBottomAd label="Bottom Sticky 320×50 / 728×90" />
       <BottomNav />
+      <div className="bottom-nav-spacer" aria-hidden="true" />
 
       {/* ===== 모달: 상품 전체보기 ===== */}
       <div
