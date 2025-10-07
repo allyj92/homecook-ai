@@ -28,61 +28,75 @@ function TopSearchBar({ onSearch }) {
       className="position-sticky top-0"
       style={{
         zIndex: 1030,
-        background: 'rgba(255,255,255,0.9)',
-        backdropFilter: 'blur(6px)',
-        borderBottom: `1px solid ${BRAND.softBd}`,
+        backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)',
+        // 상단 스트립을 더 “시원하게” 보이도록 밝은 그라데이션
+        background: 'linear-gradient(180deg, rgba(255,247,241,0.85) 0%, rgba(255,255,255,0.85) 100%)',
       }}
     >
-      <div className="container-xxl py-2">
-        <form onSubmit={submit} className="mx-auto" style={{ maxWidth: 880 }}>
-          <div
-            className="d-flex align-items-center"
-            style={{
-              border: `1px solid ${BRAND.softBd}`,
-              borderRadius: 9999,
-              background: '#fff',
-              padding: '6px 8px',
-              gap: 8,
-            }}
-          >
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="레시피를 검색하세요"
-              className="form-control border-0"
-              style={{ boxShadow: 'none', height: 44, fontSize: '1rem' }}
-              aria-label="레시피 검색"
-            />
-            <button
-              type="submit"
-              className="btn p-0"
-              aria-label="검색"
-              title="검색"
+      <div className="container-xxl py-3 py-md-4">
+        {/* 주변 박스(넓고 시원하게) */}
+        <div
+          className="mx-auto rounded-4 border"
+          style={{
+            maxWidth: 1120,                 // 검색창보다 넓은 감싸는 박스
+            background: '#fff',
+            borderColor: BRAND.softBd,
+            boxShadow: '0 8px 28px rgba(0,0,0,0.07)', // 은은한 그림자
+          }}
+        >
+          <form onSubmit={submit} className="p-3 p-md-4" style={{ maxWidth: 880, margin: '0 auto' }}>
+            <div
+              className="d-flex align-items-center"
               style={{
-                width: 40,
-                height: 40,
-                borderRadius: '50%',
-                display: 'grid',
-                placeItems: 'center',
-                background: BRAND.orange,
+                // 검색창 크기는 그대로, 주변만 여유
+                border: `1px solid ${BRAND.softBd}`,
+                borderRadius: 9999,
+                background: '#fff',
+                padding: '6px 10px',
+                gap: 8,
               }}
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15z"
-                  fill="none"
-                  stroke="#fff"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </button>
-          </div>
-        </form>
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="레시피를 검색하세요"
+                className="form-control border-0"
+                style={{ boxShadow: 'none', height: 44, fontSize: '1rem' }} // ← 기존 크기 유지
+                aria-label="레시피 검색"
+              />
+              <button
+                type="submit"
+                className="btn p-0"
+                aria-label="검색"
+                title="검색"
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: '50%',
+                  display: 'grid',
+                  placeItems: 'center',
+                  background: BRAND.orange,
+                }}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15z"
+                    fill="none"
+                    stroke="#fff"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );
 }
+
 
 
 function StickyBottomAd({
