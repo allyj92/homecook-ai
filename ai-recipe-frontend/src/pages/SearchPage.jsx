@@ -1,185 +1,118 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+// src/pages/SearchPage.jsx
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
 
-/* ---- 브랜딩 컬러 ---- */
-const BRAND = {
-  orange: '#ff7f32',
-  teal:   '#009688',
-  ink:    '#212529',
-  mute:   '#6c757d',
-  softBg: '#fff7f1',
-  softBd: '#ffd7bf',
-};
-
-/* ---- 유틸(필요 최소) ---- */
-const ellipsis = (s, n = 48) => (s && s.length > n ? s.slice(0, n - 1) + '…' : s || '');
-const fmtNum = (n) => {
-  const x = Number(n || 0);
-  if (x >= 1000000) return (x/1000000).toFixed(1).replace(/\.0$/, '') + 'M';
-  if (x >= 1000)    return (x/1000).toFixed(1).replace(/\.0$/, '') + 'k';
-  return String(x);
-};
+// ───── helpers (간단 버전) ─────
 const toArr = (data) => {
   if (!data) return [];
   if (Array.isArray(data)) return data;
   if (Array.isArray(data.content)) return data.content;
   if (Array.isArray(data.items)) return data.items;
-  const firstArray = Object.values(data).find(v => Array.isArray(v));
+  const firstArray = Object.values(data).find((v) => Array.isArray(v));
   return Array.isArray(firstArray) ? firstArray : [];
 };
 
-async function fetchJson(url) {
-  const res = await fetch(url, { credentials: 'include', cache: 'no-store', headers: { Accept: 'application/json' } });
-  if (!res.ok) throw new Error(String(res.status));
-  return res.json();
-}
+const stripHtml = (s) => String(s || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+const norm = (s) => stripHtml(s).toLowerCase(); // 한글은 소문자 변환 영향 거의 없음
 
-/* 이미지 커버 추출(간단 버전) */
-function pick(obj, keys) { for (const k of keys) { if (obj && obj[k]) return obj[k]; } return null; }
-function buildCover(p) {
-  return (
-    pick(p, ['coverUrl','cover_url','imageUrl','image_url','thumbnailUrl','thumbnail_url','thumbnail']) ||
-    (p.attachments && p.attachments[0]?.url) ||
-    null
-  );
-}
+const textOf = (p) =>
+  [
+    p.title,
+    p.subtitle,
+    p.content,
+    p.body,
+    p.summary,
+    Array.isArray(p.tags) ? p.tags.join(' ') : '',
+  ]
+    .map(stripHtml)
+    .join(' ');
 
-/* 검색: 가능한 엔드포인트를 순차 시도 + 없으면 프런트 필터 */
-async function searchEverywhere(q) {
-  const size = 40;
-  const endpoints = [
-    `/api/search?q=${encodeURIComponent(q)}&size=${size}`,
-    `/api/community/posts?query=${encodeURIComponent(q)}&size=${size}`,
-    `/api/community/posts?q=${encodeURIComponent(q)}&size=${size}`,
-    `/api/community/posts?search=${encodeURIComponent(q)}&size=${size}`,
-  ];
-
-  for (const url of endpoints) {
-    try {
-      const j = await fetchJson(url);
-      const arr = toArr(j);
-      if (arr.length) {
-        return arr.map(p => ({
-          ...p,
-          __cover: buildCover(p),
-          __likes: Number(p.likeCount ?? p.like_count ?? p.likes ?? p.hearts ?? p.metrics?.likes ?? 0),
-          __comments: Number(p.commentCount ?? p.comment_count ?? p.comments ?? p.metrics?.comments ?? 0),
-          __asPost: true,
-        }));
-      }
-    } catch { /* 다음 후보로 */ }
-  }
-
-  // Fallback: 최근 글 받아서 클라에서 필터
-  try {
-    const j = await fetchJson(`/api/community/posts?page=0&size=200&sort=createdAt,desc`);
-    const items = toArr(j);
-    const qLower = q.toLowerCase();
-    return items
-      .filter(p => (String(p.title||'') + ' ' + String(p.content||'')).toLowerCase().includes(qLower))
-      .map(p => ({
-        ...p,
-        __cover: buildCover(p),
-        __likes: Number(p.likeCount ?? p.like_count ?? p.likes ?? p.hearts ?? p.metrics?.likes ?? 0),
-        __comments: Number(p.commentCount ?? p.comment_count ?? p.comments ?? p.metrics?.comments ?? 0),
-        __asPost: true,
-      }));
-  } catch {
-    return [];
-  }
-}
+// 간단 커버 추출(있으면 쓰고, 없어도 동작)
+const coverOf = (p) =>
+  p.coverUrl || p.cover_url || p.thumbnailUrl || p.thumbnail_url || p.imageUrl || p.image_url || null;
 
 export default function SearchPage() {
-  const navigate = useNavigate();
-  const [params] = useSearchParams();
-  const keyword = useMemo(() => String(params.get('q') || '').trim(), [params]);
+  const nav = useNavigate();
+  const { search } = useLocation();
+  const q = useMemo(() => decodeURIComponent(new URLSearchParams(search).get('q') || ''), [search]);
 
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [all, setAll] = useState([]);
   const [results, setResults] = useState([]);
-  const [error, setError] = useState('');
 
-  const run = useCallback(async () => {
-    if (!keyword) { setResults([]); return; }
-    setLoading(true); setError('');
-    try {
-      const r = await searchEverywhere(keyword);
-      setResults(r);
-    } catch (e) {
-      setError('검색 중 오류가 발생했어요.');
-    } finally {
-      setLoading(false);
+  // 목록 로드 (백엔드 수정 없이 최근 n개 가져와 클라에서 필터)
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await fetch('/api/community/posts?page=0&size=300&sort=createdAt,desc', {
+          credentials: 'include',
+          cache: 'no-store',
+          headers: { Accept: 'application/json' },
+        });
+        const j = await res.json();
+        const items = toArr(j).map((p) => ({
+          ...p,
+          __cover: coverOf(p),
+          __likes: Number(
+            p.likeCount ?? p.like_count ?? p.likes ?? p.hearts ?? p.metrics?.likes ?? p.metrics?.hearts ?? 0
+          ),
+          __comments: Number(p.commentCount ?? p.comment_count ?? p.comments ?? p.metrics?.comments ?? 0),
+          __text: textOf(p),
+          __textNorm: norm(textOf(p)),
+        }));
+        if (alive) setAll(items);
+      } catch {
+        if (alive) setAll([]);
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // 필터링
+  const tokens = useMemo(
+    () =>
+      norm(q)
+        .split(/\s+/)
+        .filter(Boolean),
+    [q]
+  );
+
+  useEffect(() => {
+    if (!q.trim()) {
+      setResults([]);
+      return;
     }
-  }, [keyword]);
+    // AND 매칭: 모든 토큰이 포함되어야 함
+    const matched = all.filter((p) => tokens.every((t) => p.__textNorm.includes(t)));
 
-  useEffect(() => { run(); }, [run]);
+    // 간단 랭킹: 일치 횟수 + 참여도(좋아요/댓글 약간 가중)
+    const score = (p) => {
+      const occur = tokens.reduce((sum, t) => sum + (p.__textNorm.split(t).length - 1), 0);
+      return occur * 10 + p.__likes * 0.5 + p.__comments * 0.3;
+    };
+    matched.sort((a, b) => score(b) - score(a));
+    setResults(matched);
+  }, [q, all, tokens]);
 
   return (
     <div className="container-xxl py-3">
-      {/* 상단 (검색창 간단 복붙) */}
-      <div
-        className="position-sticky top-0"
-        style={{
-          zIndex: 1030,
-          background: 'rgba(255,255,255,0.9)',
-          backdropFilter: 'blur(6px)',
-          borderBottom: `1px solid ${BRAND.softBd}`,
-        }}
-      >
-        <div className="container-xxl py-2">
-          <form
-            onSubmit={(e) => { e.preventDefault(); const v = e.currentTarget.q.value.trim(); if (v) navigate(`/search?q=${encodeURIComponent(v)}`); }}
-            className="mx-auto"
-            style={{ maxWidth: 880 }}
-          >
-            <div
-              className="d-flex align-items-center"
-              style={{
-                border: `1px solid ${BRAND.softBd}`,
-                borderRadius: 9999,
-                background: '#fff',
-                padding: '6px 8px',
-                gap: 8,
-              }}
-            >
-              <input
-                name="q"
-                defaultValue={keyword}
-                placeholder="레시피를 검색하세요"
-                className="form-control border-0"
-                style={{ boxShadow: 'none', height: 44, fontSize: '1rem' }}
-                aria-label="레시피 검색"
-              />
-              <button
-                type="submit"
-                className="btn p-0"
-                aria-label="검색"
-                title="검색"
-                style={{
-                  width: 40, height: 40, borderRadius: '50%',
-                  display: 'grid', placeItems: 'center', background: BRAND.orange,
-                }}
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15z"
-                        fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round"/>
-                </svg>
-              </button>
-            </div>
-          </form>
-        </div>
+      <div className="d-flex align-items-center gap-2 mb-3">
+        <button className="btn btn-light border" onClick={() => nav(-1)}>
+          ← 뒤로
+        </button>
+        <h1 className="h5 m-0">검색 결과</h1>
+        <div className="ms-auto small text-secondary">“{q}”</div>
       </div>
 
-      {/* 본문 */}
-      <div className="d-flex align-items-center justify-content-between mt-3 mb-2">
-        <h2 className="h5 fw-bold m-0" style={{ color: BRAND.ink }}>
-          {keyword ? `“${keyword}” 검색 결과` : '검색'}
-        </h2>
-        {!loading && keyword && (
-          <span className="small" style={{ color: BRAND.mute }}>
-            {results.length.toLocaleString()}건
-          </span>
-        )}
-      </div>
+      {(!q || !q.trim()) && (
+        <div className="alert alert-light border">검색어를 입력해 주세요.</div>
+      )}
 
       {loading ? (
         <div className="row g-3">
@@ -195,54 +128,45 @@ export default function SearchPage() {
             </div>
           ))}
         </div>
-      ) : error ? (
-        <div className="alert alert-danger small">{error}</div>
       ) : results.length === 0 ? (
-        <div className="alert alert-light border small">검색 결과가 없어요.</div>
+        <div className="alert alert-light border">
+          “{q}”에 대한 결과가 없어요. 철자나 다른 키워드로 다시 검색해 보세요.
+        </div>
       ) : (
         <div className="row g-3">
           {results.map((p) => {
-            const to = `/community/${p.id}`; // 현재는 커뮤니티 글 기준
+            const to = `/community/${p.id}`;
             return (
               <div className="col-12 col-sm-6 col-lg-3" key={p.id}>
                 <article
                   className="card h-100 shadow-sm"
-                  onClick={() => navigate(to)}
-                  tabIndex={0}
                   role="button"
-                  aria-label={`${p.title || '게시글'} 보기`}
-                  style={{ contentVisibility: 'auto', containIntrinsicSize: '600px' }}
+                  onClick={() => nav(to)}
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      nav(to);
+                    }
+                  }}
                 >
-                  <div className="position-relative">
-                    <div className="ratio ratio-4x3 bg-light rounded-top">
-                      {p.__cover && (
-                        <img
-                          src={p.__cover}
-                          alt=""
-                          className="position-absolute top-0 start-0 w-100 h-100 rounded-top"
-                          style={{ objectFit: 'cover' }}
-                          onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                          loading="lazy"
-                          decoding="async"
-                        />
-                      )}
-                    </div>
-                    {p.__likes > 0 && (
-                      <span
-                        className="badge border position-absolute top-0 start-0 m-2"
-                        style={{ background: BRAND.teal, color: '#fff', borderColor: BRAND.teal }}
-                      >
-                        ❤ {fmtNum(p.__likes)}
-                      </span>
+                  <div className="ratio ratio-4x3 bg-light rounded-top position-relative">
+                    {p.__cover && (
+                      <img
+                        src={p.__cover}
+                        alt=""
+                        className="position-absolute top-0 start-0 w-100 h-100 rounded-top"
+                        style={{ objectFit: 'cover' }}
+                        loading="lazy"
+                        decoding="async"
+                      />
                     )}
                   </div>
                   <div className="card-body">
-                    <h3 className="h6 fw-semibold mb-1" style={{ color: BRAND.ink }}>
-                      {ellipsis(p.title || `게시글 #${p.id}`, 48)}
-                    </h3>
-                    <div className="small d-flex align-items-center gap-3" style={{ color: BRAND.mute }}>
-                      <span aria-label={`좋아요 ${p.__likes}개`}>❤ {fmtNum(p.__likes)}</span>
-                      <span aria-label={`댓글 ${p.__comments}개`}>💬 {fmtNum(p.__comments)}</span>
+                    <h3 className="h6 fw-semibold mb-1">{p.title || `게시글 #${p.id}`}</h3>
+                    <div className="small d-flex align-items-center gap-3 text-secondary">
+                      <span>❤ {p.__likes}</span>
+                      <span>💬 {p.__comments}</span>
                     </div>
                   </div>
                 </article>
