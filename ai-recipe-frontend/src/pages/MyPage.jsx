@@ -457,7 +457,7 @@ export default function MyPage() {
             </div>
           </section>
         </div>
-        <StickyBottom />
+        <StickyBottomAd />
         <BottomNav />
       </div>
     );
@@ -710,7 +710,7 @@ export default function MyPage() {
       <StickyBottomAd label="Bottom Sticky 320×50 / 728×90" />
       <BottomNav />
       <div className="bottom-nav-spacer" aria-hidden="true" />
-      
+
       {DEBUG && (
         <pre className="mt-3 p-2 border rounded bg-light small" style={{whiteSpace:'pre-wrap'}}>
           <b>DEBUG</b>
