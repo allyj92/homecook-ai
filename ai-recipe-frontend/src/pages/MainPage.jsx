@@ -17,17 +17,20 @@ const BRAND = {
 
 function StickyBottomAd({
   id = 'sticky-bottom-ad',
-  height = 60,              // 320×50 / 728×90 등
+  heightMobile = 80,     // 모바일에서 조금 더 크게
+  heightDesktop = 120,   // 데스크톱에서 더 크게
   label = 'Bottom Sticky',
 }) {
   const [show, setShow] = useState(() => localStorage.getItem('hide:'+id) !== '1');
-  const [bottomOffset, setBottomOffset] = useState(8); // BottomNav와 겹침 방지
+  const [bottomOffset, setBottomOffset] = useState(8);
+  const isDesktop = typeof window !== 'undefined' && window.innerWidth >= 992;
+  const height = isDesktop ? heightDesktop : heightMobile;
 
   useEffect(() => {
     const update = () => {
       const sp = document.querySelector('.bottom-nav-spacer');
       const h = sp ? sp.getBoundingClientRect().height : 0;
-      setBottomOffset(h + 8);
+      setBottomOffset(h + 8); // BottomNav와 겹침 방지
     };
     update();
     window.addEventListener('resize', update);
@@ -38,32 +41,40 @@ function StickyBottomAd({
 
   return (
     <>
-      {/* 본문이 가려지지 않게 여유 공간 확보 */}
+      {/* 본문 가림 방지용 여백 */}
       <div style={{ height: height + 16 }} aria-hidden="true" />
 
+      {/* 풀블리드(좌우 꽉 차게) */}
       <div
         id={id}
-        className="position-fixed start-0 end-0 px-2"
+        className="position-fixed"
         style={{
+          left: 0,
+          right: 0,
           bottom: `calc(${bottomOffset}px + env(safe-area-inset-bottom))`,
-          zIndex: 1040, // 모달(1050)보단 낮고, 컨텐츠/바텀내브보단 높게
-          pointerEvents: 'auto',
+          zIndex: 1040,
         }}
         role="complementary"
         aria-label={`${label} 광고영역`}
       >
-        <div className="container-xxl">
-          <div
-            className="border rounded-3 shadow-sm bg-white d-flex align-items-center justify-content-center position-relative"
-            style={{ minHeight: height, borderColor: BRAND.softBd, background: BRAND.softBg }}
-          >
-            <button
-              type="button"
-              className="btn-close position-absolute top-0 end-0 m-2"
-              aria-label="광고 닫기"
-              onClick={() => { setShow(false); localStorage.setItem('hide:'+id, '1'); }}
-            />
-            {/* 여기에 실제 광고 코드/태그 삽입 */}
+        <div
+          className="w-100"
+          style={{
+            minHeight: height,
+            background: BRAND.softBg,
+            borderTop: `1px solid ${BRAND.softBd}`,
+            // 풀블리드이므로 라운드/여백 제거
+          }}
+        >
+          <button
+            type="button"
+            className="btn-close position-absolute"
+            style={{ top: 8, right: 8 }}
+            aria-label="광고 닫기"
+            onClick={() => { setShow(false); localStorage.setItem('hide:'+id, '1'); }}
+          />
+          {/* 실제 광고 태그/스크립트 삽입 위치 */}
+          <div className="d-flex align-items-center justify-content-center" style={{ minHeight: height }}>
             <span className="small" style={{ color: BRAND.mute }}>{label}</span>
           </div>
         </div>
@@ -835,10 +846,6 @@ export default function MainPage() {
             )}
           </section>
 
-          <div className="mt-4">
-            <AdSlot id="ad-infeed-1" height={250} label="In-Feed 336×280 / 반응형" />
-          </div>
-
           {/* 안내 섹션 */}
           <section className="mt-4">
             <div className="mb-2">
@@ -888,7 +895,7 @@ export default function MainPage() {
       </main>
 
       {/* 하단 고정 띠배너 광고 */}
-      <StickyBottomAd height={window.innerWidth >= 992 ? 90 : 60} />
+      <StickyBottomAd heightMobile={80} heightDesktop={120} label="Bottom Sticky" />
       <footer className="text-center mt-4">
         <div className="small" style={{ color: BRAND.mute }}>
           * 일부 영역에는 제휴/광고 링크가 포함될 수 있으며, 구매 시 서비스 운영을 위한 수익이 발생할 수 있습니다.
