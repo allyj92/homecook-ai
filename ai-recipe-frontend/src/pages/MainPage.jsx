@@ -29,7 +29,7 @@ function TopSearchBar({ onSearch }) {
       className="position-sticky top-0 bg-white"
       style={{
         zIndex: 1030,
-        borderBottom: '1px solid #eee', // 상단 구분선만
+        borderBottom: '1px solid #eee',
       }}
     >
       <div
@@ -46,7 +46,6 @@ function TopSearchBar({ onSearch }) {
             maxWidth: 640,
             display: 'flex',
             alignItems: 'center',
-            gap: 8,
             background: '#fff',
             borderRadius: 12,
             border: '1px solid #ddd',
@@ -54,22 +53,6 @@ function TopSearchBar({ onSearch }) {
             boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
           }}
         >
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-            style={{ color: '#999' }}
-          >
-            <path
-              d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15z"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-            />
-          </svg>
-
           <input
             type="search"
             value={q}
@@ -87,13 +70,40 @@ function TopSearchBar({ onSearch }) {
             <button
               type="button"
               onClick={() => setQ('')}
-              className="btn btn-light p-0 border-0"
-              style={{ color: '#999' }}
+              className="btn btn-light p-0 border-0 me-2"
+              style={{ color: '#999', fontSize: 18 }}
               aria-label="검색어 지우기"
             >
               ✕
             </button>
           )}
+
+          <button
+            type="submit"
+            className="btn btn-success rounded-circle d-flex align-items-center justify-content-center"
+            aria-label="검색"
+            style={{
+              width: 38,
+              height: 38,
+              padding: 0,
+              background: '#28a745',
+              border: 'none',
+            }}
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="white"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+          </button>
         </form>
       </div>
     </div>
