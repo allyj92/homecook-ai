@@ -14,6 +14,66 @@ const BRAND = {
   softBd: '#ffd7bf',
 };
 
+
+function StickyBottomAd({
+  id = 'sticky-bottom-ad',
+  height = 60,              // 320×50 / 728×90 등
+  label = 'Bottom Sticky',
+}) {
+  const [show, setShow] = useState(() => localStorage.getItem('hide:'+id) !== '1');
+  const [bottomOffset, setBottomOffset] = useState(8); // BottomNav와 겹침 방지
+
+  useEffect(() => {
+    const update = () => {
+      const sp = document.querySelector('.bottom-nav-spacer');
+      const h = sp ? sp.getBoundingClientRect().height : 0;
+      setBottomOffset(h + 8);
+    };
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
+
+  if (!show) return null;
+
+  return (
+    <>
+      {/* 본문이 가려지지 않게 여유 공간 확보 */}
+      <div style={{ height: height + 16 }} aria-hidden="true" />
+
+      <div
+        id={id}
+        className="position-fixed start-0 end-0 px-2"
+        style={{
+          bottom: `calc(${bottomOffset}px + env(safe-area-inset-bottom))`,
+          zIndex: 1040, // 모달(1050)보단 낮고, 컨텐츠/바텀내브보단 높게
+          pointerEvents: 'auto',
+        }}
+        role="complementary"
+        aria-label={`${label} 광고영역`}
+      >
+        <div className="container-xxl">
+          <div
+            className="border rounded-3 shadow-sm bg-white d-flex align-items-center justify-content-center position-relative"
+            style={{ minHeight: height, borderColor: BRAND.softBd, background: BRAND.softBg }}
+          >
+            <button
+              type="button"
+              className="btn-close position-absolute top-0 end-0 m-2"
+              aria-label="광고 닫기"
+              onClick={() => { setShow(false); localStorage.setItem('hide:'+id, '1'); }}
+            />
+            {/* 여기에 실제 광고 코드/태그 삽입 */}
+            <span className="small" style={{ color: BRAND.mute }}>{label}</span>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+
+
 function AdSlot({ id, height = 90, label = 'AD', fullBleed = false, sticky = false }) {
   if (fullBleed) {
     return (
@@ -536,14 +596,7 @@ export default function MainPage() {
       <AdSlot id="ad-top-banner" height={96} label="Top Banner (728/970×90)" fullBleed />
 
       <main className="row g-4 mt-1">
-        <aside className="col-12 col-lg-3 d-none d-lg-block">
-          <div className="position-sticky" style={{ top: 12 }}>
-            <AdSlot id="ad-side-1" height={600} label="Skyscraper 300×600" />
-            <AdSlot id="ad-side-2" height={250} label="Rectangle 300×250" />
-          </div>
-        </aside>
-
-        <section className="col-12 col-lg-9">
+        <section className="col-12">
           {/* HERO */}
           <section className="rounded-4 border p-4 p-lg-5" style={{ background: '#fff', borderColor: BRAND.softBd }}>
             <div className="row align-items-center g-4">
@@ -834,6 +887,8 @@ export default function MainPage() {
         </section>
       </main>
 
+      {/* 하단 고정 띠배너 광고 */}
+      <StickyBottomAd height={window.innerWidth >= 992 ? 90 : 60} />
       <footer className="text-center mt-4">
         <div className="small" style={{ color: BRAND.mute }}>
           * 일부 영역에는 제휴/광고 링크가 포함될 수 있으며, 구매 시 서비스 운영을 위한 수익이 발생할 수 있습니다.
