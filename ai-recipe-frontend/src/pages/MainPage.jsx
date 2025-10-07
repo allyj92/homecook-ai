@@ -618,9 +618,9 @@ export default function MainPage() {
                         ? <span className="placeholder col-8" style={{ display:'inline-block', height:22 }} />
                         : ellipsis(bestToday?.title || '오늘의 추천', 48)}
                     </h3>
-                    <div className="small" style={{ color: BRAND.mute }}>
+                    {/* <div className="small" style={{ color: BRAND.mute }}>
                       {bestToday ? '좋아요+댓글 합산 최다' : '최근 반응 기반 추천'}
-                    </div>
+                    </div> */}
                   </div>
                 </div>
               </div>
