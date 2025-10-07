@@ -1,6 +1,6 @@
 
 // src/pages/MyPage.jsx
-import { useEffect, useState, useMemo } from 'react';
+ import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import BottomNav from '../components/BottomNav';
 import { apiFetch } from '../lib/http';
@@ -205,17 +205,6 @@ export default function MyPage() {
   const [bookmarks, setBookmarks] = useState([]);
   const [bmLoading, setBmLoading] = useState(false);
 
-  +  /* 북마크 변경/화면 복귀 시 새로고침 */
-  useEffect(() => {
-    const onBM = () => fetchBookmarks();
-    const onVis = () => { if (document.visibilityState === 'visible') fetchBookmarks(); };
-    window.addEventListener('bookmark-changed', onBM);
-    document.addEventListener('visibilitychange', onVis);
-    return () => {
-      window.removeEventListener('bookmark-changed', onBM);
-      document.removeEventListener('visibilitychange', onVis);
-    };
-  }, [fetchBookmarks]);
 
   /* me 먼저 로드 */
   useEffect(() => {
@@ -359,6 +348,19 @@ export default function MyPage() {
 
 
   useEffect(() => { fetchBookmarks(); }, [fetchBookmarks]);
+
+     /* 북마크 변경/화면 복귀 시 새로고침 */
+  useEffect(() => {
+    const onBM = () => fetchBookmarks();
+    const onVis = () => { if (document.visibilityState === 'visible') fetchBookmarks(); };
+    window.addEventListener('bookmark-changed', onBM);
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      window.removeEventListener('bookmark-changed', onBM);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [fetchBookmarks]);
+
 
   /* 북마크 해제(서버 호출) */
   async function onUnbookmark(e, postId) {
