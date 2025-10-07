@@ -278,42 +278,58 @@ function PostCard({ post, onOpen, priority = false, dateFmt }) {
 }
 
 /* ------------ 하단 고정 광고 (메인과 동일 스타일) ------------ */
-function StickyBottomAd({ id = 'ad-sticky-bottom', height = 140, label = 'AD' }) {
-  const [isMobile, setIsMobile] = useState(window.innerWidth < 992);
-  const navHeight = 60; // BottomNav 높이 예상
+function StickyBottomAd({
+  id = 'ad-sticky-bottom',
+  heightMobile = 80,
+  heightDesktop = 120,
+  label = 'Bottom Sticky',
+}) {
+  const [offset, setOffset] = useState(0);        // 하단 네비 높이(보일 때만)
+  const [height, setHeight] = useState(heightDesktop);
+
+  const recompute = useCallback(() => {
+    // Bootstrap 기준: lg(>=992px)부터 데스크탑
+    const isDesktop = window.matchMedia('(min-width: 992px)').matches;
+    setHeight(isDesktop ? heightDesktop : heightMobile);
+
+    // 하단 네비가 있다면 spacer 높이로 오프셋 계산 (없으면 0)
+    const sp = document.querySelector('.bottom-nav-spacer');
+    const spH = sp ? sp.getBoundingClientRect().height : 0;
+    setOffset(isDesktop ? 0 : spH);
+  }, [heightDesktop, heightMobile]);
 
   useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 992);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  const bottomOffset = isMobile ? navHeight : 0; // 모바일: 네비 위, 데스크탑: 바닥 붙임
+    recompute();
+    window.addEventListener('resize', recompute);
+    window.addEventListener('orientationchange', recompute);
+    return () => {
+      window.removeEventListener('resize', recompute);
+      window.removeEventListener('orientationchange', recompute);
+    };
+  }, [recompute]);
 
   return (
     <>
-      {/* 콘텐츠 여백 확보 */}
-      <div style={{ height: height + (isMobile ? navHeight : 0) }} aria-hidden />
+      {/* 본문 가림 방지용 여백(광고 높이만큼) */}
+      <div style={{ height: height + 8 }} aria-hidden="true" />
 
+      {/* 풀블리드 하단 고정 */}
       <div
         id={id}
-        className="border-top bg-light d-flex align-items-center justify-content-center"
-        style={{
-          position: 'fixed',
-          left: 0,
-          right: 0,
-          bottom: bottomOffset,
-          height,
-          zIndex: isMobile ? 1035 : 1030, // 네비보다 살짝 낮거나 비슷
-          boxShadow: '0 -2px 10px rgba(0,0,0,0.08)',
-          transition: 'bottom 0.3s ease',
-        }}
+        className="position-fixed border-top bg-light d-flex align-items-center justify-content-center"
         role="complementary"
         aria-label="하단 광고영역"
+        style={{
+          left: 0,
+          right: 0,
+          // 모바일: 네비 높이만큼 올림, 데스크탑: 0으로 바닥에 딱
+          bottom: `calc(${offset}px + env(safe-area-inset-bottom))`,
+          minHeight: height,
+          zIndex: 1040,
+          boxShadow: '0 -2px 10px rgba(0,0,0,0.08)',
+        }}
       >
-        <span className="fw-semibold text-secondary text-uppercase small">
-          {label}
-        </span>
+        <span className="fw-semibold text-secondary text-uppercase small">{label}</span>
       </div>
     </>
   );
