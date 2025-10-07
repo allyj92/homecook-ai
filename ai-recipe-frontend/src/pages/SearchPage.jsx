@@ -2,7 +2,7 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useMemo, useState } from 'react';
 
-/* ───────── helpers ───────── */
+/* ───────── 공통 유틸 ───────── */
 const toArr = (data) => {
   if (!data) return [];
   if (Array.isArray(data)) return data;
@@ -13,14 +13,14 @@ const toArr = (data) => {
 };
 
 const stripHtml = (s) => String(s || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-const norm = (s) => stripHtml(s).toLowerCase(); // 한글 소문자 영향 거의 없음
+const norm = (s) => stripHtml(s).toLowerCase();
 const textOf = (p) =>
   [p.title, p.subtitle, p.content, p.body, p.summary, Array.isArray(p.tags) ? p.tags.join(' ') : '']
     .map(stripHtml)
     .join(' ');
 
-/* ───────── cover builder (커뮤니티/메인과 동일 정책) ───────── */
-const unwrapLoginUrl = (url) => {
+/* ───────── 이미지 URL 유틸 ───────── */
+function unwrapLoginUrl(url) {
   try {
     const u = new URL(url, window.location.origin);
     const host = u.host.toLowerCase();
@@ -38,9 +38,9 @@ const unwrapLoginUrl = (url) => {
     }
   } catch {}
   return url;
-};
+}
 
-const isUsableImageUrl = (url) => {
+function isUsableImageUrl(url) {
   try {
     const u = new URL(url, window.location.origin);
     if (/\/(auth|login)/i.test(u.pathname.toLowerCase())) return false;
@@ -49,9 +49,9 @@ const isUsableImageUrl = (url) => {
     if (httpsPage && external && u.protocol === 'http:') return false; // mixed content 차단
     return /^https?:/.test(u.href) || u.href.startsWith('data:') || u.href.startsWith('/');
   } catch { return false; }
-};
+}
 
-const normalizeCoverUrl = (url) => {
+function normalizeCoverUrl(url) {
   if (!url) return null;
   if (/^(data:|blob:)/i.test(url)) return url;
   try {
@@ -64,9 +64,9 @@ const normalizeCoverUrl = (url) => {
     if (u.host === window.location.host) return u.pathname + u.search + u.hash;
     return u.toString();
   } catch { return url; }
-};
+}
 
-const withVersion = (url, ver) => {
+function withVersion(url, ver) {
   if (!url) return url;
   try {
     const u = new URL(url, window.location.origin);
@@ -80,11 +80,12 @@ const withVersion = (url, ver) => {
     }
     return u.toString();
   } catch { return url; }
-};
+}
 
 const ytThumb = (id) => (id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : null);
 
-const firstImageFromContent = (p) => {
+/* 본문/첨부에서 이미지 후보 추출 */
+function firstImageFromContent(p) {
   let s = String(p?.content ?? p?.body ?? p?.html ?? '').trim();
   if (!s) return null;
 
@@ -112,9 +113,9 @@ const firstImageFromContent = (p) => {
     }
   }
   return null;
-};
+}
 
-const firstAttachmentUrl = (p) => {
+function firstAttachmentUrl(p) {
   const arr = p?.attachments ?? p?.images ?? p?.photos ?? [];
   for (const it of (Array.isArray(arr) ? arr : [])) {
     const raw = it?.url ?? it?.src ?? it?.imageUrl ?? it?.downloadUrl;
@@ -122,25 +123,59 @@ const firstAttachmentUrl = (p) => {
     if (u && isUsableImageUrl(u)) return u;
   }
   return null;
-};
+}
 
-const buildCover = (p) => {
+/* 후보들을 여러 개 모아서 폴백 가능하게 */
+function collectCoverCandidates(p) {
   const updatedAt = p.updatedAt ?? p.updated_at ?? p.createdAt ?? p.created_at ?? null;
-  const raw =
-    p.coverUrl ?? p.cover_url ??
-    p.repImageUrl ?? p.rep_image_url ??           // 서버에서 쓰는 필드까지 포함
-    p.thumbnailUrl ?? p.thumbnail_url ??
-    p.imageUrl ?? p.image_url ??
-    firstAttachmentUrl(p) ??
-    firstImageFromContent(p) ??
-    null;
+  const candidatesRaw = [
+    p.coverUrl, p.cover_url,
+    p.repImageUrl, p.rep_image_url,
+    p.thumbnailUrl, p.thumbnail_url,
+    p.imageUrl, p.image_url,
+    firstAttachmentUrl(p),
+    firstImageFromContent(p),
+    ytThumb(p.youtubeId ?? p.youtube_id ?? null),
+  ].filter(Boolean);
 
-  const normalized = raw ? withVersion(normalizeCoverUrl(raw), updatedAt) : null;
-  const finalUrl = normalized && isUsableImageUrl(normalized) ? normalized : null;
-  return finalUrl || ytThumb(p.youtubeId ?? p.youtube_id ?? null) || null;
-};
+  const normalized = candidatesRaw
+    .map((u) => withVersion(normalizeCoverUrl(u), updatedAt))
+    .filter(Boolean)
+    .filter(isUsableImageUrl);
 
-/* ───────── page ───────── */
+  // 중복 제거
+  const seen = new Set();
+  const uniq = [];
+  for (const u of normalized) {
+    const key = String(u).toLowerCase();
+    if (!seen.has(key)) { seen.add(key); uniq.push(u); }
+  }
+  return uniq;
+}
+
+/* 폴백 이미지 컴포넌트 */
+function SmartImg({ sources, alt = '', className = '' }) {
+  const [idx, setIdx] = useState(0);
+  const src = sources?.[idx] || null;
+  if (!src) return null;
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className={className}
+      style={{ objectFit: 'cover' }}
+      loading="lazy"
+      decoding="async"
+      referrerPolicy="no-referrer"
+      onError={() => {
+        if (idx + 1 < (sources?.length || 0)) setIdx(idx + 1);
+      }}
+    />
+  );
+}
+
+/* ───────── 페이지 ───────── */
 export default function SearchPage() {
   const nav = useNavigate();
   const { search } = useLocation();
@@ -150,7 +185,7 @@ export default function SearchPage() {
   const [all, setAll] = useState([]);
   const [results, setResults] = useState([]);
 
-  // 목록 로드 (최근 n개 받아서 클라에서 필터)
+  // 목록 로드
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -164,7 +199,7 @@ export default function SearchPage() {
         const j = await res.json();
         const items = toArr(j).map((p) => ({
           ...p,
-          __cover: buildCover(p),
+          __covers: collectCoverCandidates(p),
           __likes: Number(
             p.likeCount ?? p.like_count ?? p.likes ?? p.hearts ?? p.metrics?.likes ?? p.metrics?.hearts ?? 0
           ),
@@ -182,21 +217,15 @@ export default function SearchPage() {
     return () => { alive = false; };
   }, []);
 
-  // 토큰화 & 결과 필터링
-  const tokens = useMemo(
-    () => norm(q).split(/\s+/).filter(Boolean),
-    [q]
-  );
+  // 필터링
+  const tokens = useMemo(() => norm(q).split(/\s+/).filter(Boolean), [q]);
 
   useEffect(() => {
     if (!q.trim()) {
       setResults([]);
       return;
     }
-    // AND 매칭: 모든 토큰 포함
     const matched = all.filter((p) => tokens.every((t) => p.__textNorm.includes(t)));
-
-    // 간단 랭킹: 일치횟수 + 참여도 가중
     const score = (p) => {
       const occur = tokens.reduce((sum, t) => sum + (p.__textNorm.split(t).length - 1), 0);
       return occur * 10 + p.__likes * 0.5 + p.__comments * 0.3;
@@ -208,9 +237,7 @@ export default function SearchPage() {
   return (
     <div className="container-xxl py-3">
       <div className="d-flex align-items-center gap-2 mb-3">
-        <button className="btn btn-light border" onClick={() => nav(-1)}>
-          ← 뒤로
-        </button>
+        <button className="btn btn-light border" onClick={() => nav(-1)}>← 뒤로</button>
         <h1 className="h5 m-0">검색 결과</h1>
         <div className="ms-auto small text-secondary">“{q}”</div>
       </div>
@@ -249,23 +276,14 @@ export default function SearchPage() {
                   onClick={() => nav(to)}
                   tabIndex={0}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      nav(to);
-                    }
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); nav(to); }
                   }}
                 >
                   <div className="ratio ratio-4x3 bg-light rounded-top position-relative">
-                    {p.__cover && (
-                      <img
-                        src={p.__cover}
-                        alt=""
+                    {p.__covers?.length > 0 && (
+                      <SmartImg
+                        sources={p.__covers}
                         className="position-absolute top-0 start-0 w-100 h-100 rounded-top"
-                        style={{ objectFit: 'cover' }}
-                        loading="lazy"
-                        decoding="async"
-                        referrerPolicy="no-referrer"
-                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
                       />
                     )}
                   </div>
