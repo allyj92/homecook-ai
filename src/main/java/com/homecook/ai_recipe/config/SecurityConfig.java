@@ -13,6 +13,7 @@ import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -168,26 +169,23 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.ignoringRequestMatchers("/api/**"))
                 .securityContext(ctx -> ctx.securityContextRepository(securityContextRepository()))
                 .authorizeHttpRequests(auth -> auth
-                        // 정책에 맞게 조정 (필요 시 authenticated()로 변경)
+                        // ✅ 프리플라이트 무조건 허용
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers("/api/auth/logout").permitAll()
                         .anyRequest().permitAll()
                 )
-                // API는 로그인 리다이렉트 대신 401
                 .exceptionHandling(ex -> ex
                         .defaultAuthenticationEntryPointFor(
                                 new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
                                 new AntPathRequestMatcher("/api/**")
                         )
                 )
-                .logout(lo -> lo
-                        .logoutUrl("/api/auth/logout") // 프론트는 POST로 호출
-                        .logoutSuccessHandler((req, res, auth) -> res.setStatus(204))
-                )
+                .logout(lo -> lo.logoutUrl("/api/auth/logout")
+                        .logoutSuccessHandler((req, res, authn) -> res.setStatus(204)))
                 .requestCache(c -> c.disable())
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED));
         return http.build();
     }
-
     /* --------------------------------
      * 체인 #3: 공개 라우트(/, /error 등) — 정적은 이미 ignoring이라 여기 안 탐
      * -------------------------------- */
@@ -212,11 +210,20 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         var cfg = new CorsConfiguration();
+
+        // ✅ 정확 오리진
+        cfg.setAllowedOrigins(List.of(
+                "https://recipfree.com",
+                "https://www.recipfree.com"
+        ));
+
+        // ✅ 와일드카드 패턴 (개발/서브도메인)
         cfg.setAllowedOriginPatterns(List.of(
                 "https://*.recipfree.com",
                 "http://localhost:*",
                 "http://127.0.0.1:*"
         ));
+
         cfg.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
         cfg.setAllowedHeaders(List.of("*"));
         cfg.setAllowCredentials(true);
@@ -226,4 +233,5 @@ public class SecurityConfig {
         source.registerCorsConfiguration("/**", cfg);
         return source;
     }
+
 }
