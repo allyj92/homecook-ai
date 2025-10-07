@@ -160,26 +160,53 @@ function normalizePostMeta(p) {
 }
 
 /* ▼▼▼ 하단 스티키 바 (커뮤니티 스타일) ▼▼▼ */
-function StickyBottom() {
+function StickyBottomAd({
+  id = 'ad-sticky-bottom',
+  heightMobile = 80,
+  heightDesktop = 120,
+  label = 'Bottom Sticky 320×50 / 728×90',
+}) {
+  const [offset, setOffset] = useState(0);
+  const [height, setHeight] = useState(heightDesktop);
+
+  const recompute = useCallback(() => {
+    const isDesktop = window.matchMedia('(min-width: 992px)').matches;
+    setHeight(isDesktop ? heightDesktop : heightMobile);
+    const sp = document.querySelector('.bottom-nav-spacer');
+    const spH = sp ? sp.getBoundingClientRect().height : 0;
+    setOffset(isDesktop ? 0 : spH);
+  }, [heightDesktop, heightMobile]);
+
+  useEffect(() => {
+    recompute();
+    window.addEventListener('resize', recompute);
+    window.addEventListener('orientationchange', recompute);
+    return () => {
+      window.removeEventListener('resize', recompute);
+      window.removeEventListener('orientationchange', recompute);
+    };
+  }, [recompute]);
+
   return (
-    <div
-      id="sticky-bottom"
-      className="position-fixed bottom-0 start-0 end-0 bg-white border-top shadow-sm"
-      style={{ zIndex: 1050 }}  // BottomNav보다 높게
-      role="complementary"
-      aria-label="sticky-bottom"
-    >
-      <div className="container-xxl py-2 d-flex justify-content-center">
-        {/* 데모용: 바로 보이도록 박스 표시 */}
-        <div
-          id="sticky-bottom-slot"
-          className="w-100 d-flex align-items-center justify-content-center"
-          style={{ maxWidth: 728, minHeight: 64 }}
-        >
-          <span className="text-secondary small">[Sticky Bottom Slot]</span>
-        </div>
+    <>
+      <div style={{ height: height + 8 }} aria-hidden="true" />
+      <div
+        id={id}
+        className="position-fixed border-top bg-light d-flex align-items-center justify-content-center"
+        role="complementary"
+        aria-label="하단 광고영역"
+        style={{
+          left: 0,
+          right: 0,
+          bottom: `calc(${offset}px + env(safe-area-inset-bottom))`,
+          minHeight: height,
+          zIndex: 1040,
+          boxShadow: '0 -2px 10px rgba(0,0,0,0.08)',
+        }}
+      >
+        <span className="fw-semibold text-secondary text-uppercase small">{label}</span>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -685,7 +712,7 @@ export default function MyPage() {
 
       {/* 이미 쓰고 있는 하단 내비(없애고 싶으면 제거 가능) */}
       <BottomNav />
-
+      <div className="bottom-nav-spacer" aria-hidden="true" />
       {DEBUG && (
         <pre className="mt-3 p-2 border rounded bg-light small" style={{whiteSpace:'pre-wrap'}}>
           <b>DEBUG</b>
