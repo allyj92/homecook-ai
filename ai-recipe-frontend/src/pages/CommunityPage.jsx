@@ -71,9 +71,11 @@ function isUsableImageUrl(url) {
   try {
     const u = new URL(url, window.location.origin);
        // 로그인 래퍼 자체 URL만 1차 제외 (실제 이미지 src로 쓰일 일 거의 없음)
-   const path = u.pathname.toLowerCase();
-   if (/\/(auth|login)/i.test(path)) return false;
-   // 나머지는 브라우저/SmartImg에 맡김 (http -> https 승격은 normalize에서 시도함)
+  if (/\/(auth|login)/i.test(u.pathname.toLowerCase())) return false;
+   // 혼합 콘텐츠 방지: https 페이지에서 외부 http 이미지는 제외
+   const isHttpsPage = window.location.protocol === 'https:';
+   const isExternal = u.host !== window.location.host;
+   if (isHttpsPage && isExternal && u.protocol === 'http:') return false;
    return /^https?:/.test(u.href) || u.href.startsWith('data:') || u.href.startsWith('/');
   } catch {
     return false;
@@ -214,8 +216,6 @@ function SmartImg({ sources, alt = '', className = '', onHide }) {
       className={className}
       loading="lazy"
       decoding="async"
-      referrerPolicy="no-referrer"
-      crossOrigin="anonymous"
       onError={() => {
         if (idx + 1 < (sources?.length || 0)) setIdx(idx + 1);
         else if (onHide) onHide();
