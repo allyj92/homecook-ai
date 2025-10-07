@@ -225,7 +225,7 @@ function SmartImg({ sources, alt = '', className = '', onHide, priority = false 
 
 function PostCard({ post, onOpen, priority = false, dateFmt }) {
   const rawForPreview = post.preview || post.bodyPreview || post.content || post.body || '';
-  const preview = makePreviewText(rawForPreview, 100);
+  const preview = makePreviewText(rawForPreview, 140);
   const when = dateFmt.format(new Date(post.createdAt || post.updatedAt || Date.now()));
   const [showImg, setShowImg] = useState(true);
 
