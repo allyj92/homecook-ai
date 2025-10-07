@@ -279,11 +279,21 @@ function PostCard({ post, onOpen, priority = false, dateFmt }) {
 
 /* ------------ 하단 고정 광고 (메인과 동일 스타일) ------------ */
 function StickyBottomAd({ id = 'ad-sticky-bottom', height = 140, label = 'AD' }) {
-  const navHeight = 60; // BottomNav 높이 (대략)
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 992);
+  const navHeight = 60; // BottomNav 높이 예상
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 992);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const bottomOffset = isMobile ? navHeight : 0; // 모바일: 네비 위, 데스크탑: 바닥 붙임
+
   return (
     <>
-      {/* 광고 + 네비 높이만큼 콘텐츠 여백 확보 */}
-      <div style={{ height: height + navHeight }} aria-hidden />
+      {/* 콘텐츠 여백 확보 */}
+      <div style={{ height: height + (isMobile ? navHeight : 0) }} aria-hidden />
 
       <div
         id={id}
@@ -292,15 +302,18 @@ function StickyBottomAd({ id = 'ad-sticky-bottom', height = 140, label = 'AD' })
           position: 'fixed',
           left: 0,
           right: 0,
-          bottom: navHeight, // 네비 위로 띄움
+          bottom: bottomOffset,
           height,
-          zIndex: 1035, // BottomNav(1030대)보다 살짝 낮게
-          boxShadow: '0 -2px 8px rgba(0,0,0,0.08)',
+          zIndex: isMobile ? 1035 : 1030, // 네비보다 살짝 낮거나 비슷
+          boxShadow: '0 -2px 10px rgba(0,0,0,0.08)',
+          transition: 'bottom 0.3s ease',
         }}
         role="complementary"
         aria-label="하단 광고영역"
       >
-        <span className="small text-secondary text-uppercase">{label}</span>
+        <span className="fw-semibold text-secondary text-uppercase small">
+          {label}
+        </span>
       </div>
     </>
   );
