@@ -12,10 +12,12 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configuration.WebSecurityCustomizer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.client.endpoint.DefaultAuthorizationCodeTokenResponseClient;
 import org.springframework.security.oauth2.client.endpoint.OAuth2AccessTokenResponseClient;
@@ -45,6 +47,25 @@ public class SecurityConfig {
 
     @Value("${app.front-base:https://recipfree.com}")
     private String frontBase;
+
+    /* --------------------------------
+     * (A) 정적 리소스는 보안체인 자체에서 제외 (가장 중요)
+     * -------------------------------- */
+    @Bean
+    public WebSecurityCustomizer webSecurityCustomizer() {
+        return (web) -> web.ignoring().requestMatchers(
+                "/favicon.ico",
+                "/robots.txt",
+                "/manifest.webmanifest",
+                "/assets/**",
+                "/static/**",
+                "/images/**",
+                "/css/**",
+                "/js/**",
+                "/uploads/**",
+                "/files/**"
+        );
+    }
 
     /* --------------------------------
      * 공통: SecurityContext 저장소
@@ -83,13 +104,13 @@ public class SecurityConfig {
     }
 
     /* --------------------------------
-     * API no-cache 필터 (실제로 등록되도록 @Bean 추가)
+     * API no-cache 필터 등록
      * -------------------------------- */
     @Bean
     public FilterRegistrationBean<OncePerRequestFilter> apiNoCacheFilter() {
         var frb = new FilterRegistrationBean<OncePerRequestFilter>();
-        frb.setOrder(Integer.MIN_VALUE + 10); // 매우 이르게
-        frb.addUrlPatterns("/api/*");         // API만 대상
+        frb.setOrder(Integer.MIN_VALUE + 10);
+        frb.addUrlPatterns("/api/*");
         frb.setFilter(new OncePerRequestFilter() {
             @Override
             protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
@@ -104,70 +125,13 @@ public class SecurityConfig {
     }
 
     /* --------------------------------
-     * 체인 #1: 정적/에러/SPA 라우트 (permitAll, request cache 비활성화)
-     *  - 여기서는 보안 필터 최소화 + /error 재포워드도 빠르게 통과
+     * 체인 #1: 로그인/OAuth2 (가장 먼저)
      * -------------------------------- */
     @Bean
-    public SecurityFilterChain publicChain(HttpSecurity http) throws Exception {
-        http
-                .securityMatcher(
-                        "/", "/index.html", "/favicon.ico", "/manifest.webmanifest",
-                        "/robots.txt", "/error",
-                        "/assets/**", "/static/**", "/images/**", "/css/**", "/js/**"
-                )
-                .cors(Customizer.withDefaults())
-                .csrf(csrf -> csrf.disable())
-                .securityContext(ctx -> ctx.securityContextRepository(securityContextRepository()))
-                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
-                // ★ 경고 발생시키던 RequestCache 제거
-                .requestCache(c -> c.disable())
-                // 세션은 필요 없음
-                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
-        return http.build();
-    }
-
-    /* --------------------------------
-     * 체인 #2: API 전용
-     *  - 필요에 맞춰 permitAll/인증 요구 선택
-     *  - /api/** 에서는 리다이렉트 대신 401 반환
-     * -------------------------------- */
-    @Bean
-    public SecurityFilterChain apiChain(HttpSecurity http) throws Exception {
-        http
-                .securityMatcher("/api/**")
-                .cors(Customizer.withDefaults())
-                .csrf(csrf -> csrf.ignoringRequestMatchers("/api/**"))
-                .securityContext(ctx -> ctx.securityContextRepository(securityContextRepository()))
-                .authorizeHttpRequests(auth -> auth
-                        // 여기선 정책에 맞게 조정하세요.
-                        // 읽기만 공개라면 GET permitAll, 쓰기는 인증 등으로 나눌 수 있습니다.
-                        .requestMatchers("/api/auth/logout").permitAll()
-                        .anyRequest().permitAll()  // ← 필요 시 authenticated() 로 전환
-                )
-                .exceptionHandling(ex -> ex
-                        .defaultAuthenticationEntryPointFor(
-                                new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
-                                new AntPathRequestMatcher("/api/**")
-                        )
-                )
-                .logout(lo -> lo
-                        .logoutUrl("/api/auth/logout")
-                        // 기본은 POST. 프론트가 POST로 호출해야 합니다.
-                        .logoutSuccessHandler((req, res, auth) -> res.setStatus(204))
-                )
-                .requestCache(c -> c.disable()) // ★ API에도 cache 불필요
-                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED));
-        return http.build();
-    }
-
-    /* --------------------------------
-     * 체인 #3: (선택) OAuth2 Login 등 웹 로그인 경로
-     *  - 필요 시 /login/** 같은 경로를 별도로 분리
-     * -------------------------------- */
-    @Bean
+    @Order(0)
     public SecurityFilterChain loginChain(HttpSecurity http) throws Exception {
         http
-                .securityMatcher("/login/**", "/oauth2/**") // 실제 사용하는 로그인 엔드포인트 범위
+                .securityMatcher("/login/**", "/oauth2/**")
                 .cors(Customizer.withDefaults())
                 .csrf(csrf -> csrf.disable())
                 .securityContext(ctx -> ctx.securityContextRepository(securityContextRepository()))
@@ -180,7 +144,7 @@ public class SecurityConfig {
                         .tokenEndpoint(t -> t.accessTokenResponseClient(retryingTokenClient()))
                         .successHandler((req, res, auth) -> {
                             System.out.println("[OAUTH] success: " + auth.getName());
-                            res.sendRedirect(frontBase + "/"); // 프론트가 /api/auth/me 호출
+                            res.sendRedirect(frontBase + "/");
                         })
                         .failureHandler((req, res, ex) -> {
                             ex.printStackTrace();
@@ -193,13 +157,61 @@ public class SecurityConfig {
     }
 
     /* --------------------------------
-     * CORS: 패턴 또는 고정 오리진 중 하나만 사용 권장
-     * (자격증명 허용 시 Access-Control-Allow-Origin 은 단일 값이어야 함)
+     * 체인 #2: /api/**
+     * -------------------------------- */
+    @Bean
+    @Order(1)
+    public SecurityFilterChain apiChain(HttpSecurity http) throws Exception {
+        http
+                .securityMatcher("/api/**")
+                .cors(Customizer.withDefaults())
+                .csrf(csrf -> csrf.ignoringRequestMatchers("/api/**"))
+                .securityContext(ctx -> ctx.securityContextRepository(securityContextRepository()))
+                .authorizeHttpRequests(auth -> auth
+                        // 정책에 맞게 조정 (필요 시 authenticated()로 변경)
+                        .requestMatchers("/api/auth/logout").permitAll()
+                        .anyRequest().permitAll()
+                )
+                // API는 로그인 리다이렉트 대신 401
+                .exceptionHandling(ex -> ex
+                        .defaultAuthenticationEntryPointFor(
+                                new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
+                                new AntPathRequestMatcher("/api/**")
+                        )
+                )
+                .logout(lo -> lo
+                        .logoutUrl("/api/auth/logout") // 프론트는 POST로 호출
+                        .logoutSuccessHandler((req, res, auth) -> res.setStatus(204))
+                )
+                .requestCache(c -> c.disable())
+                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED));
+        return http.build();
+    }
+
+    /* --------------------------------
+     * 체인 #3: 공개 라우트(/, /error 등) — 정적은 이미 ignoring이라 여기 안 탐
+     * -------------------------------- */
+    @Bean
+    @Order(2)
+    public SecurityFilterChain publicChain(HttpSecurity http) throws Exception {
+        http
+                .securityMatcher("/", "/index.html", "/error")
+                .cors(Customizer.withDefaults())
+                .csrf(csrf -> csrf.disable())
+                .securityContext(ctx -> ctx.securityContextRepository(securityContextRepository()))
+                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+                .requestCache(c -> c.disable())
+                .logout(lo -> lo.disable()) // 디폴트 /logout 매핑 로그 노이즈 제거
+                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+        return http.build();
+    }
+
+    /* --------------------------------
+     * CORS: 패턴 방식 (자격증명 허용 시 단일 오리진/패턴만)
      * -------------------------------- */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         var cfg = new CorsConfiguration();
-        // 패턴 방식만 사용 (서브도메인 허용)
         cfg.setAllowedOriginPatterns(List.of(
                 "https://*.recipfree.com",
                 "http://localhost:*",

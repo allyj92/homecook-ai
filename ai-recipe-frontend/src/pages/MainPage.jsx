@@ -352,7 +352,6 @@ function SmartImg({ src, alt = '', priority = false, className = '', onError, on
       fetchpriority={priority ? 'high' : 'low'}
       className={className}
       referrerPolicy="no-referrer"
-      crossOrigin="anonymous"
       style={{ objectFit: 'cover' }}
       onError={onError}
       onLoad={onLoad}

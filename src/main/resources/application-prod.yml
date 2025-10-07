@@ -32,4 +32,7 @@ server:
 
 logging:
   level:
-    org.springframework.security: TRACE
+    root: info
+    org.springframework: info
+    org.springframework.security: info   # ← TRACE 금지
+    org.hibernate: warn
