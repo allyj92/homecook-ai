@@ -292,6 +292,9 @@ export function formatActivityText(a) {
       return d.on ? `${postTitle} 좋아요` : `${postTitle} 좋아요 취소`;
     case "post_bookmark":
       return d.on ? `${postTitle} 북마크` : `${postTitle} 북마크 해제`;
+    case "bookmark_remove":
+      // 제목 + 한국어 동사 형태로 표시
+      return `${postTitle} 북마크 삭제`;  
     case "favorite_add":
       return `${recipeTitle} 저장`;
     case "favorite_remove":
