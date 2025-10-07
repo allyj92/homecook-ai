@@ -95,7 +95,6 @@ const BrandBadge = ({ tone = 'soft', children, className = '' }) => {
 };
 
 /* ------------ URL 유틸 & 이미지 선택 ------------ */
-// 로그인 래퍼 URL에서 실제 목적지 꺼내기 (CommunityPage와 동등)
 function unwrapLoginUrl(url) {
   try {
     const u = new URL(url, window.location.origin);
@@ -116,15 +115,14 @@ function unwrapLoginUrl(url) {
   return url;
 }
 
-// 이미지로 써도 되는 URL만 통과
 function isUsableImageUrl(url) {
   try {
     const u = new URL(url, window.location.origin);
     const path = u.pathname.toLowerCase();
-    if (/\/(auth|login)/i.test(path)) return false; // 로그인/인증 경로 제외
+    if (/\/(auth|login)/i.test(path)) return false;
     const isHttpsPage = window.location.protocol === 'https:';
     const isExternal = u.host !== window.location.host;
-    if (isHttpsPage && isExternal && u.protocol === 'http:') return false; // 혼합콘텐츠 차단
+    if (isHttpsPage && isExternal && u.protocol === 'http:') return false;
     return /^https?:/.test(u.href) || u.href.startsWith('data:') || u.href.startsWith('/');
   } catch { return false; }
 }
@@ -151,7 +149,6 @@ function withVersion(url, ver) {
     const sameHost = (u.host === window.location.host);
     const hasQuery = !!u.search && u.search.length > 1;
     const looksSigned = /X-Amz-|Signature=|X-Goog-Signature=|token=|expires=|CloudFront/i.test(u.search);
-    // ✅ 캐시버스트는 "같은 호스트" & "쿼리 없음" & "서명 아님"인 경우에만
     if (sameHost && !hasQuery && !looksSigned) {
       const v = ver != null ? (typeof ver === 'number' ? ver : Date.parse(ver) || Date.now()) : Date.now();
       u.searchParams.set('v', String(v));
@@ -162,33 +159,28 @@ function withVersion(url, ver) {
 }
 const ytThumb = (id) => (id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : null);
 
-// ✅ content/body 안에서 첫 번째 이미지 URL 뽑아오기 (MD, HTML 모두 대응)
 function firstImageFromContent(p) {
   const s = String(p?.content ?? p?.body ?? p?.html ?? '').trim();
   if (!s) return null;
 
-  // Markdown 이미지 ![alt](url "title")
   let m = /!\[[^\]]*]\(([^)]+)\)/.exec(s);
   if (m?.[1]) {
     const u = unwrapLoginUrl(m[1].split('"')[0].trim());
     return isUsableImageUrl(u) ? u : null;
   }
 
-  // HTML 이미지 <img src="...">
   m = /<img[^>]+src=["']([^"']+)["'][^>]*>/i.exec(s);
   if (m?.[1]) {
     const u = unwrapLoginUrl(m[1].trim());
     return isUsableImageUrl(u) ? u : null;
   }
 
-  // 지연로딩 data-src
   m = /<img[^>]+data-src=["']([^"']+)["'][^>]*>/i.exec(s);
   if (m?.[1]) {
     const u = unwrapLoginUrl(m[1].trim());
     return isUsableImageUrl(u) ? u : null;
   }
 
-  // srcset의 첫 번째 소스
   m = /<img[^>]+srcset=["']([^"']+)["'][^>]*>/i.exec(s);
   if (m?.[1]) {
     const first = m[1].split(',')[0].trim().split(' ')[0];
@@ -242,8 +234,8 @@ async function fetchJson(url) {
 const toArr = (data) => {
   if (!data) return [];
   if (Array.isArray(data)) return data;
-  if (Array.isArray(data.content)) return data.content;     // PageImpl
-  if (Array.isArray(data.items)) return data.items;         // items
+  if (Array.isArray(data.content)) return data.content;
+  if (Array.isArray(data.items)) return data.items;
   const firstArray = Object.values(data).find(v => Array.isArray(v));
   return Array.isArray(firstArray) ? firstArray : [];
 };
@@ -259,25 +251,24 @@ async function loadDailyNewRecipe(size = 8) {
   if (!res.ok) return [];
   const j = await res.json();
   const posts = toArr(j);
-  // ⚠️ 원본을 그대로 유지해야 buildCover가 content/attachments/repImageUrl 등을 읽을 수 있음
   return posts.map((p) => ({ ...p, __asPost: true }));
 }
 
-/** 인기 커뮤니티(백엔드 sort=popular 우선, 폴백 클라이언트 점수) */
+/** 인기 커뮤니티 */
 async function loadPopularCommunity(size = 8) {
   try {
     const qs = new URLSearchParams({ size: String(size), sort: 'popular' });
     const res = await fetchJson(`/api/community/posts?${qs}`);
     const arr = toArr(res);
     if (arr.length) return arr;
-  } catch { /* pass */ }
+  } catch {}
 
   try {
     const qs = new URLSearchParams({ size: String(size) });
     const res = await fetchJson(`/api/community/trending?${qs}`);
     const arr = toArr(res);
     if (arr.length) return arr;
-  } catch { /* pass */ }
+  } catch {}
 
   try {
     const res = await fetchJson(`/api/community/posts?page=0&size=50`);
@@ -304,7 +295,6 @@ async function loadPopularCommunity(size = 8) {
 }
 
 /* ---------------- 오늘의 맞춤 ---------------- */
-// 오늘 날짜 동일 여부 (로컬 기준)
 function isSameLocalDay(ts, base = new Date()) {
   const d = new Date(ts);
   return d.getFullYear() === base.getFullYear()
@@ -312,7 +302,6 @@ function isSameLocalDay(ts, base = new Date()) {
     && d.getDate() === base.getDate();
 }
 
-// 오늘의 맞춤: 오늘 올라온 글 중 (좋아요 + 댓글) 최댓값 1개
 async function loadBestOfToday() {
   const res = await fetch(`/api/community/posts?page=0&size=200&sort=createdAt,desc`, {
     credentials: 'include',
@@ -344,6 +333,31 @@ async function loadBestOfToday() {
   }).sort((a,b) => b.__score - a.__score);
 
   return scored[0] || null;
+}
+
+/* ---------------- 이미지 컴포넌트: 우선순위 제어 ---------------- */
+function SmartImg({ src, alt = '', priority = false, className = '', onError, onLoad }) {
+  // 4:3 카드 기준으로 고정 크기 힌트 제공 (레이아웃 안정 + 디코딩 최적화)
+  const width = 800;   // 브라우저가 크기 힌트로만 사용
+  const height = 600;
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      width={width}
+      height={height}
+      decoding="async"
+      loading={priority ? 'eager' : 'lazy'}
+      fetchpriority={priority ? 'high' : 'low'}
+      className={className}
+      referrerPolicy="no-referrer"
+      crossOrigin="anonymous"
+      style={{ objectFit: 'cover' }}
+      onError={onError}
+      onLoad={onLoad}
+    />
+  );
 }
 
 export default function MainPage() {
@@ -441,7 +455,7 @@ export default function MainPage() {
   useEffect(() => { reloadDailyNew(); }, [reloadDailyNew]);
   useEffect(() => { reloadBestToday(); }, [reloadBestToday]);
 
-  // 같은/다른 탭에서 좋아요/북마크/댓글/레시피가 생기면 새로고침
+  // 같은/다른 탭에서 변화가 생기면 새로고침
   useEffect(() => {
     const refreshAll = () => { reloadPopular(); reloadDailyNew(); reloadBestToday(); };
     const onVisible = () => { if (document.visibilityState === 'visible') refreshAll(); };
@@ -521,6 +535,7 @@ export default function MainPage() {
                   onClick={() => bestToday && navigate(`/community/${bestToday.id}`)}
                   onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && bestToday) { e.preventDefault(); navigate(`/community/${bestToday.id}`); } }}
                   aria-label="오늘의 맞춤 보기"
+                  style={{ contentVisibility: 'auto', containIntrinsicSize: '600px' }}
                 >
                   <div className="card-header bg-white border-0 d-flex align-items-center gap-2">
                     <BrandBadge tone="solid">오늘의 맞춤</BrandBadge>
@@ -532,14 +547,11 @@ export default function MainPage() {
                     {bestLoading ? (
                       <div className="w-100 h-100 rounded-top placeholder" />
                     ) : bestToday?.__cover ? (
-                      <img
+                      <SmartImg
                         src={bestToday.__cover}
                         alt=""
+                        priority // ★ LCP 후보: eager + fetchpriority=high
                         className="position-absolute top-0 start-0 w-100 h-100 rounded-top"
-                        style={{ objectFit: 'cover' }}
-                        loading="lazy"
-                        referrerPolicy="no-referrer"
-                        crossOrigin="anonymous"
                         onError={(e) => { e.currentTarget.style.display = 'none'; }}
                       />
                     ) : null}
@@ -597,8 +609,9 @@ export default function MainPage() {
               <div className="alert alert-light border small">아직 인기 게시글이 없어요. 첫 글을 올려보세요!</div>
             ) : (
               <div className="row g-3">
-                {popular.slice(0, 8).map((p) => {
+                {popular.slice(0, 8).map((p, i) => {
                   const to = `/community/${p.id}`;
+                  const priority = i < 4; // 첫 행 이미지는 eager로 빠르게
                   return (
                     <div className="col-12 col-sm-6 col-lg-3" key={p.id}>
                       <article
@@ -608,18 +621,16 @@ export default function MainPage() {
                         tabIndex={0}
                         role="button"
                         aria-label={`${p.title || '게시글'} 보기`}
+                        style={{ contentVisibility: 'auto', containIntrinsicSize: '600px' }}
                       >
                         <div className="position-relative">
                           <div className="ratio ratio-4x3 bg-light rounded-top">
                             {p.__cover && (
-                              <img
+                              <SmartImg
                                 src={p.__cover}
                                 alt=""
+                                priority={priority}
                                 className="position-absolute top-0 start-0 w-100 h-100 rounded-top"
-                                style={{ objectFit: 'cover' }}
-                                loading="lazy"
-                                referrerPolicy="no-referrer"
-                                crossOrigin="anonymous"
                                 onError={(e) => { e.currentTarget.style.display = 'none'; }}
                               />
                             )}
@@ -676,44 +687,46 @@ export default function MainPage() {
               <div className="alert alert-light border small">아직 등록된 레시피가 없어요. 첫 레시피를 올려보세요!</div>
             ) : (
               <div className="row g-3">
-                {dailyNewRecipe.slice(0, 8).map((r) => (
-                  <div className="col-12 col-sm-6 col-lg-3" key={r.id}>
-                    <article
-                      className="card h-100 shadow-sm"
-                      onClick={() => navigate(r.__asPost ? `/community/${r.id}` : `/recipe/${r.id}`)}
-                      onKeyDown={(e)=> onCardKey(e, r.__asPost ? `/community/${r.id}` : `/recipe/${r.id}`)}
-                      tabIndex={0}
-                      role="button"
-                      aria-label={`${r.title || '레시피'} 보기`}
-                    >
-                      <div className="position-relative">
-                        <div className="ratio ratio-4x3 bg-light rounded-top">
-                          {r.__cover && (
-                            <img
-                              src={r.__cover}
-                              alt=""
-                              className="position-absolute top-0 start-0 w-100 h-100 rounded-top"
-                              style={{ objectFit: 'cover' }}
-                              loading="lazy"
-                              referrerPolicy="no-referrer"
-                              crossOrigin="anonymous"
-                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                            />
-                          )}
+                {dailyNewRecipe.slice(0, 8).map((r, i) => {
+                  const to = r.__asPost ? `/community/${r.id}` : `/recipe/${r.id}`;
+                  const priority = i < 4; // 첫 행만 eager
+                  return (
+                    <div className="col-12 col-sm-6 col-lg-3" key={r.id}>
+                      <article
+                        className="card h-100 shadow-sm"
+                        onClick={() => navigate(to)}
+                        onKeyDown={(e)=> onCardKey(e, to)}
+                        tabIndex={0}
+                        role="button"
+                        aria-label={`${r.title || '레시피'} 보기`}
+                        style={{ contentVisibility: 'auto', containIntrinsicSize: '600px' }}
+                      >
+                        <div className="position-relative">
+                          <div className="ratio ratio-4x3 bg-light rounded-top">
+                            {r.__cover && (
+                              <SmartImg
+                                src={r.__cover}
+                                alt=""
+                                priority={priority}
+                                className="position-absolute top-0 start-0 w-100 h-100 rounded-top"
+                                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                              />
+                            )}
+                          </div>
                         </div>
-                      </div>
-                      <div className="card-body">
-                        <h3 className="h6 fw-semibold mb-1" style={{ color: BRAND.ink }}>
-                          {ellipsis(r.title || `레시피 #${r.id}`, 48)}
-                        </h3>
-                        <div className="small d-flex align-items-center gap-3" style={{ color: BRAND.mute }}>
-                          <span aria-label={`좋아요 ${r.__likes}개`}>❤ {fmtNum(r.__likes)}</span>
-                          <span aria-label={`댓글 ${r.__comments}개`}>💬 {fmtNum(r.__comments)}</span>
+                        <div className="card-body">
+                          <h3 className="h6 fw-semibold mb-1" style={{ color: BRAND.ink }}>
+                            {ellipsis(r.title || `레시피 #${r.id}`, 48)}
+                          </h3>
+                          <div className="small d-flex align-items-center gap-3" style={{ color: BRAND.mute }}>
+                            <span aria-label={`좋아요 ${r.__likes}개`}>❤ {fmtNum(r.__likes)}</span>
+                            <span aria-label={`댓글 ${r.__comments}개`}>💬 {fmtNum(r.__comments)}</span>
+                          </div>
                         </div>
-                      </div>
-                    </article>
-                  </div>
-                ))}
+                      </article>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </section>
@@ -761,7 +774,7 @@ export default function MainPage() {
             </div>
 
             <div className="d-grid d-sm-flex justify-content-sm-center mt-3">
-              {/* 🔐 로그인 게이트 */}
+              {/* 🔐 로그인 가드 */}
               <BrandButton onClick={() => requireLogin('/input', () => navigate('/input'))}>
                 내 레시피 받기
               </BrandButton>
@@ -821,7 +834,7 @@ export default function MainPage() {
                       key={r.id ?? i}
                       className="card shadow-sm h-100"
                       role="listitem"
-                      style={{ scrollSnapAlign: 'start' }}
+                      style={{ scrollSnapAlign: 'start', contentVisibility: 'auto', containIntrinsicSize: '600px' }}
                       tabIndex={0}
                       onClick={() => r.id && navigate(r.__asPost ? `/community/${r.id}` : `/recipe/${r.id}`)}
                       onKeyDown={(e)=> r.id && onCardKey(e, r.__asPost ? `/community/${r.id}` : `/recipe/${r.id}`)}
@@ -830,14 +843,11 @@ export default function MainPage() {
                       <div className="position-relative">
                         <div className="ratio ratio-4x3 bg-light rounded-top">
                           {r.__cover && (
-                            <img
+                            <SmartImg
                               src={r.__cover}
                               alt=""
+                              priority={false} // 모달 내부는 전부 lazy
                               className="position-absolute top-0 start-0 w-100 h-100 rounded-top"
-                              style={{ objectFit: 'cover' }}
-                              loading="lazy"
-                              referrerPolicy="no-referrer"
-                              crossOrigin="anonymous"
                               onError={(e) => { e.currentTarget.style.display = 'none'; }}
                             />
                           )}
