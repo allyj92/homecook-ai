@@ -486,7 +486,7 @@ export default function MyPage() {
 
   return (
     <div className="container-xxl py-3 mypage" style={{ paddingBottom: 84 }}>
-      <div className="d-flex align-items-center justify-content-between mb-3">
+      <div className="d-flex align-items-center justify-content-between mb-2">
         <h1 className="h4 fw-bold">마이페이지</h1>
         <div className="d-flex gap-2">
           <button className="btn btn-success btn-sm" onClick={() => navigate('/profile')}>프로필 편집</button>
@@ -496,7 +496,7 @@ export default function MyPage() {
 
       <div className="row g-4">
         <aside className="col-12 col-lg-4">
-          <div className="sticky-lg-top" style={{ top: 0, zIndex: 2 }}>
+          <div className="sticky-lg-top" style={{ top: 0, zIndex: 2, marginTop: '-8px' }}>
             <div className="card shadow-sm mb-3">
               <div className="card-body text-center">
                 <h5 className="fw-bold">{user.name}</h5>
