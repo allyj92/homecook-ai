@@ -496,7 +496,7 @@ export default function MyPage() {
 
       <div className="row g-4">
         <aside className="col-12 col-lg-4">
-          <div className="sticky-lg-top" style={{ top: 0, zIndex: 2, marginTop: '-8px' }}>
+          <div className="sticky-lg-top" style={{ top: 0, zIndex: 2, marginTop: '-20px' }}>
             <div className="card shadow-sm mb-3">
               <div className="card-body text-center">
                 <h5 className="fw-bold">{user.name}</h5>
