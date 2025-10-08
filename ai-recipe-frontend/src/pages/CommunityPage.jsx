@@ -383,7 +383,7 @@ function MobileWriteMiniBtnTopRight({ onClick }) {
         lineHeight: 1
       }}
     >
-      ✏️
+      🖋️
     </button>
   );
 }
@@ -563,7 +563,7 @@ export default function CommunityPage() {
           <div className="col-12 col-lg-2 d-none d-lg-block">
             <div className="d-grid">
               <button type="button" className="btn btn-success" onClick={onWrite}>
-                ✏️ 글쓰기
+                🖋️ 글쓰기
               </button>
             </div>
           </div>
