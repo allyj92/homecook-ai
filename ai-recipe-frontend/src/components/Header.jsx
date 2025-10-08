@@ -1,4 +1,5 @@
 // src/components/Header.jsx
+import VisitBadge from '../components/VisitBadge';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useCallback } from 'react';
 import {
@@ -142,6 +143,7 @@ export default function Header({ cartCount = 0, onCartClick }) {
 
             {/* PC 우측 */}
             <div className="d-none d-lg-flex align-items-center gap-2">
+              <VisitBadge />
               {auth.loading ? null : me ? (
                 <button className="btn btn-outline-secondary" onClick={handleLogout}>
                   로그아웃
