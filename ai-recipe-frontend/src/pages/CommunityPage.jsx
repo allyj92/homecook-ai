@@ -163,9 +163,15 @@ function makePreviewText(input, maxLen = 120) {
   s = s.replace(/<\/?[^>]+>/g, ' ');
   s = s.replace(/[#>*`_~\-]{1,}/g, ' ');
   s = s.replace(/\s+/g, ' ').trim();
-  if (!s) s = '이미지 첨부';
-  if (s.length > maxLen) s = s.slice(0, maxLen) + '…';
-  return s;
+   if (!s) return '이미지 첨부';
+
+  // 문장 단위로 최대 3문장만 남기기
+  const sentences = s.split(/(?<=[.!?])\s+/).slice(0, 3);
+  s = sentences.join(' ');
+
+  // 전체 길이가 너무 길면 일부만 잘라서 …
+  if (s.length > maxLen) s = s.slice(0, maxLen).trim() + '…';
+  return s
 }
 
 /* ------------ 배지 ------------ */
@@ -255,9 +261,12 @@ function PostCard({ post, onOpen, priority = false, dateFmt }) {
 
         <div className="d-flex align-items-center justify-content-between gap-2 mt-2">
           <div className="d-flex flex-wrap gap-2">
-            {(post.tags || []).map((t) => (
-              <span key={t} className="badge rounded-pill bg-light text-dark border">#{t}</span>
-            ))}
+            {(post.tags || []).slice(0, 3).map((t) => (
+        <span key={t} className="badge rounded-pill bg-light text-dark border">#{t}</span>
+          ))}
+          {(post.tags?.length ?? 0) > 3 && (
+            <span className="badge rounded-pill bg-light text-secondary border">…</span>
+          )}
           </div>
           <span className="small text-secondary">{when}</span>
         </div>
