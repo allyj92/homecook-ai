@@ -327,22 +327,21 @@ function StickyBottomAd({
   );
 }
 
-/* ------------ FAB (모바일 전용) ------------ */
-function MobileWriteBar({ onClick }) {
-  const [bottom, setBottom] = useState(12);
+function MobileWriteMiniBtnTopRight({ onClick }) {
+  const [top, setTop] = useState(12);
 
   const recompute = useCallback(() => {
     const isDesktop = window.matchMedia('(min-width: 992px)').matches;
-    if (isDesktop) { setBottom(12); return; }
+    if (isDesktop) return;
 
-    const sp = document.querySelector('.bottom-nav-spacer');
-    const spH = sp ? sp.getBoundingClientRect().height : 0;
+    // 헤더(사이트 상단바) 바로 아래로 붙이기
+    const header = document.querySelector('.site-header, header.sticky-top, .navbar');
+    const rect = header ? header.getBoundingClientRect() : null;
+    const headerBottom = rect ? rect.bottom : 0;
 
-    const ad = document.getElementById('ad-sticky-bottom');
-    const adH = ad ? ad.getBoundingClientRect().height : 0;
-
-    // 모바일: 네비 스페이서 + 스티키 광고 높이만큼 위로 띄움
-    setBottom(12 + spH + adH);
+    // 기본 여유 8px + 노치 대응
+    const gap = 8;
+    setTop(Math.max(8, headerBottom + gap));
   }, []);
 
   useEffect(() => {
@@ -359,32 +358,24 @@ function MobileWriteBar({ onClick }) {
   }, [recompute]);
 
   return (
-    <>
-      {/* 본문 가림 방지용 스페이서 (모바일 전용) */}
-      <div className="mobile-writebar-spacer d-lg-none" aria-hidden="true" />
-
-      {/* 하단 고정 전체폭 버튼 */}
-      <div
-        className="d-lg-none"
-        style={{
-          position: 'fixed',
-          left: 0,
-          right: 0,
-          bottom: `calc(${bottom}px + env(safe-area-inset-bottom))`,
-          zIndex: 1101,
-          padding: '0 12px',
-        }}
-      >
-        <button
-          type="button"
-          className="btn btn-success w-100 py-3 rounded-pill shadow-lg"
-          onClick={onClick}
-          aria-label="글쓰기"
-        >
-          글쓰기
-        </button>
-      </div>
-    </>
+    <button
+      type="button"
+      className="btn btn-success btn-sm d-lg-none mobile-write-mini"
+      onClick={onClick}
+      aria-label="글쓰기"
+      title="글쓰기"
+      style={{
+        position: 'fixed',
+        right: '12px',
+        top: `calc(${top}px + env(safe-area-inset-top))`,
+        zIndex: 1101,
+        borderRadius: 9999,
+        padding: '6px 10px',
+        lineHeight: 1
+      }}
+    >
+      ✏️
+    </button>
   );
 }
 
@@ -611,7 +602,7 @@ export default function CommunityPage() {
       </footer>
 
       {/* ✅ 모바일 FAB */}
-      <MobileWriteBar onClick={onWrite} />
+      <MobileWriteMiniBtnTopRight onClick={onWrite} />
 
       {/* 하단 고정 광고 + 네비게이션 */}
       <StickyBottomAd label="Bottom Sticky 320×50 / 728×90" />

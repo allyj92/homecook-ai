@@ -974,3 +974,9 @@ body{
   /* 하단 전체폭 글쓰기 바 높이만큼 본문 아래에 빈 공간 확보 */
   .mobile-writebar-spacer { height: 12px; } /* 필요시 56~80px로 조정 */
 }
+
+.mobile-write-mini {
+  box-shadow: 0 6px 14px rgba(0,0,0,.12);
+  opacity: .96;
+}
+.mobile-write-mini:active { transform: translateY(1px); }
