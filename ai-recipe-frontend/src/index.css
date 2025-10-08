@@ -970,7 +970,7 @@ body{
 }
 
 /* 커뮤니티 - 글쓰기 버튼 배치 */
-@media (max-width: 991.98px) {
+@media (max-width: 400px) {
   /* 하단 전체폭 글쓰기 바 높이만큼 본문 아래에 빈 공간 확보 */
-  .mobile-writebar-spacer { height: 68px; } /* 필요시 56~80px로 조정 */
+  .mobile-writebar-spacer { height: 12px; } /* 필요시 56~80px로 조정 */
 }
