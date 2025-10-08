@@ -15,9 +15,14 @@ public class SpaForwardController {
             "/{p1:[^\\.]+}/{p2:[^\\.]+}",
             "/{p1:[^\\.]+}/{p2:[^\\.]+}/{p3:[^\\.]+}",
             "/{p1:[^\\.]+}/{p2:[^\\.]+}/{p3:[^\\.]+}/{p4:[^\\.]+}",
-            "/{p1:[^\\.]+}/{p2:[^\\.]+}/{p3:[^\\.]+}/{p4:[^\\.]+}/{p5:[^\\.]+}"
+            "/{p1:[^\\.]+}/{p2:[^\\.]+}/{p3:[^\\.]+}/{p4:[^\\.]+}/{p5:[^\\.]+}",
+            "/",
+            "/shopping/**",
+            "/community/**",
+            "/my/**",
+            "/search/**",
     }, produces = MediaType.TEXT_HTML_VALUE)
     public String forwardSpa() {
-        return "forward:/index.html";
+        return "forward:/";
     }
 }

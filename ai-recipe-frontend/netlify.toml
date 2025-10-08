@@ -2,7 +2,7 @@
   command = "npm run build"
   publish = "dist"
 
-# /oauth2 → 백엔드(Cloudflare Tunnel: login.recipfree.com)
+# 🔐 OAuth → 백엔드 (Tunnel)
 [[redirects]]
   from = "/oauth2/*"
   to   = "https://login.recipfree.com/oauth2/:splat"
@@ -10,7 +10,6 @@
   force  = true
   headers = { X-Forwarded-Host = "recipfree.com", X-Forwarded-Proto = "https" }
 
-# 콜백 경로도 반드시 백엔드로
 [[redirects]]
   from = "/login/oauth2/*"
   to   = "https://login.recipfree.com/login/oauth2/:splat"
@@ -18,7 +17,7 @@
   force  = true
   headers = { X-Forwarded-Host = "recipfree.com", X-Forwarded-Proto = "https" }
 
-# API
+# 🛠 API → 백엔드 (Tunnel)
 [[redirects]]
   from = "/api/*"
   to   = "https://login.recipfree.com/api/:splat"
@@ -26,13 +25,18 @@
   force  = true
   headers = { X-Forwarded-Host = "recipfree.com", X-Forwarded-Proto = "https" }
 
-# SPA 캐치올은 마지막
-[[redirects]]
-  from = "/*"
-  to   = "/index.html"
-  status = 200
+# ❗ (권장) /static 프락시 규칙은 제거
+#  - CRA/Next 빌드가 /static/*로 자산을 뱉는 경우가 많아서 프론트 정적파일이 백엔드로 새어갑니다.
+# [[redirects]]
+#   from = "/static/*"
+#   to   = "https://login.recipfree.com/static/:splat"
+#   status = 200
+#   force = true
+#   [redirects.headers]
+#     X-Forwarded-Host = "recipfree.com"
+#     X-Forwarded-Proto = "https"
 
-# 캐시 금지 (응답 헤더)
+# 🧠 헤더
 [[headers]]
   for = "/oauth2/*"
   [headers.values]
@@ -49,22 +53,12 @@
     Cache-Control = "no-store"
 
 [[headers]]
-for = "/*"
+  for = "/*"
   [headers.values]
-  # 외부 이미지/동영상 허용 (+ data:, blob:)
-  Content-Security-Policy = "default-src 'self' https:; img-src 'self' https: data: blob:; media-src 'self' https: data: blob:; frame-src https:; connect-src 'self' https: wss:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; font-src 'self' https: data:; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests"
+    Content-Security-Policy = "default-src 'self' https:; img-src 'self' https: data: blob:; media-src 'self' https: data: blob:; frame-src https:; connect-src 'self' https: wss:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; font-src 'self' https: data:; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests"
 
-# SPA 캐치올은 맨 마지막
+# ✅ SPA 캐치올 (마지막 한 개만)
 [[redirects]]
   from = "/*"
   to   = "/index.html"
   status = 200
-
-[[redirects]]
-  from = "/static/*"
-  to = "https://login.recipfree.com/static/:splat"
-  status = 200
-  force = true
-  [redirects.headers]
-    X-Forwarded-Host = "recipfree.com"
-    X-Forwarded-Proto = "https"
