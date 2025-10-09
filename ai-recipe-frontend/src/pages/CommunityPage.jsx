@@ -104,32 +104,8 @@ function withVersion(url, ver) {
 
 const ytThumb = (id) => (id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : null);
 
-function isUsableImageUrl(url) {
-  try {
-    const u = new URL(url, window.location.origin);
-    if (/\/(auth|login)/i.test(u.pathname.toLowerCase())) return false;
-  // ⚠️ HTTP 외부라도 일단 통과 → normalizeCoverUrl()에서 https로 승격 시도
-    // http/https, data:, / 전부 일단 통과 → 나중에 toSafeSrc에서 http를 프록시로 래핑
-   return /^https?:/.test(u.href) || u.href.startsWith('data:') || u.href.startsWith('/');
-  } catch {
-    return false;
-  }
-}
 
 
-// function extractImagesFromAttachments(p, maxImages = 3) {
-//   const arr = p?.attachments ?? p?.images ?? p?.photos ?? [];
-//   const out = [];
-//   for (const it of (Array.isArray(arr) ? arr : [])) {
-//     if (out.length >= maxImages) break;
-//     const u = it?.url ?? it?.src ?? it?.imageUrl ?? it?.downloadUrl;
-//     const cleaned = u ? unwrapLoginUrl(u) : null;
-//     if (cleaned && isUsableImageUrl(cleaned) && !isLikelyAvatarOrLogo(cleaned)) {
-//     out.push(cleaned);
-//     }
-//   }
-//   return out;
-// }
 
 function collectCoverCandidates(post) {
   try {
@@ -157,9 +133,6 @@ function collectCoverCandidates(post) {
       post.repImageUrl ?? post.rep_image_url ?? null,
     ].filter(Boolean);
 
-    // 2) 첨부/본문에서 추가 후보
-    // const fromAttachments = extractImagesFromAttachments(post, 5);
-
     // 3) 유튜브 썸네일
     const ytId = post.youtubeId ?? post.youtube_id ?? null;
     const yt = ytThumb(ytId);
@@ -167,8 +140,7 @@ function collectCoverCandidates(post) {
     const candidatesRaw = [
       ...direct,
       ...(yt ? [yt] : []),
-      // ...fromAttachments,
-      // ...fromContent,
+  
     ]
       .filter(Boolean)
       .map(String)
@@ -254,55 +226,55 @@ function extractCounts(p) {
 }
 
 /* ------------ 이미지 후보 자동 폴백 + 성능 힌트 ------------ */
-function SmartImg({ sources, alt = '', className = '', onHide, priority = false }) {
-  const [idx, setIdx] = useState(0);
-  const [avatarish, setAvatarish] = useState(false);
-  const src = sources?.[idx] || null;
-  if (!src) return null;
+// function SmartImg({ sources, alt = '', className = '', onHide, priority = false }) {
+//   const [idx, setIdx] = useState(0);
+//   const [avatarish, setAvatarish] = useState(false);
+//   const src = sources?.[idx] || null;
+//   if (!src) return null;
 
-   const width = avatarish ? 36 : 800;
-   const height = avatarish ? 36 : 600;
+//    const width = avatarish ? 36 : 800;
+//    const height = avatarish ? 36 : 600;
 
-  return (
-    <img
-      src={src}
-      alt={alt}
-      className={className}
-      width={width}
-      height={height}
-      decoding="async"
-      loading={priority ? 'eager' : 'lazy'}
-      fetchpriority={priority ? 'high' : 'low'}
-      referrerPolicy="no-referrer"
-      onError={() => {
-        if (idx + 1 < (sources?.length || 0)) setIdx(idx + 1);
-        else if (onHide) onHide();
-      }}
-       onLoad={(e) => {
-       const nw = e.currentTarget.naturalWidth || 0;
-       const nh = e.currentTarget.naturalHeight || 0;
-       // 작거나(둘 중 하나라도 160px 미만) + 정사각형에 가까우면(아이콘/아바타 패턴)
-       const isSmall = nw < 160 || nh < 160;
-       const isSquareish = Math.abs(nw - nh) <= 6;
-       if (isSmall && isSquareish) {
-         setAvatarish(true);
-       } else {
-         setAvatarish(false);
-       }
-     }}
+//   return (
+//     <img
+//       src={src}
+//       alt={alt}
+//       className={className}
+//       width={width}
+//       height={height}
+//       decoding="async"
+//       loading={priority ? 'eager' : 'lazy'}
+//       fetchpriority={priority ? 'high' : 'low'}
+//       referrerPolicy="no-referrer"
+//       onError={() => {
+//         if (idx + 1 < (sources?.length || 0)) setIdx(idx + 1);
+//         else if (onHide) onHide();
+//       }}
+//        onLoad={(e) => {
+//        const nw = e.currentTarget.naturalWidth || 0;
+//        const nh = e.currentTarget.naturalHeight || 0;
+//        // 작거나(둘 중 하나라도 160px 미만) + 정사각형에 가까우면(아이콘/아바타 패턴)
+//        const isSmall = nw < 160 || nh < 160;
+//        const isSquareish = Math.abs(nw - nh) <= 6;
+//        if (isSmall && isSquareish) {
+//          setAvatarish(true);
+//        } else {
+//          setAvatarish(false);
+//        }
+//      }}
 
-     style={{
-       objectFit: 'cover',
-       // 아바타로 판별되면 카드 전체가 아니라 작은 썸네일로 축소
-       width: avatarish ? 96 : '100%',
-       height: avatarish ? 96 : undefined,
-       borderRadius: avatarish ? 8 : 0,
-       margin: avatarish ? '8px auto' : 0,
-       display: 'block',
-     }}
-    />
-  );
-}
+//      style={{
+//        objectFit: 'cover',
+//        // 아바타로 판별되면 카드 전체가 아니라 작은 썸네일로 축소
+//        width: avatarish ? 96 : '100%',
+//        height: avatarish ? 96 : undefined,
+//        borderRadius: avatarish ? 8 : 0,
+//        margin: avatarish ? '8px auto' : 0,
+//        display: 'block',
+//      }}
+//     />
+//   );
+// }
 
 function PostCard({ post, onOpen, priority = false, dateFmt }) {
   const rawForPreview = post.preview || post.bodyPreview || post.content || post.body || '';
