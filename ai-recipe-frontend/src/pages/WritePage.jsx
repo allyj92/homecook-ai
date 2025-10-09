@@ -8,9 +8,10 @@ import { createPost, updatePost, getCommunityPost } from "../api/community";
 import { uploadFile, ytThumb } from "../lib/upload";
 import { logActivity } from "../lib/activity";
 import TagInput from "../components/TagInput";
-import TuiMdEditor from "../components/TuiMdEditor";
+// ✅ WYSIWYG 에디터 사용
+import TuiHtmlEditor from "../components/TuiHtmlEditor";
 
-const DRAFT_KEY = "draft:community";
+const DRAFT_KEY = "draft:community:html";
 const CATEGORIES = ["후기", "질문", "레시피", "노하우", "자유"];
 
 /* 유튜브 URL/ID → videoId */
@@ -59,7 +60,7 @@ export default function WritePage() {
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState(CATEGORIES[0]);
   const [tags, setTags] = useState([]);
-  const [content, setContent] = useState(""); // TUI 에디터와 양방향으로 동기화
+  const [contentHtml, setContentHtml] = useState(""); // ✅ HTML 본문
   const [repImageUrl, setRepImageUrl] = useState("");
   const [youtubeUrl, setYoutubeUrl] = useState("");
 
@@ -95,7 +96,9 @@ export default function WritePage() {
           setTitle(p.title || "");
           setCategory(p.category || CATEGORIES[0]);
           setTags(Array.isArray(p.tags) ? p.tags : []);
-          setContent(p.content || ""); // 초기 마크다운 (TUI에 주입)
+          // ⚠️ 기존 DB가 마크다운이었다면 서버에서 HTML로 변환해 내려주는 게 권장.
+          // 일단은 내려온 값을 HTML로 간주하고 세팅.
+          setContentHtml(p.content || "");
           setRepImageUrl(p.repImageUrl || "");
           setYoutubeUrl(p.youtubeId ? `https://youtu.be/${p.youtubeId}` : "");
         } catch (e) {
@@ -111,7 +114,7 @@ export default function WritePage() {
             setTitle(saved.title || "");
             setCategory(saved.category || CATEGORIES[0]);
             setTags(saved.tags || []);
-            setContent(saved.content || "");
+            setContentHtml(saved.contentHtml || "");
             setRepImageUrl(saved.repImageUrl || "");
             setYoutubeUrl(saved.youtubeUrl || "");
           }
@@ -125,40 +128,35 @@ export default function WritePage() {
   useEffect(() => {
     if (isEdit) return;
     const timer = setInterval(() => {
-      const payload = { title, category, tags, content, repImageUrl, youtubeUrl, savedAt: Date.now() };
+      const payload = { title, category, tags, contentHtml, repImageUrl, youtubeUrl, savedAt: Date.now() };
       localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
     }, 5000);
     return () => clearInterval(timer);
-  }, [isEdit, title, category, tags, content, repImageUrl, youtubeUrl]);
+  }, [isEdit, title, category, tags, contentHtml, repImageUrl, youtubeUrl]);
 
-  // 본문 끝에 이미지 마크다운을 **중복 없이** 삽입
-  const appendImageToEditor = useCallback((url) => {
-    if (!url) return;
-    setContent((prev) => {
-      const has = prev && prev.includes(url);
-      if (has) return prev;
-      const md = `![image](${url})`;
-      return prev?.trim() ? `${prev.trim()}\n\n${md}\n` : `${md}\n`;
-    });
-  }, []);
-
-  // 검증
+  // 검증(HTML → 텍스트 길이 확인)
   function validate() {
-    const md = (content || "").trim();
+    const html = (contentHtml || "").replace(/\s+/g, " ").trim();
+    const text = html.replace(/<[^>]*>/g, "").trim();
     const e = {};
     if (!title.trim()) e.title = "제목을 입력하세요.";
     else if (title.trim().length < 4) e.title = "제목은 4자 이상 권장해요.";
-    if (!md) e.content = "내용을 입력하세요.";
-    else if (md.length < 10) e.content = "내용은 10자 이상 작성해주세요.";
+    if (!text) e.content = "내용을 입력하세요.";
+    else if (text.length < 10) e.content = "내용은 10자 이상 작성해주세요.";
     if (youtubeUrl && !youtubeId) e.youtubeUrl = "유효한 유튜브 URL 또는 ID를 입력해주세요.";
     setErrors(e);
     return Object.keys(e).length === 0;
   }
 
-  // 대표이미지 업로드 (낙관적 미리보기 + 교체 + 본문 자동 삽입)
+  // 대표이미지 업로드 (낙관적 미리보기 + 교체)
   async function onPickRep(e) {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    // 간단 검증
+    const okType = /^image\/(png|jpe?g|webp|gif)$/i.test(file.type);
+    if (!okType) { alert("PNG, JPG, WEBP, GIF만 업로드할 수 있어요."); return; }
+    if (file.size > 10 * 1024 * 1024) { alert("이미지 용량(10MB) 초과입니다."); return; }
 
     // 로컬 미리보기 먼저
     const localUrl = URL.createObjectURL(file);
@@ -170,21 +168,20 @@ export default function WritePage() {
       const url = pickUploadUrl(up);
       if (!url) throw new Error("업로드 응답에 URL이 없어요.");
 
-      setRepImageUrl(url);      // 실제 URL로 교체
-      appendImageToEditor(url); // ✅ 본문에도 이미지 마크다운 자동 삽입
+      setRepImageUrl(url); // 실제 URL로 교체
+      // 본문 이미지는 에디터에서 드래그/붙여넣기로 삽입됨.
+      // 대표이미지도 본문에 자동 추가하고 싶다면 에디터 ref를 써서 <img> 삽입 로직을 추가하면 됨.
     } catch (err) {
       console.error(err);
       alert(err?.message || "대표이미지 업로드에 실패했습니다.");
       setRepImageUrl(youtubeCover || "");
     } finally {
       setRepUploading(false);
-      try {
-        URL.revokeObjectURL(localUrl);
-      } catch {}
+      try { URL.revokeObjectURL(localUrl); } catch {}
     }
   }
 
-  // 제출(등록/수정 공용)
+  // 제출(등록/수정 공용) — ✅ HTML로 저장
   const onSubmit = useCallback(
     async (e) => {
       e.preventDefault();
@@ -192,30 +189,27 @@ export default function WritePage() {
       if (submitting) return;
       setSubmitting(true);
       try {
-        const md = (content || "").trim();
+        const html = (contentHtml || "").trim();
         const finalRep = repImageUrl || youtubeCover || "";
         const cleanTags = tags.map((t) => String(t).trim()).filter(Boolean);
         const payload = {
           title: title.trim(),
           category,
           tags: cleanTags,
-          content: md,
+          content: html,            // ✅ HTML 저장
           youtubeUrl: youtubeUrl.trim() || null,
           youtubeId: youtubeId || null,
           repImageUrl: finalRep || null,
+          contentFormat: "html",    // (선택) 서버에서 포맷 구분 필요 시
         };
 
         if (isEdit) {
           await updatePost(editId, payload);
-          try {
-            logActivity("post_update", { postId: Number(editId), title: payload.title });
-          } catch {}
+          try { logActivity("post_update", { postId: Number(editId), title: payload.title }); } catch {}
           navigate(`/community/${editId}`);
         } else {
           const { id } = await createPost(payload);
-          try {
-            logActivity("post_create", { postId: id, title: payload.title });
-          } catch {}
+          try { logActivity("post_create", { postId: id, title: payload.title }); } catch {}
           localStorage.removeItem(DRAFT_KEY);
           navigate(`/community/${id}`);
         }
@@ -233,7 +227,7 @@ export default function WritePage() {
         setSubmitting(false);
       }
     },
-    [isEdit, editId, title, category, tags, content, youtubeUrl, youtubeId, repImageUrl, youtubeCover, submitting, navigate]
+    [isEdit, editId, title, category, tags, contentHtml, youtubeUrl, youtubeId, repImageUrl, youtubeCover, submitting, navigate]
   );
 
   if (loading || auth.loading) {
@@ -241,10 +235,6 @@ export default function WritePage() {
       <div className="container-xxl py-3">
         <div className="placeholder-glow">
           <h1 className="h4 placeholder col-6"></h1>
-          <p className="placeholder col-3"></p>
-          <p className="placeholder col-12"></p>
-          <p className="placeholder col-10"></p>
-          <p className="placeholder col-8"></p>
         </div>
         <BottomNav />
       </div>
@@ -279,9 +269,7 @@ export default function WritePage() {
             <label className="form-label">카테고리</label>
             <select className="form-select" value={category} onChange={(e) => setCategory(e.target.value)}>
               {CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
+                <option key={c} value={c}>{c}</option>
               ))}
             </select>
           </div>
@@ -375,26 +363,25 @@ export default function WritePage() {
             <div className="form-text">최대 10개 · Enter 로 추가/Backspace 로 삭제</div>
           </div>
 
-          {/* 내용 (Toast UI Editor) */}
+          {/* 내용 (WYSIWYG) */}
           <div className="mb-3">
             <label className="form-label d-flex align-items-center gap-2">
-              내용 <span className="text-secondary small">(이미지 붙여넣기/드래그 업로드 가능 · Markdown 지원)</span>
+              내용 <span className="text-secondary small">(이미지 붙여넣기/드래그 업로드 가능)</span>
             </label>
             <div className={`border rounded-3 ${errors.content ? "border-danger" : ""}`}>
-              <TuiMdEditor
-                value={content}
-                onChange={setContent}
+              <TuiHtmlEditor
+                valueHtml={contentHtml}
+                onChange={setContentHtml}
                 height="480px"
-                placeholder={`레시피/후기/질문 내용을 자세히 적어주세요.
+                placeholder={`레시피/후기/질문 내용을 자유롭게 적어주세요.
 - 캡처 이미지를 붙여넣거나 드래그하면 자동 업로드됩니다.`}
                 upload={async (blob) => {
-                  // ⬇⬇⬇ 업로드 → URL 회수 → 대표이미지 비었으면 자동 세팅
+                  // 업로드 → URL 회수 → 첫 이미지면 대표이미지 자동 세팅
                   const up = await uploadFile(blob);
                   const url = pickUploadUrl(up);
                   if (!url) throw new Error("업로드 응답에 URL이 없어요.");
-                  if (!repImageUrl) setRepImageUrl(url); // ⭐ 첫 이미지면 대표이미지 자동 세팅
-                  // TuiMdEditor 내부가 이 URL을 사용해 이미지 마크다운을 자동 삽입함
-                  return url;
+                  if (!repImageUrl) setRepImageUrl(url);
+                  return url; // WYSIWYG가 <img src="...">로 삽입
                 }}
               />
             </div>
@@ -413,7 +400,7 @@ export default function WritePage() {
                     setTitle("");
                     setCategory(CATEGORIES[0]);
                     setTags([]);
-                    setContent("");
+                    setContentHtml("");
                     setRepImageUrl("");
                     setYoutubeUrl("");
                   }
@@ -430,12 +417,12 @@ export default function WritePage() {
                   onClick={() => {
                     localStorage.setItem(
                       DRAFT_KEY,
-                      JSON.stringify({ title, category, tags, content, repImageUrl, youtubeUrl, savedAt: Date.now() })
+                      JSON.stringify({ title, category, tags, contentHtml, repImageUrl, youtubeUrl, savedAt: Date.now() })
                     );
                     alert("임시저장 완료!");
                   }}
                 >
-                임시저장
+                  임시저장
                 </button>
               )}
               <button type="submit" className="btn btn-success" disabled={submitting || repUploading}>

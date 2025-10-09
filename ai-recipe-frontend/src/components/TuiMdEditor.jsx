@@ -28,7 +28,7 @@ export default function TuiMdEditor({
     const editor = new Editor({
       el: elRef.current,
       height,
-      initialEditType: "markdown",     // ✅ 항상 Markdown 모드
+      initialEditType: "wysiwyg",     // ✅ 항상 Markdown 모드
       previewStyle: "vertical",
       initialValue: value || "",
       usageStatistics: false,
