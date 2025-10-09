@@ -23,28 +23,12 @@ function debounce(fn, ms = 300) {
     clearTimeout(t);
     t = setTimeout(() => fn(...args), ms);
   };
+
 }
 
-function isAllowedCoverHost(url) {
-  try {
-    const u = new URL(url, window.location.origin);
-    const host = u.hostname.toLowerCase();
-
-    // ✅ 여기에 “커버로 허용할 도메인”만 넣어주세요
-    const allowHosts = [
-      window.location.hostname.toLowerCase(),   // recipfree.com
-      'i.ytimg.com',                            // 유튜브 썸네일
-      // 필요하면 CDN 도메인들 추가
-      // 'static.recipfree.com', 'cdn.recipfree.com',
-    ];
-
-    if (allowHosts.includes(host)) return true;
-    return false;
-  } catch {
-    return false;
-  }
+function isAllowedCoverHost() {
+  return true;   // 모든 호스트 허용
 }
-
 
 // 🔎 프로필/아바타/로고로 보이는 URL 걸러내기
  function isLikelyAvatarOrLogo(url) {
