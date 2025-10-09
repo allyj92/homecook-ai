@@ -411,38 +411,54 @@ export default function MyPage() {
     }
   }
 
- /* 최근 활동: 상위 3개만 (비동기 안전) */
+ /* 최근 활동: 상위 3개만 (서버 우선, 캐시 삭제해도 정상 동작) */
   useEffect(() => {
     let aborted = false;
     const pull = async () => {
       setActLoading(true);
       try {
-        const res = await listActivitiesPaged(0, 3); // ← await 필수!
-        // 다양한 응답 형태 대비
-        const items =
-          res?.items ??
-          res?.content ??               // Page<T>
-          (Array.isArray(res) ? res : []) ;
+        const res = await fetch('/api/activity/recent?limit=3', {
+          credentials: 'include',
+          cache: 'no-store',
+          headers: { 'Accept': 'application/json', 'Cache-Control': 'no-store' },
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        // 응답 형태 호환: Array | {items[]} | {content[]}
+        const items = Array.isArray(data)
+          ? data
+          : (Array.isArray(data?.items) ? data.items
+             : (Array.isArray(data?.content) ? data.content : []));
         const total =
-          typeof res?.total === 'number'
-            ? res.total
-            : (typeof res?.totalElements === 'number' ? res.totalElements : items.length);
+          typeof data?.total === 'number' ? data.total
+          : (typeof data?.totalElements === 'number' ? data.totalElements
+             : (typeof data?.count === 'number' ? data.count : items.length));
         if (!aborted) {
           setActivities(items);
           setActTotal(total);
         }
       } catch (e) {
-        if (!aborted) {
-          setActivities([]);
-          setActTotal(0);
+        // 서버 오류 시에도 화면이 안텅 비게 로컬 보조(있으면)로 시도
+        try {
+          const fallback = await Promise.resolve(listActivitiesPaged?.(0, 3));
+          const items = fallback?.items ?? fallback?.content ?? (Array.isArray(fallback) ? fallback : []);
+          const total = typeof fallback?.total === 'number'
+            ? fallback.total
+            : (typeof fallback?.totalElements === 'number' ? fallback.totalElements : items.length);
+          if (!aborted) { setActivities(items); setActTotal(total); }
+        } catch {
+          if (!aborted) { setActivities([]); setActTotal(0); }
         }
       } finally {
         if (!aborted) setActLoading(false);
       }
     };
     pull();
-    const off = subscribeActivity(pull);
-    return () => { aborted = true; off?.(); };
+    // 활동 변경 시 갱신 (이벤트는 그대로 사용)
+    const off = subscribeActivity?.(pull) || (() => {});
+    const onVis = () => { if (document.visibilityState === 'visible') pull(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { aborted = true; off(); document.removeEventListener('visibilitychange', onVis); };
   }, []);
 
   /* 로딩 스켈레톤 (me) */
