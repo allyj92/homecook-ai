@@ -96,4 +96,12 @@ public class ActivityController {
         int s = Math.max(1, Math.min(size, 100)); // 과도한 size 제한
         return service.list(uid, p, s);
     }
+
+    @GetMapping("/recent")
+    public ActivityPageRes recent(@RequestParam(defaultValue = "3") int limit, Authentication auth) {
+        long uid = resolveUserId(auth);
+        int s = Math.max(1, Math.min(limit, 100));
+        // service.list(uid, page=0, size=s)를 그대로 재사용
+        return service.list(uid, 0, s);
+    }
 }
