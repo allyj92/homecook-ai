@@ -69,6 +69,13 @@ export default function WritePage() {
   const [errors, setErrors] = useState({});
   const [repUploading, setRepUploading] = useState(false); // 대표이미지 업로드 표시
 
+  // 유튜브
+  const youtubeId = useMemo(() => toYoutubeId(youtubeUrl), [youtubeUrl]);
+  const youtubeCover = useMemo(
+    () => (youtubeId ? ytThumb(youtubeId, "maxresdefault") || ytThumb(youtubeId, "hqdefault") : null),
+    [youtubeId]
+  );
+
   // 초기화
   useEffect(() => {
     (async () => {
@@ -124,12 +131,16 @@ export default function WritePage() {
     return () => clearInterval(timer);
   }, [isEdit, title, category, tags, content, repImageUrl, youtubeUrl]);
 
-  // 유튜브
-  const youtubeId = useMemo(() => toYoutubeId(youtubeUrl), [youtubeUrl]);
-  const youtubeCover = useMemo(
-    () => (youtubeId ? ytThumb(youtubeId, "maxresdefault") || ytThumb(youtubeId, "hqdefault") : null),
-    [youtubeId]
-  );
+  // 본문 끝에 이미지 마크다운을 **중복 없이** 삽입
+  const appendImageToEditor = useCallback((url) => {
+    if (!url) return;
+    setContent((prev) => {
+      const has = prev && prev.includes(url);
+      if (has) return prev;
+      const md = `![image](${url})`;
+      return prev?.trim() ? `${prev.trim()}\n\n${md}\n` : `${md}\n`;
+    });
+  }, []);
 
   // 검증
   function validate() {
@@ -144,7 +155,7 @@ export default function WritePage() {
     return Object.keys(e).length === 0;
   }
 
-  // 대표이미지 업로드 (낙관적 미리보기 + 교체)
+  // 대표이미지 업로드 (낙관적 미리보기 + 교체 + 본문 자동 삽입)
   async function onPickRep(e) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -158,7 +169,9 @@ export default function WritePage() {
       const up = await uploadFile(file);
       const url = pickUploadUrl(up);
       if (!url) throw new Error("업로드 응답에 URL이 없어요.");
-      setRepImageUrl(url); // 실제 URL로 교체
+
+      setRepImageUrl(url);      // 실제 URL로 교체
+      appendImageToEditor(url); // ✅ 본문에도 이미지 마크다운 자동 삽입
     } catch (err) {
       console.error(err);
       alert(err?.message || "대표이미지 업로드에 실패했습니다.");
@@ -375,11 +388,12 @@ export default function WritePage() {
                 placeholder={`레시피/후기/질문 내용을 자세히 적어주세요.
 - 캡처 이미지를 붙여넣거나 드래그하면 자동 업로드됩니다.`}
                 upload={async (blob) => {
-                  // ⬇⬇⬇ 업로드 → URL 회수 → 대표이미지 비었으면 자동 세팅 → 에디터는 URL을 사용해 이미지 마크다운을 자동 삽입
+                  // ⬇⬇⬇ 업로드 → URL 회수 → 대표이미지 비었으면 자동 세팅
                   const up = await uploadFile(blob);
                   const url = pickUploadUrl(up);
                   if (!url) throw new Error("업로드 응답에 URL이 없어요.");
                   if (!repImageUrl) setRepImageUrl(url); // ⭐ 첫 이미지면 대표이미지 자동 세팅
+                  // TuiMdEditor 내부가 이 URL을 사용해 이미지 마크다운을 자동 삽입함
                   return url;
                 }}
               />
@@ -421,7 +435,7 @@ export default function WritePage() {
                     alert("임시저장 완료!");
                   }}
                 >
-                  임시저장
+                임시저장
                 </button>
               )}
               <button type="submit" className="btn btn-success" disabled={submitting || repUploading}>
