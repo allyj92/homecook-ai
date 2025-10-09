@@ -177,7 +177,8 @@ function collectCoverCandidates(post) {
     ...extractImagesFromAttachments(post, 3),
     ...extractImagesFromContent(post, 32 * 1024, 3),
     ytThumb(post.youtubeId ?? post.youtube_id ?? null),
-  ].filter(Boolean);
+  ].filter(isUsableImageUrl)
+   .filter((u) => !isLikelyAvatarOrLogo(u));
 
   const normalized = candidatesRaw
     .map((u) => withVersion(normalizeCoverUrl(u), updatedAt))
