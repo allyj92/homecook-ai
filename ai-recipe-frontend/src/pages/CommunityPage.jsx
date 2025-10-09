@@ -28,13 +28,14 @@ function debounce(fn, ms = 300) {
 function toSafeSrc(u) {
   try {
     const url = new URL(u, window.location.origin);
+    // 외부 HTTP는 프록시로 래핑 (서버 컨트롤러와 경로 일치!)
     if (url.protocol === 'http:') {
-      // 백엔드 컨트롤러 경로와 반드시 일치
       return `/api/img-proxy?u=${encodeURIComponent(url.toString())}`;
     }
-    return url.toString(); // https:, data:, / 전부 문자열 URL 반환
+    return url.toString(); // 항상 문자열 반환
   } catch {
-    return null;
+    // 파싱 실패 시 원본 문자열(혹은 빈 문자열) 반환
+    return typeof u === 'string' ? u : '';
   }
 }
 
@@ -215,7 +216,7 @@ function collectCoverCandidates(post) {
       .filter((u) => !isLikelyAvatarOrLogo(u))
       .filter((u) => isAllowedCoverHost(u))
       .map(toSafeSrc)
-      .filter(Boolean);  
+      .filter((u) => typeof u === 'string' && u.length > 0); 
 
     if (localStorage.getItem('rf:debug') === '1') {
       console.log('[covers:normalized]', post.id, normalized);
