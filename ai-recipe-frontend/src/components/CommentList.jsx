@@ -1,53 +1,83 @@
 // src/components/CommentList.jsx
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { fetchComments } from '../api/community'; // ✅ 변경: 새로운 API
+import { fetchComments } from '../api/community';
 import CommentItem from './CommentItem';
 
 export default function CommentList({ postId, me }) {
   const [items, setItems] = useState([]);
   const [cursor, setCursor] = useState(null);
-  const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
-  const size = 20;
 
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => { mounted.current = false; };
-  }, []);
+  // 로딩을 ref로 관리해서 의존성 루프 차단
+  const loadingRef = useRef(false);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  const abortRef = useRef(null);
 
   const isAdmin = !!me?.roles?.includes?.('ADMIN');
 
   const loadMore = useCallback(async (first = false) => {
-    if (loading) return;
-    setLoading(true);
+    if (loadingRef.current) return;
+    loadingRef.current = true;
+
+    // 이전 요청 취소
+    if (abortRef.current) abortRef.current.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
+
+    if (first) {
+      setInitialLoading(true);
+      setHasMore(true);
+      setCursor(null);
+    } else {
+      setLoadingMore(true);
+    }
+
     try {
-      const data = await fetchComments(postId, { cursor: first ? null : cursor, size }); // ✅ after -> cursor
+      const data = await fetchComments(postId, {
+        cursor: first ? null : cursor,
+        size: 20,
+        signal: ac.signal, // fetchComments가 signal 받도록 했으면 전달, 아니면 제거
+      });
       setItems(prev => (first ? data.items : [...prev, ...data.items]));
       setCursor(data.nextCursor ?? null);
       setHasMore(!!data.nextCursor);
+    } catch (e) {
+      if (e?.name !== 'AbortError') {
+        console.warn('comment load failed', e);
+      }
     } finally {
-      if (mounted.current) setLoading(false);
+      loadingRef.current = false;
+      if (first) setInitialLoading(false);
+      else setLoadingMore(false);
     }
-  }, [postId, cursor, size, loading]);
+  // ⚠️ loading을 deps에서 빼는 게 핵심! cursor, postId만 의존
+  }, [postId, cursor]);
 
-  // postId 바뀌면 초기 로드
-  useEffect(() => { 
+  // postId 바뀌면 초기 로드(그리고 이전 요청 취소)
+  useEffect(() => {
     setItems([]);
     setCursor(null);
     setHasMore(true);
     loadMore(true);
+    return () => {
+      if (abortRef.current) abortRef.current.abort();
+    };
   }, [postId, loadMore]);
 
-  // 작성자/관리자만 편집/삭제 허용
   const canEdit = (c) =>
     !!me &&
     (String(me.uid) === String(c.authorId) ||
-     (!!c.authorEmail && c.authorEmail === me.email) ||
-     isAdmin);
+      (!!c.authorEmail && c.authorEmail === me.email) ||
+      isAdmin);
 
   return (
     <div className="mt-3">
+      {initialLoading && (
+        <div className="text-secondary small">댓글 불러오는 중…</div>
+      )}
+
       {items.map((c) => (
         <CommentItem
           key={c.id}
@@ -63,11 +93,11 @@ export default function CommentList({ postId, me }) {
       <div className="text-center my-2">
         <button
           className="btn btn-outline-secondary"
-          disabled={loading || !hasMore}
+          disabled={loadingRef.current || !hasMore}
           onClick={() => loadMore(false)}
-          aria-busy={loading ? 'true' : 'false'}
+          aria-busy={loadingRef.current ? 'true' : 'false'}
         >
-          {loading ? '불러오는 중…' : hasMore ? '더 보기' : '더 이상 없음'}
+          {loadingMore ? '불러오는 중…' : hasMore ? '더 보기' : '더 이상 없음'}
         </button>
       </div>
     </div>
