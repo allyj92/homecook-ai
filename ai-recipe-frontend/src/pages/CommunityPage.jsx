@@ -103,7 +103,8 @@ function isUsableImageUrl(url) {
     const u = new URL(url, window.location.origin);
     if (/\/(auth|login)/i.test(u.pathname.toLowerCase())) return false;
   // ⚠️ HTTP 외부라도 일단 통과 → normalizeCoverUrl()에서 https로 승격 시도
-   return u.protocol === 'https:' || u.href.startsWith('data:') || url.startsWith('/');
+    // http/https, data:, / 전부 일단 통과 → 나중에 toSafeSrc에서 http를 프록시로 래핑
+   return /^https?:/.test(u.href) || u.href.startsWith('data:') || u.href.startsWith('/');
   } catch {
     return false;
   }
