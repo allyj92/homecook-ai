@@ -28,54 +28,35 @@ function debounce(fn, ms = 300) {
 
 // 🔎 프로필/아바타/로고로 보이는 URL 걸러내기
  function isLikelyAvatarOrLogo(url) {
-   try {
-    // data: 스킴은 URL 파서가 실패할 수 있어 선제 처리
+  try {
     if (typeof url === 'string' && url.startsWith('data:')) {
-      // 작은 base64(≲20KB) 이미지는 아바타/아이콘일 확률이 매우 높음 → 컷
-      if (url.length < 20000) return true;
-      // svg 아이콘도 컷
       if (/^data:image\/svg\+xml/i.test(url)) return true;
+      if (url.length < 20000) return true; // 소형 base64는 아이콘 취급
     }
-
     const u = new URL(url, window.location.origin);
-     const host = u.hostname.toLowerCase();
-     const path = u.pathname.toLowerCase();
-     const q = u.search.toLowerCase();
+    const host = u.hostname.toLowerCase();
+    const path = u.pathname.toLowerCase();
+    const q = u.search.toLowerCase();
+    const name = path.split('/').pop() || '';
 
-    // 파일명 단서
-     const name = path.split('/').pop() || '';
-     const looksLikeIcon =
-       /(avatar|profile|userpic|logo|badge|icon|emoji|sprite)\b/.test(name);
+    const looksLikeIcon = /(avatar|profile|userpic|user\-?image|logo|badge|icon|emoji|sprite)\b/.test(name);
+    const sizeHints =
+      /(=|[?&])(s|sz|size|w|h)=?(24|32|40|48|64|72|80|96|100|128)\b/i.test(q) ||
+      /\/s(24|32|40|48|64|72|80|96|100|128)(\-c)?\b/i.test(path) ||
+      /=s(24|32|40|48|64|72|80|96|100|128)(\-c)?\b/i.test(q);  // 👈 구글 '=s96-c' 케이스
 
-     // 크기 파라미터(아바타 흔한 사이즈)
- const sizeHints =
-     /(=|[?&])(s|sz|size|w|h)=?(24|32|40|48|64|72|80|96|100|128)\b/.test(q) ||
-     /\/s(24|32|40|48|64|72|80|96|100|128)(\-c)?\b/.test(path);
-     // 주요 호스트 패턴
-   // 🔒 하드 차단 도메인/패턴 (아바타 확률이 매우 높음)
-     const hardHosts = [
-     'googleusercontent.com','gstatic.com',
-     'ggpht.com','yt3.ggpht.com',      // 유튜브 채널/계정 아바타
-     'gravatar.com','avatars.githubusercontent.com',
-     'kakaocdn.net','fbcdn.net','fbsbx.com'
-   ];
+    const hardHosts = [
+      'googleusercontent.com','gstatic.com','gravatar.com',
+      'avatars.githubusercontent.com','kakaocdn.net','fbcdn.net','fbsbx.com'
+    ];
+    const hardBlockedHost = hardHosts.some(h => host === h || host.endsWith('.' + h));
+    const hardBlockedPath = path.startsWith('/a/') || /\/profile_images\//.test(path) || /photo\.jpg$/.test(name);
 
-      // 유튜브/구글 아바타의 대표 경로 패턴 추가 컷
-      const avatarPaths = [
-        /\/ytc\//,                       // yt3.ggpht.com/ytc/...
-        /^\/a\//,                        // lh3.googleusercontent.com/a/...
-        /\/s\d{2,3}-c\b/,                // .../s96-c
-      ];
-      
-   const pathLooksAvatar = avatarPaths.some(re => re.test(path));
-   const hardBlockedHost = hardHosts.some(h => host === h || host.endsWith('.'+h));
-   const hardBlockedPath  =
-     path.startsWith('/a/') || /photo\.jpg$/.test(name) || /\/profile_images\//.test(path);
-      return looksLikeIcon || sizeHints || hardBlockedHost || hardBlockedPath || pathLooksAvatar;
-   } catch {
-     return false;
-   }
- }
+    return looksLikeIcon || sizeHints || hardBlockedHost || hardBlockedPath;
+  } catch {
+    return false;
+  }
+}
 
 /* ------------ 이미지 URL 유틸 ------------- */
 function unwrapLoginUrl(url) {
@@ -201,24 +182,24 @@ function extractImagesFromAttachments(p, maxImages = 3) {
 
 function collectCoverCandidates(post) {
   const updatedAt = post.updatedAt ?? post.updated_at ?? post.createdAt ?? post.created_at ?? null;
-  const candidatesRaw = [
-    post.coverUrl ?? post.cover_url ?? null,
-    post.repImageUrl ?? post.rep_image_url ?? null,
-    ...extractImagesFromAttachments(post, 3),
-    ...extractImagesFromContent(post, 32 * 1024, 3),
-    ytThumb(post.youtubeId ?? post.youtube_id ?? null),
-   ].filter(Boolean);
-
-  if (localStorage.getItem('rf:debug') === '1') {
-    console.log('[covers:candidatesRaw]', post.id, candidatesRaw);
-  }
+  const ban = new Set(
+   [
+     post.authorAvatar ?? post.author_avatar ?? null,
+     post.userAvatar ?? null,
+     post.profileImage ?? null,
+     // 혹시 서버가 repImageUrl에 아바타를 잘못 넣는 경우까지 차단
+     post.repImageUrl ?? post.rep_image_url ?? null,
+   ]
+   .filter(Boolean)
+   .map(String)
+ );
  
 
   const normalized = candidatesRaw
     .map((u) => withVersion(normalizeCoverUrl(u), updatedAt))
-    .filter(Boolean)
-    .filter(isUsableImageUrl)
-    .filter((u) => !isLikelyAvatarOrLogo(u));
+    .filter((u) => !isLikelyAvatarOrLogo(u))
+    .filter((u) => !ban.has(String(u)))
+    .filter((u) => !/googleusercontent\.com/i.test(u)); 
 
       if (localStorage.getItem('rf:debug') === '1') {
     console.log('[covers:normalized]', post.id, normalized);
