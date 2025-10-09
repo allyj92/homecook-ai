@@ -7,9 +7,9 @@ import { ensureLogin, fetchMe } from "../lib/auth";
 import { createPost, updatePost, getCommunityPost } from "../api/community";
 import { uploadFile, ytThumb } from "../lib/upload";
 import { logActivity } from "../lib/activity";
-import TagInput from "../components/TagInput";
+import TagInput from "../componets/TagInput";
 // ✅ WYSIWYG 에디터 사용
-import TuiHtmlEditor from "../components/TuiHtmlEditor";
+import TuiHtmlEditor from "../components/TuiMdEditor";
 
 const DRAFT_KEY = "draft:community:html";
 const CATEGORIES = ["후기", "질문", "레시피", "노하우", "자유"];

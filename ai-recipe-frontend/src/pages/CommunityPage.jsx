@@ -117,44 +117,44 @@ function isUsableImageUrl(url) {
 }
 
 /* ---- 본문/첨부에서 이미지 후보 추출 ---- */
-function extractImagesFromContent(p, maxChars = 32 * 1024, maxImages = 3) {
-  let s = String(p?.content ?? p?.body ?? p?.html ?? '').trim();
-  if (!s) return [];
-  if (s.length > maxChars) s = s.slice(0, maxChars);
+// function extractImagesFromContent(p, maxChars = 32 * 1024, maxImages = 3) {
+//   let s = String(p?.content ?? p?.body ?? p?.html ?? '').trim();
+//   if (!s) return [];
+//   if (s.length > maxChars) s = s.slice(0, maxChars);
 
-  const out = [];
-  const push = (u) => {
-    if (!u || out.length >= maxImages) return;
-    const cleaned = unwrapLoginUrl(String(u).trim());
-   if (isUsableImageUrl(cleaned) && !isLikelyAvatarOrLogo(cleaned)) {
-     out.push(cleaned);
-    }
-  };
+//   const out = [];
+//   const push = (u) => {
+//     if (!u || out.length >= maxImages) return;
+//     const cleaned = unwrapLoginUrl(String(u).trim());
+//    if (isUsableImageUrl(cleaned) && !isLikelyAvatarOrLogo(cleaned)) {
+//      out.push(cleaned);
+//     }
+//   };
 
-    // 🔎 <img ...> 자체를 스캔해 class/alt 기반 차단
-  const IMG_TAG_RE = /<img\b[^>]*>/gi;
-  const SRC_RE     = /src=["']([^"']+)["']/i;
-  const DATASRC_RE = /data-src=["']([^"']+)["']/i;
-  const CLASS_RE   = /class=["']([^"']+)["']/i;
-  const ALT_RE     = /alt=["']([^"']+)["']/i;
-  const AVATAR_WORDS = /(avatar|profile|userpic|user\-?image|logo|badge|icon|emoji|sprite)/i;
-  const tags = s.match(IMG_TAG_RE) || [];
-  for (const tag of tags) {
-    const cls = (CLASS_RE.exec(tag)?.[1] || '').toLowerCase();
-    const alt = (ALT_RE.exec(tag)?.[1] || '').toLowerCase();
-    if (AVATAR_WORDS.test(cls) || AVATAR_WORDS.test(alt)) continue; // 🚫
-    const src = SRC_RE.exec(tag)?.[1] || DATASRC_RE.exec(tag)?.[1] || '';
-    push(src.split('"')[0]);
-  }
+//     // 🔎 <img ...> 자체를 스캔해 class/alt 기반 차단
+//   const IMG_TAG_RE = /<img\b[^>]*>/gi;
+//   const SRC_RE     = /src=["']([^"']+)["']/i;
+//   const DATASRC_RE = /data-src=["']([^"']+)["']/i;
+//   const CLASS_RE   = /class=["']([^"']+)["']/i;
+//   const ALT_RE     = /alt=["']([^"']+)["']/i;
+//   const AVATAR_WORDS = /(avatar|profile|userpic|user\-?image|logo|badge|icon|emoji|sprite)/i;
+//   const tags = s.match(IMG_TAG_RE) || [];
+//   for (const tag of tags) {
+//     const cls = (CLASS_RE.exec(tag)?.[1] || '').toLowerCase();
+//     const alt = (ALT_RE.exec(tag)?.[1] || '').toLowerCase();
+//     if (AVATAR_WORDS.test(cls) || AVATAR_WORDS.test(alt)) continue; // 🚫
+//     const src = SRC_RE.exec(tag)?.[1] || DATASRC_RE.exec(tag)?.[1] || '';
+//     push(src.split('"')[0]);
+//   }
 
-  s.replace(/!\[[^\]]*]\(([^)]+)\)/g, (_m, u) => push((u || '').split('"')[0]));
-  s.replace(/<img[^>]+srcset=["']([^"']+)["'][^>]*>/gi, (_m, list) => {
-    const first = String(list || '').split(',')[0].trim().split(' ')[0];
-    push(first);
-  });
+//   s.replace(/!\[[^\]]*]\(([^)]+)\)/g, (_m, u) => push((u || '').split('"')[0]));
+//   s.replace(/<img[^>]+srcset=["']([^"']+)["'][^>]*>/gi, (_m, list) => {
+//     const first = String(list || '').split(',')[0].trim().split(' ')[0];
+//     push(first);
+//   });
 
-  return out;
-}
+//   return out;
+// }
 
 function extractImagesFromAttachments(p, maxImages = 3) {
   const arr = p?.attachments ?? p?.images ?? p?.photos ?? [];
@@ -198,7 +198,7 @@ function collectCoverCandidates(post) {
 
     // 2) 첨부/본문에서 추가 후보
     const fromAttachments = extractImagesFromAttachments(post, 5);
-    const fromContent = extractImagesFromContent(post, 32 * 1024, 5);
+    // const fromContent = extractImagesFromContent(post, 32 * 1024, 5);
 
     // 3) 유튜브 썸네일
     const ytId = post.youtubeId ?? post.youtube_id ?? null;
@@ -208,7 +208,7 @@ function collectCoverCandidates(post) {
       ...direct,
       ...(yt ? [yt] : []),
       ...fromAttachments,
-      ...fromContent,
+      // ...fromContent,
     ]
       .filter(Boolean)
       .map(String)
