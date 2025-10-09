@@ -181,7 +181,10 @@
 *::before,*::after{box-sizing:border-box}
 html,body,#root{height:100%}
 html,body{margin:0;padding:0}
-a img,img{border:0;display:block;max-width:100%}
+img{border:0;display:block}
+ /* 콘텐츠/카드 내부 이미지만 반응형으로 */
+ .post-content img,
+ .card img { max-width:100%; height:auto; }
 a{color:inherit;text-decoration:none}
 button{font:inherit}
 
