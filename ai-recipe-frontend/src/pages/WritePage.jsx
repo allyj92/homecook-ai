@@ -22,7 +22,7 @@ function toYoutubeId(url) {
   if ((m = u.match(/youtu\.be\/([A-Za-z0-9_\-]{8,})/))) return m[1];
   if ((m = u.match(/[?&]v=([A-Za-z0-9_\-]{8,})/))) return m[1];
   if ((m = u.match(/\/shorts\/([A-Za-z0-9_\-]{8,})/))) return m[1];
-  if (/^[A-Za-z0-9_\-]{8,32}$/.test(u)) return u; // ID만 들어온 경우
+  if (/^[A-Za-z0-9_-]{8,32}$/.test(u)) return u; // ID만 들어온 경우
   return null;
 }
 
