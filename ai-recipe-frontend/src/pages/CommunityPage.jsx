@@ -24,15 +24,21 @@ function debounce(fn, ms = 300) {
     t = setTimeout(() => fn(...args), ms);
   };
 
+
 }
+
+/* ------------ 이미지 프록시 유틸 ------------- */
+const PROXY = '/api/img-proxy?u=';
+const toProxied = (u) => (u ? PROXY + encodeURIComponent(u) : null);
+
 function toSafeSrc(u) {
   try {
     const url = new URL(u, window.location.origin);
-    // 외부 HTTP는 프록시로 래핑 (서버 컨트롤러와 경로 일치!)
+    // 같은 오리진(상대경로 포함)은 그대로 사용
     if (url.origin === window.location.origin) return url.toString();
-  return `/api/img?u=${encodeURIComponent(url.toString())}`;
+    // 외부(https/http)는 Netlify 이미지 프록시로 래핑
+    return toProxied(url.toString()); // == '/api/img-proxy?u=' + encodeURIComponent(...)
   } catch {
-    // 파싱 실패 시 원본 문자열(혹은 빈 문자열) 반환
     return typeof u === 'string' ? u : '';
   }
 }
@@ -606,6 +612,8 @@ export default function CommunityPage() {
       setLoading(false);
     }
   }, [tab]);
+
+
 
   useEffect(() => { window.scrollTo(0, 0); }, []);
   useEffect(() => { load(0, tab); }, [load, tab]);
