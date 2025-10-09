@@ -7,9 +7,9 @@ import { ensureLogin, fetchMe } from "../lib/auth";
 import { createPost, updatePost, getCommunityPost } from "../api/community";
 import { uploadFile, ytThumb } from "../lib/upload";
 import { logActivity } from "../lib/activity";
-import TagInput from "../componets/TagInput";
+import TagInput from "../components/TagInput";
 // ✅ WYSIWYG 에디터 사용
-import TuiHtmlEditor from "../components/TuiMdEditor";
+import TuiHtmlEditor from "../components/TuiHtmlEditor";
 
 const DRAFT_KEY = "draft:community:html";
 const CATEGORIES = ["후기", "질문", "레시피", "노하우", "자유"];
@@ -19,9 +19,9 @@ function toYoutubeId(url) {
   if (!url) return null;
   const u = url.trim();
   let m;
-  if ((m = u.match(/youtu\.be\/([A-Za-z0-9_\-]{8,})/))) return m[1];
-  if ((m = u.match(/[?&]v=([A-Za-z0-9_\-]{8,})/))) return m[1];
-  if ((m = u.match(/\/shorts\/([A-Za-z0-9_\-]{8,})/))) return m[1];
+  if ((m = u.match(/youtu\.be\/([A-Za-z0-9_-]{8,})/))) return m[1];
+  if ((m = u.match(/[?&]v=([A-Za-z0-9_-]{8,})/))) return m[1];
+  if ((m = u.match(/\/shorts\/([A-Za-z0-9_-]{8,})/))) return m[1];
   if (/^[A-Za-z0-9_-]{8,32}$/.test(u)) return u; // ID만 들어온 경우
   return null;
 }
@@ -423,7 +423,7 @@ export default function WritePage() {
                   }}
                 >
                   임시저장
-                </button>
+                  </button>
               )}
               <button type="submit" className="btn btn-success" disabled={submitting || repUploading}>
                 {submitting ? (isEdit ? "수정 중…" : "등록 중…") : isEdit ? "수정하기" : "등록하기"}
