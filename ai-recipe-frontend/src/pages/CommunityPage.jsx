@@ -108,9 +108,6 @@ function normalizeCoverUrl(url) {
     let raw = unwrapLoginUrl(url);
     if (raw.startsWith('/')) return raw;
     const u = new URL(raw, window.location.origin);
-    if (window.location.protocol === 'https:' && u.protocol === 'http:') {
-      try { u.protocol = 'https:'; } catch {}
-    }
     if (u.host === window.location.host) return u.pathname + u.search + u.hash;
     return u.toString();
   } catch {
