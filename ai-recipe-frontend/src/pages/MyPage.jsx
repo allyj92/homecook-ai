@@ -13,6 +13,8 @@ import {
   ensureActivityNs,
 } from '../lib/activity';
 
+
+
 /* 숫자 ID만 허용(최대 19자리: Long 범위) */
 function isNumericId(id) {
   return typeof id === 'string' && /^[0-9]{1,19}$/.test(id);
@@ -409,21 +411,38 @@ export default function MyPage() {
     }
   }
 
-  /* 최근 활동: 상위 3개만 */
+ /* 최근 활동: 상위 3개만 (비동기 안전) */
   useEffect(() => {
-    const pull = () => {
+    let aborted = false;
+    const pull = async () => {
       setActLoading(true);
       try {
-        const { items, total } = listActivitiesPaged(0, 3);
-        setActivities(items);
-        setActTotal(total);
+        const res = await listActivitiesPaged(0, 3); // ← await 필수!
+        // 다양한 응답 형태 대비
+        const items =
+          res?.items ??
+          res?.content ??               // Page<T>
+          (Array.isArray(res) ? res : []) ;
+        const total =
+          typeof res?.total === 'number'
+            ? res.total
+            : (typeof res?.totalElements === 'number' ? res.totalElements : items.length);
+        if (!aborted) {
+          setActivities(items);
+          setActTotal(total);
+        }
+      } catch (e) {
+        if (!aborted) {
+          setActivities([]);
+          setActTotal(0);
+        }
       } finally {
-        setActLoading(false);
+        if (!aborted) setActLoading(false);
       }
     };
     pull();
     const off = subscribeActivity(pull);
-    return off;
+    return () => { aborted = true; off?.(); };
   }, []);
 
   /* 로딩 스켈레톤 (me) */
