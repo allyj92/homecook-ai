@@ -29,10 +29,8 @@ function toSafeSrc(u) {
   try {
     const url = new URL(u, window.location.origin);
     // 외부 HTTP는 프록시로 래핑 (서버 컨트롤러와 경로 일치!)
-    if (url.protocol === 'http:') {
-      return `/api/img-proxy?u=${encodeURIComponent(url.toString())}`;
-    }
-    return url.toString(); // 항상 문자열 반환
+    if (url.origin === window.location.origin) return url.toString();
+   return `/api/img-proxy?u=${encodeURIComponent(url.toString())}`;
   } catch {
     // 파싱 실패 시 원본 문자열(혹은 빈 문자열) 반환
     return typeof u === 'string' ? u : '';
@@ -399,6 +397,7 @@ function PostCard({ post, onOpen, priority = false, dateFmt }) {
           decoding="async"
           loading={priority ? 'eager' : 'lazy'}
           fetchpriority={priority ? 'high' : 'low'}
+          referrerPolicy="no-referrer"
           style={{ objectFit: 'cover', width: '100%', display: 'block' }}
           onError={() => {
             // 다음 후보로 폴백, 없으면 감춤
