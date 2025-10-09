@@ -1,6 +1,8 @@
 // src/components/CommentItem.jsx
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { updateComment, deleteComment } from '../api/community'; // ✅ 경로 변경
+import DOMPurify from 'dompurify';
+import MarkdownIt from 'markdown-it';
 
 export default function CommentItem({ c, canEdit, onUpdated, onDeleted }) {
   const [edit, setEdit] = useState(false);
@@ -9,6 +11,26 @@ export default function CommentItem({ c, canEdit, onUpdated, onDeleted }) {
   const [removing, setRemoving] = useState(false);
 
   const postId = c.postId; // ✅ 서버가 내려주는 postId 사용
+
+const mdComment = useMemo(() => {
+  const md = new MarkdownIt({ html: false, linkify: true, breaks: true });
+   // ✅ 이미지 토큰 제거
+   md.renderer.rules.image = () => '';
+   return md;
+ }, []);
+
+function safeCommentHtml(src = '') {
+  const html = mdComment.render(String(src));
+  // ✅ Sanitizer에서 img 비허용
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: [
+      "p","br","blockquote","pre","code","span","strong","em",
+      "ul","ol","li","a","h1","h2","h3","h4","h5","h6",
+      "hr","table","thead","tbody","tr","th","td"
+    ],
+    ALLOWED_ATTR: ["href","target","rel","title"],
+  });
+}
 
   async function onSave() {
     const body = (text ?? '').trim();
@@ -63,12 +85,15 @@ export default function CommentItem({ c, canEdit, onUpdated, onDeleted }) {
 
         {!edit ? (
           <div className="mt-1">
-            {c.deleted ? (
-              <span className="text-secondary">삭제된 댓글입니다.</span>
-            ) : (
-              c.content
-            )}
-          </div>
+          {c.deleted ? (
+            <span className="text-secondary">삭제된 댓글입니다.</span>
+          ) : (
+            <div
+              className="comment-content"
+              dangerouslySetInnerHTML={{ __html: safeCommentHtml(c.content) }}
+            />
+          )}
+        </div>
         ) : (
           <div className="mt-2">
             <textarea
