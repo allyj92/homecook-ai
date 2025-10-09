@@ -2,7 +2,21 @@
   command = "npm run build"
   publish = "dist"
 
-# ── 백엔드(Cloudflare Tunnel)로 프록시 ─────────────────────────────
+# ── 먼저: 이미지 프록시(함수) 별칭을 최우선으로 배치 ───────────────
+# 프런트에서 /api/img-proxy?u=... 로 호출하면 함수로 rewrite
+[[redirects]]
+  from = "/api/img-proxy"
+  to   = "/.netlify/functions/img-proxy"
+  status = 200
+  force  = true
+
+# (선택) 오래 캐시하고 싶으면 헤더 추가
+[[headers]]
+  for = "/.netlify/functions/img-proxy"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"
+
+# ── 백엔드(Cloudflare Tunnel) 프록시 ─────────────────────────────
 [[redirects]]
   from = "/oauth2/*"
   to   = "https://login.recipfree.com/oauth2/:splat"
@@ -17,6 +31,7 @@
   force  = true
   headers = { X-Forwarded-Host = "recipfree.com", X-Forwarded-Proto = "https" }
 
+# ⚠️ 이 규칙은 반드시 이미지 프록시 별칭 아래에 두기!
 [[redirects]]
   from = "/api/*"
   to   = "https://login.recipfree.com/api/:splat"
@@ -34,7 +49,7 @@
     X-Forwarded-Host = "recipfree.com"
     X-Forwarded-Proto = "https"
 
-# (선택) 기타 정적 경로도 필요하다면 캐치올 위에 나열
+# (필요시) 기타 정적 경로도 캐치올 위에 나열
 # [[redirects]]
 #   from = "/assets/*"
 #   to = "/assets/:splat"
@@ -61,11 +76,6 @@
   [headers.values]
     # 외부 이미지/동영상 허용 (+ data:, blob:)
     Content-Security-Policy = "default-src 'self' https:; img-src 'self' https: data: blob:; media-src 'self' https: data: blob:; frame-src https:; connect-src 'self' https: wss:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; font-src 'self' https: data:; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests"
-
-[[redirects]]
-  from = "/api/img"
-  to = "/.netlify/functions/img-proxy"
-  status = 200
 
 # ── SPA 캐치올: 반드시 '맨 마지막' ────────────────────────────────
 [[redirects]]

@@ -290,60 +290,65 @@ function extractCounts(p) {
 }
 
 /* ------------ 이미지 후보 자동 폴백 + 성능 힌트 ------------ */
-// function SmartImg({ sources, alt = '', className = '', onHide, priority = false }) {
-//   const [idx, setIdx] = useState(0);
-//   const [avatarish, setAvatarish] = useState(false);
-//   const src = sources?.[idx] || null;
-//   if (!src) return null;
+function SmartImg({ sources, alt = '', className = '', onHide, priority = false }) {
+  const [idx, setIdx] = useState(0);
+  const [avatarish, setAvatarish] = useState(false);
+  const src = sources?.[idx] || null;
+  if (!src) return null;
 
-//    const width = avatarish ? 36 : 800;
-//    const height = avatarish ? 36 : 600;
+   const width = avatarish ? 36 : 800;
+   const height = avatarish ? 36 : 600;
 
-//   return (
-//     <img
-//       src={src}
-//       alt={alt}
-//       className={className}
-//       width={width}
-//       height={height}
-//       decoding="async"
-//       loading={priority ? 'eager' : 'lazy'}
-//       fetchpriority={priority ? 'high' : 'low'}
-//       onError={() => {
-//         if (idx + 1 < (sources?.length || 0)) setIdx(idx + 1);
-//         else if (onHide) onHide();
-//       }}
-//        onLoad={(e) => {
-//        const nw = e.currentTarget.naturalWidth || 0;
-//        const nh = e.currentTarget.naturalHeight || 0;
-//        // 작거나(둘 중 하나라도 160px 미만) + 정사각형에 가까우면(아이콘/아바타 패턴)
-//        const isSmall = nw < 160 || nh < 160;
-//        const isSquareish = Math.abs(nw - nh) <= 6;
-//        if (isSmall && isSquareish) {
-//          setAvatarish(true);
-//        } else {
-//          setAvatarish(false);
-//        }
-//      }}
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className={className}
+      width={width}
+      height={height}
+      decoding="async"
+      loading={priority ? 'eager' : 'lazy'}
+      fetchpriority={priority ? 'high' : 'low'}
+      onError={() => {
+        if (idx + 1 < (sources?.length || 0)) setIdx(idx + 1);
+        else if (onHide) onHide();
+      }}
+       onLoad={(e) => {
+       const nw = e.currentTarget.naturalWidth || 0;
+       const nh = e.currentTarget.naturalHeight || 0;
+       // 작거나(둘 중 하나라도 160px 미만) + 정사각형에 가까우면(아이콘/아바타 패턴)
+       const isSmall = nw < 160 || nh < 160;
+       const isSquareish = Math.abs(nw - nh) <= 6;
+       if (isSmall && isSquareish) {
+         setAvatarish(true);
+       } else {
+         setAvatarish(false);
+       }
+     }}
 
-//      style={{
-//        objectFit: 'cover',
-//        // 아바타로 판별되면 카드 전체가 아니라 작은 썸네일로 축소
-//        width: avatarish ? 96 : '100%',
-//        height: avatarish ? 96 : undefined,
-//        borderRadius: avatarish ? 8 : 0,
-//        margin: avatarish ? '8px auto' : 0,
-//        display: 'block',
-//      }}
-//     />
-//   );
-// }
+     style={{
+       objectFit: 'cover',
+       // 아바타로 판별되면 카드 전체가 아니라 작은 썸네일로 축소
+       width: avatarish ? 96 : '100%',
+       height: avatarish ? 96 : undefined,
+       borderRadius: avatarish ? 8 : 0,
+       margin: avatarish ? '8px auto' : 0,
+       display: 'block',
+     }}
+    />
+  );
+}
 
 function PostCard({ post, onOpen, priority = false, dateFmt }) {
   const rawForPreview = post.preview || post.bodyPreview || post.content || post.body || '';
   const preview = makePreviewText(rawForPreview, 140);
   const when = dateFmt.format(new Date(post.createdAt || post.updatedAt || Date.now()));
+
+  // 🔁 SmartImg 대체(인라인) — 후보 순회 + onError 폴백
   const [showImg, setShowImg] = useState(true);
+  const [imgIdx, setImgIdx] = useState(0);
+  const imgSources = (post.__covers || []).filter(u => !isLikelyAvatarOrLogo(u));
+  const imgSrc = imgSources[imgIdx];
 
   return (
     <article className="card shadow-sm mb-3">
@@ -374,22 +379,31 @@ function PostCard({ post, onOpen, priority = false, dateFmt }) {
         <div className="d-flex align-items-center justify-content-between gap-2 mt-2">
           <div className="d-flex flex-wrap gap-2">
             {(post.tags || []).slice(0, 3).map((t) => (
-        <span key={t} className="badge rounded-pill bg-light text-dark border">#{t}</span>
-          ))}
-          {(post.tags?.length ?? 0) > 3 && (
-            <span className="badge rounded-pill bg-light text-secondary border">…</span>
-          )}
+              <span key={t} className="badge rounded-pill bg-light text-dark border">#{t}</span>
+            ))}
+            {(post.tags?.length ?? 0) > 3 && (
+              <span className="badge rounded-pill bg-light text-secondary border">…</span>
+            )}
           </div>
           <span className="small text-secondary">{when}</span>
         </div>
       </div>
 
-      {showImg && post.__covers?.length > 0 && (
-        <SmartImg
-          sources={post.__covers.filter(u => !isLikelyAvatarOrLogo(u))}
+      {/* 🔽 이미지 인라인 렌더 (SmartImg 대체) */}
+      {showImg && imgSrc && (
+        <img
+          src={imgSrc}
+          alt={post.title || 'cover'}
           className="card-img-bottom"
-          onHide={() => setShowImg(false)}
-          priority={priority}
+          decoding="async"
+          loading={priority ? 'eager' : 'lazy'}
+          fetchpriority={priority ? 'high' : 'low'}
+          style={{ objectFit: 'cover', width: '100%', display: 'block' }}
+          onError={() => {
+            // 다음 후보로 폴백, 없으면 감춤
+            if (imgIdx + 1 < imgSources.length) setImgIdx(imgIdx + 1);
+            else setShowImg(false);
+          }}
         />
       )}
     </article>
