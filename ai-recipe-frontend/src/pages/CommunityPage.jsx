@@ -26,6 +26,19 @@ function debounce(fn, ms = 300) {
 
 }
 
+function toSafeSrc(u) {
+  try {
+    const url = new URL(u, window.location.origin);
+    // 외부 HTTP는 프록시로 래핑
+    if (url.protocol === 'http:') {
+      return `/api/img?u=${encodeURIComponent(url.toString())}`;
+    }
+    return u;
+  } catch {
+    return u;
+  }
+}
+
 function isAllowedCoverHost() {
   return true;   // 모든 호스트 허용
 }
@@ -236,7 +249,8 @@ function collectCoverCandidates(post) {
       .map((u) => withVersion(normalizeCoverUrl(u), updatedAt))
       .filter(Boolean)
       .filter((u) => !isLikelyAvatarOrLogo(u))
-      .filter((u) => isAllowedCoverHost(u));
+      .filter((u) => isAllowedCoverHost(u))
+      .map(toSafeSrc); 
 
     if (localStorage.getItem('rf:debug') === '1') {
       console.log('[covers:normalized]', post.id, normalized);
