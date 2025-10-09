@@ -48,23 +48,30 @@ function debounce(fn, ms = 300) {
        /(avatar|profile|userpic|logo|badge|icon|emoji|sprite)\b/.test(name);
 
      // 크기 파라미터(아바타 흔한 사이즈)
-    const sizeHints =
-     /(=|[\?&])(s|sz|size|w|h)=?(24|32|40|48|64|72|80|96|100|128)\b/.test(q) ||
-     /\/s(24|32|40|48|64|72|80|96|100|128)(\-c)?\b/.test(path); // ← 경로 기반 사이즈도 컷
-
+ const sizeHints =
+     /(=|[?&])(s|sz|size|w|h)=?(24|32|40|48|64|72|80|96|100|128)\b/.test(q) ||
+     /\/s(24|32|40|48|64|72|80|96|100|128)(\-c)?\b/.test(path);
      // 주요 호스트 패턴
    // 🔒 하드 차단 도메인/패턴 (아바타 확률이 매우 높음)
-    const hardHosts = [
+     const hardHosts = [
      'googleusercontent.com','gstatic.com',
-     'ggpht.com','yt3.ggpht.com',        // ← 추가
+     'ggpht.com','yt3.ggpht.com',      // 유튜브 채널/계정 아바타
      'gravatar.com','avatars.githubusercontent.com',
      'kakaocdn.net','fbcdn.net','fbsbx.com'
    ];
-   
+
+      // 유튜브/구글 아바타의 대표 경로 패턴 추가 컷
+      const avatarPaths = [
+        /\/ytc\//,                       // yt3.ggpht.com/ytc/...
+        /^\/a\//,                        // lh3.googleusercontent.com/a/...
+        /\/s\d{2,3}-c\b/,                // .../s96-c
+      ];
+      
+   const pathLooksAvatar = avatarPaths.some(re => re.test(path));
    const hardBlockedHost = hardHosts.some(h => host === h || host.endsWith('.'+h));
    const hardBlockedPath  =
      path.startsWith('/a/') || /photo\.jpg$/.test(name) || /\/profile_images\//.test(path);
-     return looksLikeIcon || sizeHints || hardBlockedHost || hardBlockedPath;
+      return looksLikeIcon || sizeHints || hardBlockedHost || hardBlockedPath || pathLooksAvatar;
    } catch {
      return false;
    }
@@ -350,7 +357,7 @@ function PostCard({ post, onOpen, priority = false, dateFmt }) {
 
       {showImg && post.__covers?.length > 0 && (
         <SmartImg
-          sources={post.__covers}
+          sources={post.__covers.filter(u => !isLikelyAvatarOrLogo(u))}
           className="card-img-bottom"
           onHide={() => setShowImg(false)}
           priority={priority}
