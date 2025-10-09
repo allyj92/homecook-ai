@@ -145,7 +145,7 @@ public class CommunityController {
             @RequestParam(defaultValue = "new") String sort
     ) {
         int s = clampSize(size, 1, 100);
-        
+
         return service.list(category, page, s, sort);
 
 
