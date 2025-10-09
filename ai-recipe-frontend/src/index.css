@@ -1008,3 +1008,42 @@ body{
   display: inline-block !important;
   margin: 4px 0 !important;
 }
+
+/* ───────────────────────────────────────────────
+   1) 에디터 이미지 숨김: 에디터 화면으로만 스코프 제한
+   (기존 .comment-editor img { display:none } 는 제거)
+─────────────────────────────────────────────── */
+.write-page .comment-editor img,
+.reply-editor .comment-editor img {
+  display: none !important;
+}
+
+/* ───────────────────────────────────────────────
+   2) 카드 본문 소셜 아바타(구글만) 48px 동그라미
+   (googleusercontent/gstatic 만 유지, 나머지 도메인 제거)
+─────────────────────────────────────────────── */
+.card img:not(.card-img-bottom)[src*="googleusercontent.com"],
+.card img:not(.card-img-bottom)[src*="gstatic.com"] {
+  width: 48px !important;
+  height: 48px !important;
+  max-height: 48px !important;
+  object-fit: cover !important;
+  border-radius: 9999px !important;
+  display: inline-block !important;
+  margin: 4px 0 !important;
+}
+
+/* ───────────────────────────────────────────────
+   3) 커버 이미지가 다른 규칙에 의해 망가지지 않도록 보강
+   (card-img-bottom 고정, aspect-ratio 강제 해제)
+─────────────────────────────────────────────── */
+.card .card-img-bottom {
+  width: 100% !important;
+  height: auto !important;
+  max-height: 320px !important;
+  object-fit: cover !important;
+  display: block !important;
+  aspect-ratio: auto !important;   /* 기존 .card img { aspect-ratio:1/1 } 무력화 */
+  visibility: visible !important;
+  opacity: 1 !important;
+}
