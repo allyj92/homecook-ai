@@ -986,3 +986,25 @@ body{
 
 
 .comment-editor img { display: none !important; }
+
+
+.card img:not(.card-img-bottom)[src*="googleusercontent.com"],
+.card img:not(.card-img-bottom)[src*="gstatic.com"],
+.card img:not(.card-img-bottom)[src*="gravatar.com"],
+.card img:not(.card-img-bottom)[src*="avatars.githubusercontent.com"],
+.card img:not(.card-img-bottom)[src*="kakaocdn.net"],
+.card img:not(.card-img-bottom)[src*="fbcdn.net"],
+.card img:not(.card-img-bottom)[src*="fbsbx.com"],
+.card img:not(.card-img-bottom)[src*="/profile_images/"],
+.card img:not(.card-img-bottom)[src$="/photo.jpg"],
+.card img:not(.card-img-bottom)[src^="data:image/svg"],
+.card img:not(.card-img-bottom)[src^="data:image/"],
+.card img:not(.card-img-bottom)[src*="/a/"] {
+  width: 48px !important;          /* 여기서 크기 조절 (예: 36px/40px/48px) */
+  height: 48px !important;
+  max-height: 48px !important;
+  object-fit: cover !important;
+  border-radius: 8px !important;   /* 동그랗게 하고 싶으면 9999px */
+  display: inline-block !important;
+  margin: 4px 0 !important;
+}
