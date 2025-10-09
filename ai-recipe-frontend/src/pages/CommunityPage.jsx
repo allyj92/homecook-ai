@@ -43,20 +43,19 @@ function debounce(fn, ms = 300) {
      const sizeHints = /(=|[\?&])(s|sz|size|w|h)=?(24|32|40|48|64|72|80|96|100|128)\b/.test(q);
 
      // 주요 호스트 패턴
-     const isGoogleAvatar =
-       (host.endsWith('googleusercontent.com') || host.startsWith('lh'))
-       && (path.startsWith('/a/') || /s(24|32|40|48|64|72|80|96)(-c)?\b/.test(path) || /photo\.jpg/.test(path));
-     const isGravatar = host.includes('gravatar.com');
-     const isGithubAvatar = host.includes('avatars.githubusercontent.com');
-     const isKakaoAvatar = host.includes('kakaocdn.net') && /profile|thumb|avatar/.test(path);
-     const isNaverAvatar = host.includes('naver') && /profile|thumb|avatar/.test(path);
-     const isFacebookAvatar = host.includes('fbcdn.net') || host.includes('fbsbx.com');
-
+   // 🔒 하드 차단 도메인/패턴 (아바타 확률이 매우 높음)
+   const hardHosts = [
+     'googleusercontent.com', 'gstatic.com',
+     'gravatar.com', 'avatars.githubusercontent.com',
+     'kakaocdn.net', 'fbcdn.net', 'fbsbx.com'
+   ];
+   const hardBlockedHost = hardHosts.some(h => host === h || host.endsWith('.'+h));
+   const hardBlockedPath  =
+     path.startsWith('/a/') || /photo\.jpg$/.test(name) || /\/profile_images\//.test(path);
      return (
        looksLikeIcon ||
        sizeHints ||
-       isGoogleAvatar || isGravatar || isGithubAvatar ||
-       isKakaoAvatar || isNaverAvatar || isFacebookAvatar
+      looksLikeIcon || sizeHints || hardBlockedHost || hardBlockedPath
      );
    } catch {
      return false;
