@@ -25,18 +25,13 @@ function debounce(fn, ms = 300) {
   };
 
 }
-
 function toSafeSrc(u) {
   try {
     const url = new URL(u, window.location.origin);
-    // 외부 HTTP는 프록시로 래핑
-    if (url.protocol === 'http:') {
-        return u.protocol === 'https:' || url.startsWith('data:') || url.startsWith('/');
-    }
-      // 혼합콘텐츠 방지: http는 사용 안 함 (프록시 구현 전까지)
-   if (url.protocol === 'http:') return null;
-   // 정상인 경우 문자열 URL 반환
-   return url.toString();
+    // 혼합콘텐츠 방지: http는 버림
+    if (url.protocol === 'http:') return null;
+    // 정상 URL 문자열만 반환
+    return url.toString();
   } catch {
     return null;
   }
