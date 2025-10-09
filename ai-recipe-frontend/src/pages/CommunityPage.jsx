@@ -29,7 +29,15 @@ function debounce(fn, ms = 300) {
 // 🔎 프로필/아바타/로고로 보이는 URL 걸러내기
  function isLikelyAvatarOrLogo(url) {
    try {
-     const u = new URL(url, window.location.origin);
+    // data: 스킴은 URL 파서가 실패할 수 있어 선제 처리
+    if (typeof url === 'string' && url.startsWith('data:')) {
+      // 작은 base64(≲20KB) 이미지는 아바타/아이콘일 확률이 매우 높음 → 컷
+      if (url.length < 20000) return true;
+      // svg 아이콘도 컷
+      if (/^data:image\/svg\+xml/i.test(url)) return true;
+    }
+
+    const u = new URL(url, window.location.origin);
      const host = u.hostname.toLowerCase();
      const path = u.pathname.toLowerCase();
      const q = u.search.toLowerCase();
@@ -52,11 +60,7 @@ function debounce(fn, ms = 300) {
    const hardBlockedHost = hardHosts.some(h => host === h || host.endsWith('.'+h));
    const hardBlockedPath  =
      path.startsWith('/a/') || /photo\.jpg$/.test(name) || /\/profile_images\//.test(path);
-     return (
-       looksLikeIcon ||
-       sizeHints ||
-      looksLikeIcon || sizeHints || hardBlockedHost || hardBlockedPath
-     );
+     return looksLikeIcon || sizeHints || hardBlockedHost || hardBlockedPath;
    } catch {
      return false;
    }
@@ -145,9 +149,23 @@ function extractImagesFromContent(p, maxChars = 32 * 1024, maxImages = 3) {
     }
   };
 
+    // 🔎 <img ...> 자체를 스캔해 class/alt 기반 차단
+  const IMG_TAG_RE = /<img\b[^>]*>/gi;
+  const SRC_RE     = /src=["']([^"']+)["']/i;
+  const DATASRC_RE = /data-src=["']([^"']+)["']/i;
+  const CLASS_RE   = /class=["']([^"']+)["']/i;
+  const ALT_RE     = /alt=["']([^"']+)["']/i;
+  const AVATAR_WORDS = /(avatar|profile|userpic|user\-?image|logo|badge|icon|emoji|sprite)/i;
+  const tags = s.match(IMG_TAG_RE) || [];
+  for (const tag of tags) {
+    const cls = (CLASS_RE.exec(tag)?.[1] || '').toLowerCase();
+    const alt = (ALT_RE.exec(tag)?.[1] || '').toLowerCase();
+    if (AVATAR_WORDS.test(cls) || AVATAR_WORDS.test(alt)) continue; // 🚫
+    const src = SRC_RE.exec(tag)?.[1] || DATASRC_RE.exec(tag)?.[1] || '';
+    push(src.split('"')[0]);
+  }
+
   s.replace(/!\[[^\]]*]\(([^)]+)\)/g, (_m, u) => push((u || '').split('"')[0]));
-  s.replace(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi, (_m, u) => push(u));
-  s.replace(/<img[^>]+data-src=["']([^"']+)["'][^>]*>/gi, (_m, u) => push(u));
   s.replace(/<img[^>]+srcset=["']([^"']+)["'][^>]*>/gi, (_m, list) => {
     const first = String(list || '').split(',')[0].trim().split(' ')[0];
     push(first);
@@ -163,7 +181,9 @@ function extractImagesFromAttachments(p, maxImages = 3) {
     if (out.length >= maxImages) break;
     const u = it?.url ?? it?.src ?? it?.imageUrl ?? it?.downloadUrl;
     const cleaned = u ? unwrapLoginUrl(u) : null;
-    if (cleaned && isUsableImageUrl(cleaned)) out.push(cleaned);
+    if (cleaned && isUsableImageUrl(cleaned) && !isLikelyAvatarOrLogo(cleaned)) {
+    out.push(cleaned);
+    }
   }
   return out;
 }
@@ -176,14 +196,22 @@ function collectCoverCandidates(post) {
     ...extractImagesFromAttachments(post, 3),
     ...extractImagesFromContent(post, 32 * 1024, 3),
     ytThumb(post.youtubeId ?? post.youtube_id ?? null),
-  ].filter(isUsableImageUrl)
-   .filter((u) => !isLikelyAvatarOrLogo(u));
+   ].filter(Boolean);
+
+  if (localStorage.getItem('rf:debug') === '1') {
+    console.log('[covers:candidatesRaw]', post.id, candidatesRaw);
+  }
+ 
 
   const normalized = candidatesRaw
     .map((u) => withVersion(normalizeCoverUrl(u), updatedAt))
     .filter(Boolean)
     .filter(isUsableImageUrl)
     .filter((u) => !isLikelyAvatarOrLogo(u));
+
+      if (localStorage.getItem('rf:debug') === '1') {
+    console.log('[covers:normalized]', post.id, normalized);
+  }
 
   const seen = new Set();
   const unique = [];
