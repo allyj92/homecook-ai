@@ -44,41 +44,8 @@ function isAllowedCoverHost() {
 }
 
 // 🔎 프로필/아바타/로고로 보이는 URL 걸러내기
- function isLikelyAvatarOrLogo(url) {
-  try {
-    if (typeof url === 'string' && url.startsWith('data:')) {
-      if (/^data:image\/svg\+xml/i.test(url)) return true;
-      if (url.length < 20000) return true; // 소형 base64는 아이콘 취급
-    }
-    const u = new URL(url, window.location.origin);
-    const host = u.hostname.toLowerCase();
-    const path = u.pathname.toLowerCase();
-    const q = u.search.toLowerCase();
-    const name = path.split('/').pop() || '';
-
-    const looksLikeIcon = /(avatar|profile|userpic|user\-?image|logo|badge|icon|emoji|sprite)\b/.test(name);
-    const sizeHints =
-      /(=|[?&])(s|sz|size|w|h)=?(24|32|40|48|64|72|80|96|100|128)\b/i.test(q) ||
-      /\/s(24|32|40|48|64|72|80|96|100|128)(\-c)?\b/i.test(path) ||
-      /=s(24|32|40|48|64|72|80|96|100|128)(\-c)?\b/i.test(q);  // 👈 구글 '=s96-c' 케이스
-
-     const hardHosts = [
-     'gravatar.com',
-     'avatars.githubusercontent.com',
-     // (선택) 진짜 프로필 전용 경로만 좁게 걸고 싶다면 아래처럼 host 대신 path에서 거르세요.
-     // 'googleusercontent.com' 은 통째 막지 말고, path 패턴으로 제한하는 것을 권장.
-   ];
-    const hardBlockedHost = hardHosts.some(h => host === h || host.endsWith('.' + h));
-    const hardBlockedPath =
-     path.startsWith('/a/') ||
-     /\/profile_images\//.test(path) ||
-     /\/profile_photos\//.test(path) ||
-     /=s(24|32|40|48|64|72|80|96|100|128)(-c)?\b/i.test(q); // 구글 썸네일 사이즈 힌트
-
-    return looksLikeIcon || sizeHints || hardBlockedHost || hardBlockedPath;
-  } catch {
-    return false;
-  }
+function isLikelyAvatarOrLogo() {
+  return false; // 테스트용
 }
 
 /* ------------ 이미지 URL 유틸 ------------- */
