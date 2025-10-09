@@ -245,54 +245,7 @@ function collectCoverCandidates(post) {
       .map(String)
       .filter((u) => !ban.has(u));
 
-    const normalized = candidatesRaw
-      .map((u) => withVersion(normalizeCoverUrl(u), updatedAt))
-      .filter((u) => !!u)
-      .filter((u) => !isLikelyAvatarOrLogo(u))
-      .filter((u) => isAllowedCoverHost(u)) // 허용 도메인만
-      .filter((u) => !isLikelyAvatarOrLogo(u));
-
-    if (localStorage.getItem('rf:debug') === '1') {
-      console.log('[covers:normalized]', post.id, normalized);
-    }
-
-    // 중복 제거(대소문자 무시)
-    const seen = new Set();
-    const unique = [];
-    for (const u of normalized) {
-      const key = u.toLowerCase();
-      if (!seen.has(key)) {
-        seen.add(key);
-        unique.push(u);
-      }
-    }
-    return unique;
-  } catch (e) {
-    console.error('[collectCoverCandidates] error:', e);
-    return [];
-  }
-}
- 
-
-  const normalized = candidatesRaw
-    .map((u) => withVersion(normalizeCoverUrl(u), updatedAt))
-    .filter((u) => !isLikelyAvatarOrLogo(u))
-    .filter((u) => isAllowedCoverHost(u))       // ✅ 허용 도메인만
-    .filter((u) => !isLikelyAvatarOrLogo(u));  
-
-      if (localStorage.getItem('rf:debug') === '1') {
-    console.log('[covers:normalized]', post.id, normalized);
-  }
-
-  const seen = new Set();
-  const unique = [];
-  for (const u of normalized) {
-    const key = u.toLowerCase();
-    if (!seen.has(key)) { seen.add(key); unique.push(u); }
-  }
-  return unique;
-}
-
+    
 /* ------------ 프리뷰 텍스트 ------------ */
 function makePreviewText(input, maxLen = 120) {
   if (!input) return '';
