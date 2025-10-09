@@ -20,7 +20,7 @@ export default function CommentEditor({ postId, onCreated }) {
   }
 
   return (
-    <form onSubmit={onSubmit} className="mt-3">
+    <form onSubmit={onSubmit} className="mt-3 comment-editor">
       <textarea className="form-control" rows={3}
         placeholder="댓글을 입력하세요…" value={text}
         onChange={(e)=>setText(e.target.value)} />

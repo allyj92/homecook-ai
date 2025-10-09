@@ -980,3 +980,6 @@ body{
   opacity: .96;
 }
 .mobile-write-mini:active { transform: translateY(1px); }
+
+
+.comment-editor img { display: none !important; }
