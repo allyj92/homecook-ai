@@ -375,9 +375,11 @@ export default function WritePage() {
                 placeholder={`레시피/후기/질문 내용을 자세히 적어주세요.
 - 캡처 이미지를 붙여넣거나 드래그하면 자동 업로드됩니다.`}
                 upload={async (blob) => {
+                  // ⬇⬇⬇ 업로드 → URL 회수 → 대표이미지 비었으면 자동 세팅 → 에디터는 URL을 사용해 이미지 마크다운을 자동 삽입
                   const up = await uploadFile(blob);
                   const url = pickUploadUrl(up);
                   if (!url) throw new Error("업로드 응답에 URL이 없어요.");
+                  if (!repImageUrl) setRepImageUrl(url); // ⭐ 첫 이미지면 대표이미지 자동 세팅
                   return url;
                 }}
               />
