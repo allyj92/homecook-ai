@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import '../index.css';
 import BottomNav from '../components/BottomNav';
-import { ensureLogin } from '../auth/ensureLogin';
+import { ensureLogin } from '../lib/auth';
 
 const BRAND = {
   orange: '#ff7f32',
@@ -506,15 +506,29 @@ function scoreAndPick(items, size) {
     const likes = Number(p.likeCount ?? p.like_count ?? p.likes ?? p.hearts ?? p.metrics?.likes ?? p.metrics?.hearts ?? 0);
     const comments = Number(p.commentCount ?? p.comment_count ?? p.comments ?? p.metrics?.comments ?? 0);
     const bookmarks = Number(p.bookmarkCount ?? p.bookmark_count ?? p.bookmarks ?? p.metrics?.bookmarks ?? 0);
-    const createdAt = new Date(p.createdAt ?? p.created_at ?? p.updatedAt ?? p.updated_at ?? now).getTime();
-    const ageHours = Math.max(1, (now - createdAt) / 36e5);
+    const createdAtMs = new Date(p.createdAt ?? p.created_at ?? p.updatedAt ?? p.updated_at ?? now).getTime();
+    const ageHours = Math.max(1, (now - createdAtMs) / 36e5);
     const engagement = likes * 3 + comments * 2 + bookmarks * 1;
-    return engagement / Math.pow(ageHours, 0.6);
+    const score = engagement / Math.pow(ageHours, 0.6);
+    return { score, likes, comments, bookmarks, createdAtMs };
   };
 
   return [...(items || [])]
-    .map((p) => ({ ...p, __score: scoreOf(p) }))
-    .sort((a, b) => b.__score - a.__score)
+    .map((p) => ({ ...p, __rank: scoreOf(p) }))
+    .sort((a, b) => {
+      // 1) 점수
+      if (b.__rank.score !== a.__rank.score) return b.__rank.score - a.__rank.score;
+      // 2) 참여 합
+      const aSum = a.__rank.likes + a.__rank.comments + a.__rank.bookmarks;
+      const bSum = b.__rank.likes + b.__rank.comments + b.__rank.bookmarks;
+      if (bSum !== aSum) return bSum - aSum;
+      // 3) 좋아요 > 댓글 > 북마크
+      if (b.__rank.likes !== a.__rank.likes) return b.__rank.likes - a.__rank.likes;
+      if (b.__rank.comments !== a.__rank.comments) return b.__rank.comments - a.__rank.comments;
+      if (b.__rank.bookmarks !== a.__rank.bookmarks) return b.__rank.bookmarks - a.__rank.bookmarks;
+      // 4) 최신 우선(백업)
+      return b.__rank.createdAtMs - a.__rank.createdAtMs;
+    })
     .slice(0, size);
 }
 
