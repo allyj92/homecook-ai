@@ -1,46 +1,110 @@
+// src/components/CommentItem.jsx
 import { useState } from 'react';
-import { updateComment, deleteComment } from '../api/comments';
+import { updateComment, deleteComment } from '../api/community'; // ✅ 경로 변경
 
 export default function CommentItem({ c, canEdit, onUpdated, onDeleted }) {
   const [edit, setEdit] = useState(false);
   const [text, setText] = useState(c.content || '');
+  const [saving, setSaving] = useState(false);
+  const [removing, setRemoving] = useState(false);
+
+  const postId = c.postId; // ✅ 서버가 내려주는 postId 사용
 
   async function onSave() {
-    const next = await updateComment(c.id, { content: text });
-    onUpdated?.(next); setEdit(false);
+    const body = (text ?? '').trim();
+    if (!body) {
+      alert('내용을 입력해 주세요.');
+      return;
+    }
+    if (saving) return;
+    setSaving(true);
+    try {
+      const next = await updateComment(postId, c.id, { content: body }); // ✅ postId 포함
+      onUpdated?.(next);
+      setEdit(false);
+    } catch (e) {
+      alert(e?.message || '댓글 수정에 실패했어요.');
+    } finally {
+      setSaving(false);
+    }
   }
+
   async function onRemove() {
     if (!confirm('삭제할까요?')) return;
-    await deleteComment(c.id);
-    onDeleted?.(c.id);
+    if (removing) return;
+    setRemoving(true);
+    try {
+      await deleteComment(postId, c.id); // ✅ postId 포함
+      onDeleted?.(c.id); // 상위에서 deleted=true, content='' 처리
+    } catch (e) {
+      alert(e?.message || '댓글 삭제에 실패했어요.');
+      setRemoving(false);
+    }
   }
 
   return (
     <div className="d-flex gap-2 py-2 border-bottom">
-      {c.authorAvatar && <img src={c.authorAvatar} alt="" width={28} height={28} className="rounded-circle border" />}
+      {c.authorAvatar && (
+        <img
+          src={c.authorAvatar}
+          alt=""
+          width={28}
+          height={28}
+          className="rounded-circle border"
+          style={{ objectFit: 'cover' }}
+        />
+      )}
       <div className="flex-grow-1">
-        <div className="small text-secondary d-flex gap-2">
+        <div className="small text-secondary d-flex gap-2 flex-wrap">
           <span className="text-dark fw-semibold">{c.authorName || `작성자#${c.authorId}`}</span>
           <span>·</span>
           <span>{new Date(c.createdAt).toLocaleString()}</span>
         </div>
 
         {!edit ? (
-          <div className="mt-1">{c.deleted ? <span className="text-secondary">삭제된 댓글입니다.</span> : c.content}</div>
+          <div className="mt-1">
+            {c.deleted ? (
+              <span className="text-secondary">삭제된 댓글입니다.</span>
+            ) : (
+              c.content
+            )}
+          </div>
         ) : (
           <div className="mt-2">
-            <textarea className="form-control" rows={3} value={text} onChange={(e)=>setText(e.target.value)} />
+            <textarea
+              className="form-control"
+              rows={3}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              disabled={saving}
+            />
             <div className="mt-2 d-flex gap-2">
-              <button className="btn btn-primary btn-sm" onClick={onSave}>저장</button>
-              <button className="btn btn-outline-secondary btn-sm" onClick={()=>setEdit(false)}>취소</button>
+              <button className="btn btn-primary btn-sm" onClick={onSave} disabled={saving}>
+                {saving ? '저장 중…' : '저장'}
+              </button>
+              <button
+                className="btn btn-outline-secondary btn-sm"
+                onClick={() => setEdit(false)}
+                disabled={saving}
+              >
+                취소
+              </button>
             </div>
           </div>
         )}
 
         {canEdit && !c.deleted && !edit && (
           <div className="mt-1 d-flex gap-2">
-            <button className="btn btn-outline-secondary btn-sm" onClick={()=>setEdit(true)}>수정</button>
-            <button className="btn btn-outline-danger btn-sm" onClick={onRemove}>삭제</button>
+            <button className="btn btn-outline-secondary btn-sm" onClick={() => setEdit(true)}>
+              수정
+            </button>
+            <button
+              className="btn btn-outline-danger btn-sm"
+              onClick={onRemove}
+              disabled={removing}
+            >
+              {removing ? '삭제 중…' : '삭제'}
+            </button>
           </div>
         )}
       </div>
