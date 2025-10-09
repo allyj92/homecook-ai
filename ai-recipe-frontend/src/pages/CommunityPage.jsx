@@ -201,18 +201,77 @@ function extractImagesFromAttachments(p, maxImages = 3) {
 }
 
 function collectCoverCandidates(post) {
-  const updatedAt = post.updatedAt ?? post.updated_at ?? post.createdAt ?? post.created_at ?? null;
-  const ban = new Set(
-   [
-     post.authorAvatar ?? post.author_avatar ?? null,
-     post.userAvatar ?? null,
-     post.profileImage ?? null,
-     // 혹시 서버가 repImageUrl에 아바타를 잘못 넣는 경우까지 차단
-     post.repImageUrl ?? post.rep_image_url ?? null,
-   ]
-   .filter(Boolean)
-   .map(String)
- );
+  try {
+    const updatedAt =
+      post.updatedAt ?? post.updated_at ?? post.createdAt ?? post.created_at ?? null;
+
+    // 아바타/프로필로 의심되는 것들 미리 제외
+    const ban = new Set(
+      [
+        post.authorAvatar ?? post.author_avatar ?? null,
+        post.userAvatar ?? null,
+        post.profileImage ?? null,
+        post.repImageUrl ?? post.rep_image_url ?? null, // 혹시 서버가 잘못 넣은 경우 대비
+      ]
+        .filter(Boolean)
+        .map(String)
+    );
+
+    // 1) 직접 필드에서 1차 후보
+    const direct = [
+      post.coverUrl ?? post.cover_url ?? null,
+      post.coverImage ?? post.cover_image ?? null,
+      post.thumbnail ?? post.thumbUrl ?? post.thumb_url ?? null,
+      post.imageUrl ?? post.image_url ?? null,
+      post.repImageUrl ?? post.rep_image_url ?? null,
+    ].filter(Boolean);
+
+    // 2) 첨부/본문에서 추가 후보
+    const fromAttachments = extractImagesFromAttachments(post, 5);
+    const fromContent = extractImagesFromContent(post, 32 * 1024, 5);
+
+    // 3) 유튜브 썸네일 (필드에 id가 있을 때)
+    const ytId = post.youtubeId ?? post.youtube_id ?? null;
+    const yt = ytThumb(ytId);
+
+    // ✅ 누락되었던 candidatesRaw를 여기서 구성
+    const candidatesRaw = [
+      ...direct,
+      ...(yt ? [yt] : []),
+      ...fromAttachments,
+      ...fromContent,
+    ]
+      .filter(Boolean)
+      .map(String)
+      .filter((u) => !ban.has(u));
+
+    const normalized = candidatesRaw
+      .map((u) => withVersion(normalizeCoverUrl(u), updatedAt))
+      .filter((u) => !!u)
+      .filter((u) => !isLikelyAvatarOrLogo(u))
+      .filter((u) => isAllowedCoverHost(u)) // 허용 도메인만
+      .filter((u) => !isLikelyAvatarOrLogo(u));
+
+    if (localStorage.getItem('rf:debug') === '1') {
+      console.log('[covers:normalized]', post.id, normalized);
+    }
+
+    // 중복 제거(대소문자 무시)
+    const seen = new Set();
+    const unique = [];
+    for (const u of normalized) {
+      const key = u.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        unique.push(u);
+      }
+    }
+    return unique;
+  } catch (e) {
+    console.error('[collectCoverCandidates] error:', e);
+    return [];
+  }
+}
  
 
   const normalized = candidatesRaw
