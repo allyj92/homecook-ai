@@ -25,6 +25,26 @@ function debounce(fn, ms = 300) {
   };
 }
 
+function isAllowedCoverHost(url) {
+  try {
+    const u = new URL(url, window.location.origin);
+    const host = u.hostname.toLowerCase();
+
+    // ✅ 여기에 “커버로 허용할 도메인”만 넣어주세요
+    const allowHosts = [
+      window.location.hostname.toLowerCase(),   // recipfree.com
+      'i.ytimg.com',                            // 유튜브 썸네일
+      // 필요하면 CDN 도메인들 추가
+      // 'static.recipfree.com', 'cdn.recipfree.com',
+    ];
+
+    if (allowHosts.includes(host)) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 
 // 🔎 프로필/아바타/로고로 보이는 URL 걸러내기
  function isLikelyAvatarOrLogo(url) {
@@ -198,8 +218,8 @@ function collectCoverCandidates(post) {
   const normalized = candidatesRaw
     .map((u) => withVersion(normalizeCoverUrl(u), updatedAt))
     .filter((u) => !isLikelyAvatarOrLogo(u))
-    .filter((u) => !ban.has(String(u)))
-    .filter((u) => !/googleusercontent\.com/i.test(u)); 
+    .filter((u) => isAllowedCoverHost(u))       // ✅ 허용 도메인만
+    .filter((u) => !isLikelyAvatarOrLogo(u));  
 
       if (localStorage.getItem('rf:debug') === '1') {
     console.log('[covers:normalized]', post.id, normalized);
@@ -286,6 +306,18 @@ function SmartImg({ sources, alt = '', className = '', onHide, priority = false 
         if (idx + 1 < (sources?.length || 0)) setIdx(idx + 1);
         else if (onHide) onHide();
       }}
+       onLoad={(e) => {
+       // 👇 로드 후 실제 크기가 너무 작거나(아이콘급) 정사각 아이콘이면 컷
+       const nw = e.currentTarget.naturalWidth || 0;
+       const nh = e.currentTarget.naturalHeight || 0;
+       const min = 160; // 필요시 조정
+       const isTiny = nw <= min && nh <= min;
+       const isSquareIcon = Math.abs(nw - nh) <= 2 && (nw <= 256 && nh <= 256);
+       if (isTiny || isSquareIcon) {
+         if (idx + 1 < (sources?.length || 0)) setIdx(idx + 1);
+         else if (onHide) onHide();
+       }
+     }}
       style={{ objectFit: 'cover' }}
     />
   );
