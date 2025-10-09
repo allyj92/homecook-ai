@@ -211,7 +211,7 @@ function collectCoverCandidates(post) {
         post.authorAvatar ?? post.author_avatar ?? null,
         post.userAvatar ?? null,
         post.profileImage ?? null,
-        post.repImageUrl ?? post.rep_image_url ?? null, // 혹시 서버가 잘못 넣은 경우 대비
+        post.repImageUrl ?? post.rep_image_url ?? null, // 서버 오입력 대비
       ]
         .filter(Boolean)
         .map(String)
@@ -230,11 +230,10 @@ function collectCoverCandidates(post) {
     const fromAttachments = extractImagesFromAttachments(post, 5);
     const fromContent = extractImagesFromContent(post, 32 * 1024, 5);
 
-    // 3) 유튜브 썸네일 (필드에 id가 있을 때)
+    // 3) 유튜브 썸네일
     const ytId = post.youtubeId ?? post.youtube_id ?? null;
     const yt = ytThumb(ytId);
 
-    // ✅ 누락되었던 candidatesRaw를 여기서 구성
     const candidatesRaw = [
       ...direct,
       ...(yt ? [yt] : []),
@@ -244,6 +243,33 @@ function collectCoverCandidates(post) {
       .filter(Boolean)
       .map(String)
       .filter((u) => !ban.has(u));
+
+    const normalized = candidatesRaw
+      .map((u) => withVersion(normalizeCoverUrl(u), updatedAt))
+      .filter(Boolean)
+      .filter((u) => !isLikelyAvatarOrLogo(u))
+      .filter((u) => isAllowedCoverHost(u));
+
+    if (localStorage.getItem('rf:debug') === '1') {
+      console.log('[covers:normalized]', post.id, normalized);
+    }
+
+    // 중복 제거(대소문자 무시)
+    const seen = new Set();
+    const unique = [];
+    for (const u of normalized) {
+      const key = u.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        unique.push(u);
+      }
+    }
+    return unique;
+  } catch (e) {
+    console.error('[collectCoverCandidates] error:', e);
+    return [];
+  }
+}
 
     
 /* ------------ 프리뷰 텍스트 ------------ */
