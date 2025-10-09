@@ -37,6 +37,12 @@ const md = new MarkdownIt({
   breaks: true,
 });
 
+ // ✅ 이미지 토큰 렌더를 막는다(네이버 스타일: 이미지 비노출)
+ md.renderer.rules.image = () => {
+   // 아무것도 렌더하지 않음 (원한다면 링크/대체문구로 바꿔도 됨)
+   return '';
+ };
+
 // 링크를 새 탭으로 열고 안전 속성 부여
 const defaultLinkOpen =
   md.renderer.rules.link_open ||
