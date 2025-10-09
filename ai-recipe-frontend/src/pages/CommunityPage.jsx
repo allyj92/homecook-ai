@@ -48,15 +48,19 @@ function debounce(fn, ms = 300) {
        /(avatar|profile|userpic|logo|badge|icon|emoji|sprite)\b/.test(name);
 
      // 크기 파라미터(아바타 흔한 사이즈)
-     const sizeHints = /(=|[\?&])(s|sz|size|w|h)=?(24|32|40|48|64|72|80|96|100|128)\b/.test(q);
+    const sizeHints =
+     /(=|[\?&])(s|sz|size|w|h)=?(24|32|40|48|64|72|80|96|100|128)\b/.test(q) ||
+     /\/s(24|32|40|48|64|72|80|96|100|128)(\-c)?\b/.test(path); // ← 경로 기반 사이즈도 컷
 
      // 주요 호스트 패턴
    // 🔒 하드 차단 도메인/패턴 (아바타 확률이 매우 높음)
-   const hardHosts = [
-     'googleusercontent.com', 'gstatic.com',
-     'gravatar.com', 'avatars.githubusercontent.com',
-     'kakaocdn.net', 'fbcdn.net', 'fbsbx.com'
+    const hardHosts = [
+     'googleusercontent.com','gstatic.com',
+     'ggpht.com','yt3.ggpht.com',        // ← 추가
+     'gravatar.com','avatars.githubusercontent.com',
+     'kakaocdn.net','fbcdn.net','fbsbx.com'
    ];
+   
    const hardBlockedHost = hardHosts.some(h => host === h || host.endsWith('.'+h));
    const hardBlockedPath  =
      path.startsWith('/a/') || /photo\.jpg$/.test(name) || /\/profile_images\//.test(path);
