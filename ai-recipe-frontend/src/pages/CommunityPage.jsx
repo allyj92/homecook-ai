@@ -31,7 +31,7 @@ function toSafeSrc(u) {
     const url = new URL(u, window.location.origin);
     // 외부 HTTP는 프록시로 래핑
     if (url.protocol === 'http:') {
-      return `/api/img?u=${encodeURIComponent(url.toString())}`;
+        return u.protocol === 'https:' || url.startsWith('data:') || url.startsWith('/');
     }
     return u;
   } catch {
