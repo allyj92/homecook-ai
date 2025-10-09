@@ -558,7 +558,12 @@ const onToggleBookmark = () =>
               </div>
             )}
 
-            <CommentList key={commentsVersion} postId={post.id} pageSize={20} />
+             <CommentList
+              key={commentsVersion}
+              postId={post.id}
+              pageSize={20}
+              onDeleted={() => setCommentsVersion(v => v + 1)}
+            />
           </section>
         </div>
       </article>

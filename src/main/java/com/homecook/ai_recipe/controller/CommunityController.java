@@ -15,9 +15,12 @@ import com.homecook.ai_recipe.repo.CommunityPostRepository;
 import com.homecook.ai_recipe.repo.UserAccountRepository;
 import com.homecook.ai_recipe.service.CommunityService;
 import com.homecook.ai_recipe.service.OAuthAccountService;
+import com.homecook.ai_recipe.service.CommunityCommentService;
+
 import jakarta.validation.Valid;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.core.user.OAuth2User;
@@ -36,6 +39,7 @@ public class CommunityController {
 
     private final CommunityService service;
     private final OAuthAccountService oauthService;
+    private final CommunityCommentService communityCommentService; // ✅ 주입
 
     // ✅ 댓글/포스트/작성자 Repo 직접 주입
     private final CommunityCommentRepository commentRepo;
@@ -44,11 +48,13 @@ public class CommunityController {
 
     public CommunityController(CommunityService service,
                                OAuthAccountService oauthService,
+                               CommunityCommentService communityCommentService, // ✅ 생성자에 추가
                                CommunityCommentRepository commentRepo,
                                CommunityPostRepository postRepo,
                                UserAccountRepository userRepo) {
         this.service = service;
         this.oauthService = oauthService;
+        this.communityCommentService = communityCommentService; // ✅ 할당
         this.commentRepo = commentRepo;
         this.postRepo = postRepo;
         this.userRepo = userRepo;
@@ -128,26 +134,23 @@ public class CommunityController {
 
     /* ---------- Post APIs ---------- */
 
-    /** 목록 (카테고리/페이지네이션/정렬) - 공개 */
     @GetMapping("/posts")
     public List<PostRes> list(
             @RequestParam(required = false) String category,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "12") int size,
-            @RequestParam(defaultValue = "new") String sort // "new" | "popular"
+            @RequestParam(defaultValue = "new") String sort
     ) {
         int s = clampSize(size, 1, 100);
         return service.list(category, page, s, sort);
     }
 
-    /** 단건 조회 - 공개 */
     @GetMapping("/posts/{id}")
     public PostRes getOne(@PathVariable String id) {
         Long lid = toLongIdOr404(id);
         return service.getOne(lid);
     }
 
-    /** 작성 - 인증 필요 */
     @PostMapping("/posts")
     public Map<String, Long> create(
             @Valid @RequestBody CreatePostReq req,
@@ -158,7 +161,6 @@ public class CommunityController {
         return Map.of("id", id);
     }
 
-    /** 내가 쓴 글 최근 N개 - 인증 필요 */
     @GetMapping("/my-posts")
     public List<PostRes> myPosts(
             @RequestParam(defaultValue = "3") int size,
@@ -169,7 +171,6 @@ public class CommunityController {
         return service.findLatestByAuthor(userId, s);
     }
 
-    /** 수정 (작성자 본인만) - 인증 필요 */
     @PutMapping("/posts/{id}")
     public PostRes update(
             @PathVariable String id,
@@ -182,7 +183,6 @@ public class CommunityController {
         return service.getOne(lid);
     }
 
-    /** 삭제 - 인증 필요 */
     @DeleteMapping("/posts/{id}")
     public Map<String, Object> delete(
             @PathVariable String id,
@@ -194,7 +194,6 @@ public class CommunityController {
         return Map.of("deleted", true);
     }
 
-    /** 호환용 POST 삭제 */
     @PostMapping("/posts/{id}/delete")
     public Map<String, Object> deleteCompat(
             @PathVariable String id,
@@ -206,9 +205,8 @@ public class CommunityController {
         return Map.of("deleted", true);
     }
 
-    /* ---------- Like / Bookmark APIs ---------- */
+    /* ---------- Like / Bookmark ---------- */
 
-    /** 좋아요 ON (POST /posts/{id}/like, ?on=1 호환) */
     @PostMapping("/posts/{id}/like")
     public Map<String, Object> likeOn(
             @PathVariable String id,
@@ -222,7 +220,6 @@ public class CommunityController {
         return Map.of("ok", true, "likeCount", likeCount);
     }
 
-    /** 좋아요 OFF (DELETE /posts/{id}/like) */
     @DeleteMapping("/posts/{id}/like")
     public Map<String, Object> likeOff(
             @PathVariable String id,
@@ -234,7 +231,6 @@ public class CommunityController {
         return Map.of("ok", true, "likeCount", likeCount);
     }
 
-    /** 북마크 ON (POST /posts/{id}/bookmark, ?on=1 호환) */
     @PostMapping("/posts/{id}/bookmark")
     public Map<String, Object> bookmarkOn(
             @PathVariable String id,
@@ -248,7 +244,6 @@ public class CommunityController {
         return Map.of("ok", true, "bookmarkCount", bookmarkCount);
     }
 
-    /** 북마크 OFF (DELETE /posts/{id}/bookmark) */
     @DeleteMapping("/posts/{id}/bookmark")
     public Map<String, Object> bookmarkOff(
             @PathVariable String id,
@@ -260,20 +255,19 @@ public class CommunityController {
         return Map.of("ok", true, "bookmarkCount", bookmarkCount);
     }
 
-    /* ---------- (옵션) 인기 전용 엔드포인트 ---------- */
     @GetMapping("/trending")
     public List<PostRes> trending(@RequestParam(defaultValue = "8") int size) {
         int s = clampSize(size, 1, 50);
         return service.list(null, 0, s, "popular");
     }
 
-    /* ---------- Comment APIs (Repo 직접 사용) ---------- */
+    /* ---------- Comment APIs ---------- */
 
-    /** 댓글 목록(커서 기반) - 공개 */
+    /** 댓글 목록(커서 기반) - 삭제 제외 */
     @GetMapping("/posts/{id}/comments")
     public CommentPageRes listComments(
             @PathVariable String id,
-            @RequestParam(required = false) Long cursor,     // afterId와 동일 의미
+            @RequestParam(required = false) Long cursor,
             @RequestParam(defaultValue = "20") int size
     ) {
         Long postId = toLongIdOr404(id);
@@ -281,11 +275,9 @@ public class CommunityController {
 
         List<CommunityComment> rows = commentRepo.findPage(
                 postId,
-                cursor,                                 // afterId
+                cursor,
                 PageRequest.of(0, limit)
         );
-
-        // nextCursor 계산(id desc이므로 마지막 원소의 id가 다음 커서)
         Long nextCursor = (rows.size() == limit) ? rows.get(rows.size() - 1).getId() : null;
 
         List<CommentRes> items = rows.stream().map(CommunityController::toRes).toList();
@@ -294,7 +286,7 @@ public class CommunityController {
         return new CommentPageRes(items, nextCursor, total);
     }
 
-    /** 댓글 작성 - 인증 필요 */
+    /** 댓글 작성 */
     @PostMapping("/posts/{id}/comments")
     @Transactional
     public CommentRes createComment(
@@ -317,11 +309,9 @@ public class CommunityController {
         c.setUpdatedAt(LocalDateTime.now());
 
         if (req.parentId() != null) {
-            CommunityComment parent = commentRepo.findById(req.parentId())
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "parent not found"));
-            if (!parent.getPost().getId().equals(postId)) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "parent mismatch");
-            }
+            // ✅ 부모는 같은 글 + 미삭제 인 것만 허용
+            CommunityComment parent = commentRepo.findByIdAndPost_IdAndDeletedFalse(req.parentId(), postId)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "parent not found or deleted"));
             c.setParent(parent);
         }
 
@@ -329,7 +319,7 @@ public class CommunityController {
         return toRes(saved);
     }
 
-    /** 댓글 수정(작성자 본인) - 인증 필요 */
+    /** 댓글 수정(작성자/관리자 허용 X: 작성자만) */
     @PutMapping("/posts/{id}/comments/{commentId}")
     @Transactional
     public CommentRes updateComment(
@@ -342,16 +332,12 @@ public class CommunityController {
         Long postId = toLongIdOr404(id);
         Long cid = toLongIdOr404(commentId);
 
-        CommunityComment c = commentRepo.findById(cid)
+        // ✅ 미삭제 + post 일치로 조회
+        CommunityComment c = commentRepo.findByIdAndPost_IdAndDeletedFalse(cid, postId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
-        if (!c.getPost().getId().equals(postId)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND);
-        }
+
         if (!c.getAuthor().getId().equals(userId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN);
-        }
-        if (c.isDeleted()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "deleted");
         }
 
         String body = req.content() == null ? "" : req.content().trim();
@@ -363,10 +349,10 @@ public class CommunityController {
         return toRes(saved);
     }
 
-    /** 댓글 삭제(작성자 본인, 소프트 삭제) - 인증 필요 */
+    /** 댓글 삭제(작성자 또는 관리자, 소프트 삭제) */
     @DeleteMapping("/posts/{id}/comments/{commentId}")
     @Transactional
-    public Map<String, Object> deleteComment(
+    public ResponseEntity<Void> deleteComment(
             @PathVariable String id,
             @PathVariable String commentId,
             Authentication authentication
@@ -375,28 +361,30 @@ public class CommunityController {
         Long postId = toLongIdOr404(id);
         Long cid = toLongIdOr404(commentId);
 
-        CommunityComment c = commentRepo.findById(cid)
+        // ✅ 미삭제 + post 일치로 조회
+        CommunityComment c = commentRepo.findByIdAndPost_IdAndDeletedFalse(cid, postId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
-        if (!c.getPost().getId().equals(postId)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND);
-        }
-        if (!c.getAuthor().getId().equals(userId)) {
+
+        boolean isAdmin = authentication.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
+
+        if (!isAdmin && !c.getAuthor().getId().equals(userId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN);
         }
 
         c.setDeleted(true);
-        c.setContent(null);                 // 목록에서 내용 숨김
+        c.setContent("");                 // ✅ 프론트와 일관
         c.setUpdatedAt(LocalDateTime.now());
         commentRepo.save(c);
 
-        return Map.of("deleted", true);
+        return ResponseEntity.noContent().build(); // 204
     }
 
     /* ---------- mappers ---------- */
 
     private static CommentRes toRes(CommunityComment c) {
         boolean del = c.isDeleted();
-        String content = del ? null : c.getContent();
+        String content = del ? "" : c.getContent(); // ✅ 빈 문자열로 일관
         Long parentId = (c.getParent() != null ? c.getParent().getId() : null);
 
         return new CommentRes(
@@ -411,7 +399,5 @@ public class CommunityController {
                 c.getCreatedAt(),
                 c.getUpdatedAt()
         );
-        // 필요에 따라 "삭제된 댓글입니다." 같은 문구를 content로 내려주고 싶으면
-        // content = del ? "삭제된 댓글입니다." : c.getContent();
     }
 }
