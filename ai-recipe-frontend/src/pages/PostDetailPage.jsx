@@ -561,6 +561,7 @@ const onToggleBookmark = () =>
              <CommentList
               key={commentsVersion}
               postId={post.id}
+              me={auth.user}
               pageSize={20}
               onDeleted={() => setCommentsVersion(v => v + 1)}
             />
