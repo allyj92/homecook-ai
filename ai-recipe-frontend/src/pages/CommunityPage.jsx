@@ -309,6 +309,7 @@ function SmartImg({ sources, alt = '', className = '', onHide, priority = false 
       decoding="async"
       loading={priority ? 'eager' : 'lazy'}
       fetchpriority={priority ? 'high' : 'low'}
+      referrerPolicy="no-referrer"
       onError={() => {
         if (idx + 1 < (sources?.length || 0)) setIdx(idx + 1);
         else if (onHide) onHide();
