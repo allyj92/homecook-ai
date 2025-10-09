@@ -6,9 +6,6 @@ import 'bootstrap/dist/css/bootstrap.min.css';
 import BottomNav from '../components/BottomNav';
 import '../index.css';
 
-
-
-
 /* ------------ 공통 유틸 ------------- */
 const fmtNum = (n) => {
   const x = Number(n || 0);
@@ -23,194 +20,33 @@ function debounce(fn, ms = 300) {
     clearTimeout(t);
     t = setTimeout(() => fn(...args), ms);
   };
-
-
 }
 
-/* ------------ 이미지 프록시 유틸 ------------- */
-const PROXY = '/api/img-proxy?u=';
-const toProxied = (u) => (u ? PROXY + encodeURIComponent(u) : null);
-
-function toSafeSrc(u) {
-  try {
-    const url = new URL(u, window.location.origin);
-    // 같은 오리진(상대경로 포함)은 그대로 사용
-    if (url.origin === window.location.origin) return url.toString();
-    // 외부(https/http)는 Netlify 이미지 프록시로 래핑
-    return toProxied(url.toString()); // == '/api/img-proxy?u=' + encodeURIComponent(...)
-  } catch {
-    return typeof u === 'string' ? u : '';
-  }
-}
-
-function isAllowedCoverHost() {
-  return true;   // 모든 호스트 허용
-}
-
-// 🔎 프로필/아바타/로고로 보이는 URL 걸러내기
-function isLikelyAvatarOrLogo() {
-  return false; // 테스트용
-}
-
-/* ------------ 이미지 URL 유틸 ------------- */
-function unwrapLoginUrl(url) {
-  try {
-    const u = new URL(url, window.location.origin);
-    const host = u.host.toLowerCase();
-    const path = u.pathname.toLowerCase();
-    if (host.startsWith('login.') || /\/(auth|login)/i.test(path)) {
-      const keys = ['url','next','redirect','continue','rd','r','to','dest','destination','u','returnUrl','return_to'];
-      for (const k of keys) {
-        const v = u.searchParams.get(k);
-        if (v) {
-          const inner = decodeURIComponent(v);
-          if (/^https?:\/\//i.test(inner)) return inner;
-        }
-      }
-      if (u.hash && /^#https?:\/\//i.test(u.hash)) return u.hash.slice(1);
-    }
-  } catch {}
-  return url;
-}
-
-function normalizeCoverUrl(url) {
-  if (!url) return null;
-  try {
-    let raw = unwrapLoginUrl(url);
-    if (raw.startsWith('/')) return raw;
-    const u = new URL(raw, window.location.origin);
-    if (u.host === window.location.host) return u.pathname + u.search + u.hash;
-    return u.toString();
-  } catch {
-    return url;
-  }
-}
-
-function withVersion(url, ver) {
-  if (!url) return url;
-  try {
-    const u = new URL(url, window.location.origin);
-    const sameHost = (u.host === window.location.host);
-    const hasQuery = !!u.search && u.search.length > 1;
-    const looksSigned = /X-Amz-|Signature=|X-Goog-Signature=|token=|expires=|CloudFront/i.test(u.search);
-    if (sameHost && !hasQuery && !looksSigned) {
-      const v = ver != null ? (typeof ver === 'number' ? ver : Date.parse(ver) || Date.now()) : Date.now();
-      u.searchParams.set('v', String(v));
-      return u.pathname + u.search + u.hash;
-    }
-    return u.toString();
-  } catch { return url; }
-}
-
+/* ------------ 썸네일/프리뷰 유틸 ------------- */
 const ytThumb = (id) => (id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : null);
 
-
-
-
-function collectCoverCandidates(post) {
-  try {
-    const updatedAt =
-      post.updatedAt ?? post.updated_at ?? post.createdAt ?? post.created_at ?? null;
-
-    // 아바타/프로필로 의심되는 것들 미리 제외
-    const ban = new Set(
-      [
-        post.authorAvatar ?? post.author_avatar ?? null,
-        post.userAvatar ?? null,
-        post.profileImage ?? null,
-        post.repImageUrl ?? post.rep_image_url ?? null, // 서버 오입력 대비
-      ]
-        .filter(Boolean)
-        .map(String)
-    );
-
-    // 1) 직접 필드에서 1차 후보
-    const direct = [
-      post.coverUrl ?? post.cover_url ?? null,
-      post.coverImage ?? post.cover_image ?? null,
-      post.thumbnail ?? post.thumbUrl ?? post.thumb_url ?? null,
-      post.imageUrl ?? post.image_url ?? null,
-      post.repImageUrl ?? post.rep_image_url ?? null,
-    ].filter(Boolean);
-
-    // 3) 유튜브 썸네일
-    const ytId = post.youtubeId ?? post.youtube_id ?? null;
-    const yt = ytThumb(ytId);
-
-    const candidatesRaw = [
-      ...direct,
-      ...(yt ? [yt] : []),
-  
-    ]
-      .filter(Boolean)
-      .map(String)
-      .filter((u) => !ban.has(u));
-
-    const normalized = candidatesRaw
-      .map((u) => withVersion(normalizeCoverUrl(u), updatedAt))
-      .filter(Boolean)
-      .filter((u) => !isLikelyAvatarOrLogo(u))
-      .filter((u) => isAllowedCoverHost(u))
-      .map(toSafeSrc)
-      .filter((u) => typeof u === 'string' && u.length > 0); 
-
-    if (localStorage.getItem('rf:debug') === '1') {
-      console.log('[covers:normalized]', post.id, normalized);
-    }
-
-    // 중복 제거(대소문자 무시)
-    const seen = new Set();
-    const unique = [];
-    for (const u of normalized) {
-      const key = u.toLowerCase();
-      if (!seen.has(key)) {
-        seen.add(key);
-        unique.push(u);
-      }
-    }
-    return unique;
-  } catch (e) {
-    console.error('[collectCoverCandidates] error:', e);
-    return [];
-  }
-}
-
-    
-/* ------------ 프리뷰 텍스트 ------------ */
 function makePreviewText(input, maxLen = 120) {
   if (!input) return '';
   let s = String(input);
-  s = s.replace(/!\[([^\]]*)]\(([^)]+)\)/g, (_m, alt) => (alt || '').trim());
-  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, text) => (text || '').trim());
-  s = s.replace(/<img[^>]*alt=["']?([^"'>]*)["']?[^>]*>/gi, (_m, alt) => (alt || '').trim());
-  s = s.replace(/<a[^>]*>(.*?)<\/a>/gi, (_m, inner) => (inner || '').trim());
-  s = s.replace(/\bhttps?:\/\/[^\s)]+/gi, '');
+  s = s.replace(/!\[([^\]]*)]\(([^)]+)\)/g, (_m, alt) => (alt || '').trim()); // MD 이미지 → alt
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, text) => (text || '').trim()); // MD 링크 → text
+  s = s.replace(/<img[^>]*alt=["']?([^"'>]*)["']?[^>]*>/gi, (_m, alt) => (alt || '').trim()); // IMG alt
+  s = s.replace(/<a[^>]*>(.*?)<\/a>/gi, (_m, inner) => (inner || '').trim()); // A 텍스트
+  s = s.replace(/\bhttps?:\/\/[^\s)]+/gi, ''); // URL 삭제
   s = s.replace(/\bwww\.[^\s)]+/gi, '');
-  s = s.replace(/<\/?[^>]+>/g, ' ');
-  s = s.replace(/[#>*`_~\-]{1,}/g, ' ');
+  s = s.replace(/<\/?[^>]+>/g, ' '); // HTML 태그 제거
+  s = s.replace(/[#>*`_~\-]{1,}/g, ' '); // MD 기호 정리
   s = s.replace(/\s+/g, ' ').trim();
-   if (!s) return '이미지 첨부';
 
-  // 문장 단위로 최대 3문장만 남기기
+  if (!s) return '이미지 첨부';
+
   const sentences = s.split(/(?<=[.!?])\s+/).slice(0, 3);
   s = sentences.join(' ');
-
-  // 전체 길이가 너무 길면 일부만 잘라서 …
   if (s.length > maxLen) s = s.slice(0, maxLen).trim() + '…';
-  return s
+  return s;
 }
 
-/* ------------ 배지 ------------ */
-function Badge({ children, tone = 'gray' }) {
-  const map = {
-    brand: 'text-bg-primary',
-    line: 'bg-light text-dark border',
-    gray: 'text-bg-secondary',
-  };
-  const cls = map[tone] || map.gray;
-  return <span className={`badge rounded-pill ${cls}`}>{children}</span>;
-}
-
+/* ------------ 집계 필드 추출 ------------ */
 function extractCounts(p) {
   const likeCount =
     p.likeCount ?? p.like_count ?? p.likes ?? p.hearts ?? p.metrics?.likes ?? p.metrics?.hearts ?? 0;
@@ -225,67 +61,28 @@ function extractCounts(p) {
   };
 }
 
-/* ------------ 이미지 후보 자동 폴백 + 성능 힌트 ------------ */
-// function SmartImg({ sources, alt = '', className = '', onHide, priority = false }) {
-//   const [idx, setIdx] = useState(0);
-//   const [avatarish, setAvatarish] = useState(false);
-//   const src = sources?.[idx] || null;
-//   if (!src) return null;
-
-//    const width = avatarish ? 36 : 800;
-//    const height = avatarish ? 36 : 600;
-
-//   return (
-//     <img
-//       src={src}
-//       alt={alt}
-//       className={className}
-//       width={width}
-//       height={height}
-//       decoding="async"
-//       loading={priority ? 'eager' : 'lazy'}
-//       fetchpriority={priority ? 'high' : 'low'}
-//       referrerPolicy="no-referrer"
-//       onError={() => {
-//         if (idx + 1 < (sources?.length || 0)) setIdx(idx + 1);
-//         else if (onHide) onHide();
-//       }}
-//        onLoad={(e) => {
-//        const nw = e.currentTarget.naturalWidth || 0;
-//        const nh = e.currentTarget.naturalHeight || 0;
-//        // 작거나(둘 중 하나라도 160px 미만) + 정사각형에 가까우면(아이콘/아바타 패턴)
-//        const isSmall = nw < 160 || nh < 160;
-//        const isSquareish = Math.abs(nw - nh) <= 6;
-//        if (isSmall && isSquareish) {
-//          setAvatarish(true);
-//        } else {
-//          setAvatarish(false);
-//        }
-//      }}
-
-//      style={{
-//        objectFit: 'cover',
-//        // 아바타로 판별되면 카드 전체가 아니라 작은 썸네일로 축소
-//        width: avatarish ? 96 : '100%',
-//        height: avatarish ? 96 : undefined,
-//        borderRadius: avatarish ? 8 : 0,
-//        margin: avatarish ? '8px auto' : 0,
-//        display: 'block',
-//      }}
-//     />
-//   );
-// }
+/* ------------ 카드 ------------ */
+function Badge({ children, tone = 'gray' }) {
+  const map = {
+    brand: 'text-bg-primary',
+    line: 'bg-light text-dark border',
+    gray: 'text-bg-secondary',
+  };
+  const cls = map[tone] || map.gray;
+  return <span className={`badge rounded-pill ${cls}`}>{children}</span>;
+}
 
 function PostCard({ post, onOpen, priority = false, dateFmt }) {
   const rawForPreview = post.preview || post.bodyPreview || post.content || post.body || '';
   const preview = makePreviewText(rawForPreview, 140);
   const when = dateFmt.format(new Date(post.createdAt || post.updatedAt || Date.now()));
 
-  // 🔁 SmartImg 대체(인라인) — 후보 순회 + onError 폴백
-  const [showImg, setShowImg] = useState(true);
-  const [imgIdx, setImgIdx] = useState(0);
-  const imgSources = (post.__covers || []).filter(u => !isLikelyAvatarOrLogo(u));
-  const imgSrc = imgSources[imgIdx];
+  // ✅ 이미지 프록시/커버 후보 제거: 대표이미지 → 유튜브 썸네일 순서로만 사용
+  const imgSrc =
+    (post.repImageUrl ?? post.rep_image_url ?? '').trim() ||
+    (post.youtubeId ? ytThumb(post.youtubeId) : (post.youtube_id ? ytThumb(post.youtube_id) : ''));
+
+  const [showImg, setShowImg] = useState(Boolean(imgSrc));
 
   return (
     <article className="card shadow-sm mb-3">
@@ -326,7 +123,6 @@ function PostCard({ post, onOpen, priority = false, dateFmt }) {
         </div>
       </div>
 
-      {/* 🔽 이미지 인라인 렌더 (SmartImg 대체) */}
       {showImg && imgSrc && (
         <img
           src={imgSrc}
@@ -337,11 +133,7 @@ function PostCard({ post, onOpen, priority = false, dateFmt }) {
           fetchpriority={priority ? 'high' : 'low'}
           referrerPolicy="no-referrer"
           style={{ objectFit: 'cover', width: '100%', display: 'block' }}
-          onError={() => {
-            // 다음 후보로 폴백, 없으면 감춤
-            if (imgIdx + 1 < imgSources.length) setImgIdx(imgIdx + 1);
-            else setShowImg(false);
-          }}
+          onError={() => setShowImg(false)}
         />
       )}
     </article>
@@ -400,6 +192,7 @@ function StickyBottomAd({
   );
 }
 
+/* ------------ 모바일 플로팅 글쓰기 버튼 ------------ */
 function MobileWriteMiniBtnTopRight({ onClick }) {
   const [top, setTop] = useState(12);
 
@@ -407,12 +200,10 @@ function MobileWriteMiniBtnTopRight({ onClick }) {
     const isDesktop = window.matchMedia('(min-width: 992px)').matches;
     if (isDesktop) return;
 
-    // 헤더(사이트 상단바) 바로 아래로 붙이기
     const header = document.querySelector('.site-header, header.sticky-top, .navbar');
     const rect = header ? header.getBoundingClientRect() : null;
     const headerBottom = rect ? rect.bottom : 0;
 
-    // 기본 여유 8px + 노치 대응
     const gap = 8;
     setTop(Math.max(8, headerBottom + gap));
   }, []);
@@ -452,6 +243,7 @@ function MobileWriteMiniBtnTopRight({ onClick }) {
   );
 }
 
+/* ------------ 페이지 ------------ */
 export default function CommunityPage() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -485,7 +277,7 @@ export default function CommunityPage() {
     navigate('/write');
   }, [navigate]);
 
-   const load = useCallback(async (pageToLoad = 0, tabToLoad = tab) => {
+  const load = useCallback(async (pageToLoad = 0, tabToLoad = tab) => {
     setLoading(true);
     try {
       const category = tabToCategory(tabToLoad);
@@ -506,7 +298,7 @@ export default function CommunityPage() {
       const arr =
         Array.isArray(list) ? list
         : Array.isArray(list?.content) ? list.content
-       : Array.isArray(list?.items) ? list.items
+        : Array.isArray(list?.items) ? list.items
         : [];
 
       // ✅ 총 개수/마지막 페이지 판단
@@ -519,8 +311,6 @@ export default function CommunityPage() {
         : ((pageToLoad + 1) * size >= totalElements);
 
       const fixed = arr.map(p => {
-        const covers = collectCoverCandidates(p);
-        // created_at/updated_at 케이스도 호환
         const createdAt = p.createdAt ?? p.created_at ?? null;
         const updatedAt = p.updatedAt ?? p.updated_at ?? null;
         return {
@@ -528,7 +318,7 @@ export default function CommunityPage() {
           createdAt,
           updatedAt,
           ...extractCounts(p),
-          __covers: covers,
+          // __covers 제거 (프록시/커버 후보 미사용)
         };
       });
 
@@ -544,8 +334,6 @@ export default function CommunityPage() {
       setLoading(false);
     }
   }, [tab]);
-
-
 
   useEffect(() => { window.scrollTo(0, 0); }, []);
   useEffect(() => { load(0, tab); }, [load, tab]);
