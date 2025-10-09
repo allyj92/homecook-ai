@@ -33,9 +33,12 @@ function toSafeSrc(u) {
     if (url.protocol === 'http:') {
         return u.protocol === 'https:' || url.startsWith('data:') || url.startsWith('/');
     }
-    return u;
+      // 혼합콘텐츠 방지: http는 사용 안 함 (프록시 구현 전까지)
+   if (url.protocol === 'http:') return null;
+   // 정상인 경우 문자열 URL 반환
+   return url.toString();
   } catch {
-    return u;
+    return null;
   }
 }
 
@@ -105,7 +108,7 @@ function isUsableImageUrl(url) {
     const u = new URL(url, window.location.origin);
     if (/\/(auth|login)/i.test(u.pathname.toLowerCase())) return false;
   // ⚠️ HTTP 외부라도 일단 통과 → normalizeCoverUrl()에서 https로 승격 시도
-   return /^https?:/.test(u.href) || u.href.startsWith('data:') || u.href.startsWith('/');
+   return u.protocol === 'https:' || u.href.startsWith('data:') || url.startsWith('/');
   } catch {
     return false;
   }
@@ -214,7 +217,8 @@ function collectCoverCandidates(post) {
       .filter(Boolean)
       .filter((u) => !isLikelyAvatarOrLogo(u))
       .filter((u) => isAllowedCoverHost(u))
-      .map(toSafeSrc); 
+      .map(toSafeSrc)
+      .filter(Boolean);  
 
     if (localStorage.getItem('rf:debug') === '1') {
       console.log('[covers:normalized]', post.id, normalized);
