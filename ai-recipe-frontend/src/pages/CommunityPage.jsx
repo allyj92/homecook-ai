@@ -49,12 +49,18 @@ function isAllowedCoverHost() {
       /\/s(24|32|40|48|64|72|80|96|100|128)(\-c)?\b/i.test(path) ||
       /=s(24|32|40|48|64|72|80|96|100|128)(\-c)?\b/i.test(q);  // 👈 구글 '=s96-c' 케이스
 
-    const hardHosts = [
-      'googleusercontent.com','gstatic.com','gravatar.com',
-      'avatars.githubusercontent.com','kakaocdn.net','fbcdn.net','fbsbx.com'
-    ];
+     const hardHosts = [
+     'gravatar.com',
+     'avatars.githubusercontent.com',
+     // (선택) 진짜 프로필 전용 경로만 좁게 걸고 싶다면 아래처럼 host 대신 path에서 거르세요.
+     // 'googleusercontent.com' 은 통째 막지 말고, path 패턴으로 제한하는 것을 권장.
+   ];
     const hardBlockedHost = hardHosts.some(h => host === h || host.endsWith('.' + h));
-    const hardBlockedPath = path.startsWith('/a/') || /\/profile_images\//.test(path) || /photo\.jpg$/.test(name);
+    const hardBlockedPath =
+     path.startsWith('/a/') ||
+     /\/profile_images\//.test(path) ||
+     /\/profile_photos\//.test(path) ||
+     /=s(24|32|40|48|64|72|80|96|100|128)(-c)?\b/i.test(q); // 구글 썸네일 사이즈 힌트
 
     return looksLikeIcon || sizeHints || hardBlockedHost || hardBlockedPath;
   } catch {
@@ -121,10 +127,8 @@ function isUsableImageUrl(url) {
   try {
     const u = new URL(url, window.location.origin);
     if (/\/(auth|login)/i.test(u.pathname.toLowerCase())) return false;
-    const isHttpsPage = window.location.protocol === 'https:';
-    const isExternal = u.host !== window.location.host;
-    if (isHttpsPage && isExternal && u.protocol === 'http:') return false;
-    return /^https?:/.test(u.href) || u.href.startsWith('data:') || u.href.startsWith('/');
+  // ⚠️ HTTP 외부라도 일단 통과 → normalizeCoverUrl()에서 https로 승격 시도
+   return /^https?:/.test(u.href) || u.href.startsWith('data:') || u.href.startsWith('/');
   } catch {
     return false;
   }
