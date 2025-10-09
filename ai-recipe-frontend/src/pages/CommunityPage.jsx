@@ -6,6 +6,9 @@ import 'bootstrap/dist/css/bootstrap.min.css';
 import BottomNav from '../components/BottomNav';
 import '../index.css';
 
+
+
+
 /* ------------ 공통 유틸 ------------- */
 const fmtNum = (n) => {
   const x = Number(n || 0);
@@ -21,6 +24,44 @@ function debounce(fn, ms = 300) {
     t = setTimeout(() => fn(...args), ms);
   };
 }
+
+
+// 🔎 프로필/아바타/로고로 보이는 URL 걸러내기
+ function isLikelyAvatarOrLogo(url) {
+   try {
+     const u = new URL(url, window.location.origin);
+     const host = u.hostname.toLowerCase();
+     const path = u.pathname.toLowerCase();
+     const q = u.search.toLowerCase();
+
+    // 파일명 단서
+     const name = path.split('/').pop() || '';
+     const looksLikeIcon =
+       /(avatar|profile|userpic|logo|badge|icon|emoji|sprite)\b/.test(name);
+
+     // 크기 파라미터(아바타 흔한 사이즈)
+     const sizeHints = /(=|[\?&])(s|sz|size|w|h)=?(24|32|40|48|64|72|80|96|100|128)\b/.test(q);
+
+     // 주요 호스트 패턴
+     const isGoogleAvatar =
+       (host.endsWith('googleusercontent.com') || host.startsWith('lh'))
+       && (path.startsWith('/a/') || /s(24|32|40|48|64|72|80|96)(-c)?\b/.test(path) || /photo\.jpg/.test(path));
+     const isGravatar = host.includes('gravatar.com');
+     const isGithubAvatar = host.includes('avatars.githubusercontent.com');
+     const isKakaoAvatar = host.includes('kakaocdn.net') && /profile|thumb|avatar/.test(path);
+     const isNaverAvatar = host.includes('naver') && /profile|thumb|avatar/.test(path);
+     const isFacebookAvatar = host.includes('fbcdn.net') || host.includes('fbsbx.com');
+
+     return (
+       looksLikeIcon ||
+       sizeHints ||
+       isGoogleAvatar || isGravatar || isGithubAvatar ||
+       isKakaoAvatar || isNaverAvatar || isFacebookAvatar
+     );
+   } catch {
+     return false;
+   }
+ }
 
 /* ------------ 이미지 URL 유틸 ------------- */
 function unwrapLoginUrl(url) {
@@ -100,7 +141,9 @@ function extractImagesFromContent(p, maxChars = 32 * 1024, maxImages = 3) {
   const push = (u) => {
     if (!u || out.length >= maxImages) return;
     const cleaned = unwrapLoginUrl(String(u).trim());
-    if (isUsableImageUrl(cleaned)) out.push(cleaned);
+   if (isUsableImageUrl(cleaned) && !isLikelyAvatarOrLogo(cleaned)) {
+     out.push(cleaned);
+    }
   };
 
   s.replace(/!\[[^\]]*]\(([^)]+)\)/g, (_m, u) => push((u || '').split('"')[0]));
@@ -139,7 +182,8 @@ function collectCoverCandidates(post) {
   const normalized = candidatesRaw
     .map((u) => withVersion(normalizeCoverUrl(u), updatedAt))
     .filter(Boolean)
-    .filter(isUsableImageUrl);
+    .filter(isUsableImageUrl)
+    .filter((u) => !isLikelyAvatarOrLogo(u));
 
   const seen = new Set();
   const unique = [];
