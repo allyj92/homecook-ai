@@ -17,7 +17,20 @@ import DOMPurify from "dompurify";
 import CommentList from "../components/CommentList";
 import CommentEditor from "../components/CommentEditor";
 
-
+/* ------------ 이미지 프록시 유틸 (CommunityPage와 동일 컨벤션) ------------- */
+const PROXY = "/api/img-proxy?u=";
+const toProxied = (u) => (u ? PROXY + encodeURIComponent(u) : null);
+function toSafeSrc(u) {
+  try {
+    const url = new URL(u, window.location.origin);
+    // 같은 오리진(상대경로 포함)은 그대로 사용
+    if (url.origin === window.location.origin) return url.toString();
+    // 외부(https/http)는 Netlify 이미지 프록시로 래핑
+    return toProxied(url.toString());
+  } catch {
+    return typeof u === "string" ? u : "";
+  }
+}
 
 // 추가: 서버 북마크 토글
 async function apiToggleBookmark(postId, on) {
@@ -37,11 +50,30 @@ const md = new MarkdownIt({
   breaks: true,
 });
 
- // ✅ 이미지 토큰 렌더를 막는다(네이버 스타일: 이미지 비노출)
- md.renderer.rules.image = () => {
-   // 아무것도 렌더하지 않음 (원한다면 링크/대체문구로 바꿔도 됨)
-   return '';
- };
+// ✅ 이미지 토큰 렌더: src를 안전 경로로 치환하고 필요한 속성 부여
+const defaultImage =
+  md.renderer.rules.image ||
+  function (tokens, idx, options, env, self) {
+    return self.renderToken(tokens, idx, options);
+  };
+md.renderer.rules.image = function (tokens, idx, options, env, self) {
+  const token = tokens[idx];
+  const srcIdx = token.attrIndex("src");
+  if (srcIdx >= 0) {
+    const orig = token.attrs[srcIdx][1];
+    token.attrs[srcIdx][1] = toSafeSrc(orig);
+  }
+  // 접근성/성능/프라이버시 속성 보강
+  const addAttr = (k, v) => {
+    const i = token.attrIndex(k);
+    if (i < 0) token.attrPush([k, v]); else token.attrs[i][1] = v;
+  };
+  addAttr("loading", "lazy");
+  addAttr("decoding", "async");
+  addAttr("fetchpriority", "low");
+  addAttr("referrerpolicy", "no-referrer");
+  return defaultImage(tokens, idx, options, env, self);
+};
 
 // 링크를 새 탭으로 열고 안전 속성 부여
 const defaultLinkOpen =
@@ -62,11 +94,14 @@ md.renderer.rules.link_open = function (tokens, idx, options, env, self) {
 
 const ALLOWED_TAGS = [
   "p","br","blockquote","pre","code","span","strong","em","ul","ol","li",
-  "a","h1","h2","h3","h4","h5","h6","hr","table","thead","tbody","tr","th","td"
+ "a","h1","h2","h3","h4","h5","h6","hr","table","thead","tbody","tr","th","td",
+  "img" // ✅ 이미지 허용
 ];
 const ALLOWED_ATTR = [
-  "href","target","rel","src","alt","title",
-  "loading","width","height"
+  // 링크
+  "href","target","rel","title",
+  // 이미지
+  "src","alt","width","height","loading","decoding","fetchpriority","referrerpolicy"
 ];
 
 /* ---- 유틸 ---- */
