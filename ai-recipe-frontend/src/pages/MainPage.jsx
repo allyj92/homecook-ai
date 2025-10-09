@@ -438,42 +438,84 @@ async function loadDailyNewRecipe(size = 8) {
 
 /** 인기 커뮤니티 */
 async function loadPopularCommunity(size = 8) {
+  // 1) 가능한 크게 가져와서(예: 200개) 점수 계산
+  //    서버 부하/트래픽을 고려해 100~200 사이에서 조정하세요.
+  const PAGE_SIZE_FOR_SCORING = 200;
+
+  // 1-1) 먼저 popular 정렬 시도(지원하는 경우를 활용)
   try {
-    const qs = new URLSearchParams({ size: String(size), sort: 'popular' });
-    const res = await fetchJson(`/api/community/posts?${qs}`);
-    const arr = toArr(res);
-    if (arr.length) return arr;
-  } catch {}
+    const qs = new URLSearchParams({ page: '0', size: String(PAGE_SIZE_FOR_SCORING), sort: 'popular' });
+    const res = await fetch(`/api/community/posts?${qs}`, {
+      credentials: 'include',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const items = (Array.isArray(data) ? data
+        : Array.isArray(data?.content) ? data.content
+        : Array.isArray(data?.items) ? data.items
+        : []);
+      // ↓ 서버가 popular를 무시해도, 어쨌든 받아온 리스트로 "항상" 재정렬
+      return scoreAndPick(items, size);
+    }
+  } catch (_) {}
 
+  // 1-2) 트렌딩 엔드포인트가 있으면 활용 (있어도 항상 재정렬)
   try {
-    const qs = new URLSearchParams({ size: String(size) });
-    const res = await fetchJson(`/api/community/trending?${qs}`);
-    const arr = toArr(res);
-    if (arr.length) return arr;
-  } catch {}
+    const qs = new URLSearchParams({ page: '0', size: String(PAGE_SIZE_FOR_SCORING) });
+    const res = await fetch(`/api/community/trending?${qs}`, {
+      credentials: 'include',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const items = (Array.isArray(data) ? data
+        : Array.isArray(data?.content) ? data.content
+        : Array.isArray(data?.items) ? data.items
+        : []);
+      return scoreAndPick(items, size);
+    }
+  } catch (_) {}
 
+  // 1-3) 최후: 최신 글 다량 가져와서 점수 계산
   try {
-    const res = await fetchJson(`/api/community/posts?page=0&size=50`);
-    const items = toArr(res);
-    const now = Date.now();
-
-    const scoreOf = (p) => {
-      const likes = Number(p.likeCount ?? p.like_count ?? p.likes ?? p.hearts ?? p.metrics?.likes ?? 0);
-      const comments = Number(p.commentCount ?? p.comment_count ?? p.comments ?? p.metrics?.comments ?? 0);
-      const bookmarks = Number(p.bookmarkCount ?? p.bookmark_count ?? p.bookmarks ?? p.metrics?.bookmarks ?? 0);
-      const createdAt = new Date(p.createdAt ?? p.created_at ?? p.updatedAt ?? p.updated_at ?? now).getTime();
-      const ageHours = Math.max(1, (now - createdAt) / 36e5);
-      const engagement = likes * 3 + comments * 2 + bookmarks * 1;
-      return engagement / Math.pow(ageHours, 0.6);
-    };
-
-    return [...items]
-      .map(p => ({ ...p, __score: scoreOf(p) }))
-      .sort((a, b) => b.__score - a.__score)
-      .slice(0, size);
+    const qs = new URLSearchParams({ page: '0', size: String(PAGE_SIZE_FOR_SCORING), sort: 'createdAt,desc' });
+    const res = await fetch(`/api/community/posts?${qs}`, {
+      credentials: 'include',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const items = (Array.isArray(data) ? data
+      : Array.isArray(data?.content) ? data.content
+      : Array.isArray(data?.items) ? data.items
+      : []);
+    return scoreAndPick(items, size);
   } catch {
     return [];
   }
+}
+
+/* 점수 계산 + 상위 N개 추림 */
+function scoreAndPick(items, size) {
+  const now = Date.now();
+  const scoreOf = (p) => {
+    const likes = Number(p.likeCount ?? p.like_count ?? p.likes ?? p.hearts ?? p.metrics?.likes ?? p.metrics?.hearts ?? 0);
+    const comments = Number(p.commentCount ?? p.comment_count ?? p.comments ?? p.metrics?.comments ?? 0);
+    const bookmarks = Number(p.bookmarkCount ?? p.bookmark_count ?? p.bookmarks ?? p.metrics?.bookmarks ?? 0);
+    const createdAt = new Date(p.createdAt ?? p.created_at ?? p.updatedAt ?? p.updated_at ?? now).getTime();
+    const ageHours = Math.max(1, (now - createdAt) / 36e5);
+    const engagement = likes * 3 + comments * 2 + bookmarks * 1;
+    return engagement / Math.pow(ageHours, 0.6);
+  };
+
+  return [...(items || [])]
+    .map((p) => ({ ...p, __score: scoreOf(p) }))
+    .sort((a, b) => b.__score - a.__score)
+    .slice(0, size);
 }
 
 /* ---------------- 오늘의 맞춤 ---------------- */
