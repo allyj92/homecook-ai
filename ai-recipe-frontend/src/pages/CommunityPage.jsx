@@ -286,11 +286,12 @@ function extractCounts(p) {
 /* ------------ 이미지 후보 자동 폴백 + 성능 힌트 ------------ */
 function SmartImg({ sources, alt = '', className = '', onHide, priority = false }) {
   const [idx, setIdx] = useState(0);
+  const [avatarish, setAvatarish] = useState(false);
   const src = sources?.[idx] || null;
   if (!src) return null;
 
-  const width = 800;
-  const height = 600;
+   const width = avatarish ? 36 : 800;
+   const height = avatarish ? 36 : 600;
 
   return (
     <img
@@ -307,18 +308,27 @@ function SmartImg({ sources, alt = '', className = '', onHide, priority = false 
         else if (onHide) onHide();
       }}
        onLoad={(e) => {
-       // 👇 로드 후 실제 크기가 너무 작거나(아이콘급) 정사각 아이콘이면 컷
        const nw = e.currentTarget.naturalWidth || 0;
        const nh = e.currentTarget.naturalHeight || 0;
-       const min = 160; // 필요시 조정
-       const isTiny = nw <= min && nh <= min;
-       const isSquareIcon = Math.abs(nw - nh) <= 2 && (nw <= 256 && nh <= 256);
-       if (isTiny || isSquareIcon) {
-         if (idx + 1 < (sources?.length || 0)) setIdx(idx + 1);
-         else if (onHide) onHide();
+       // 작거나(둘 중 하나라도 160px 미만) + 정사각형에 가까우면(아이콘/아바타 패턴)
+       const isSmall = nw < 160 || nh < 160;
+       const isSquareish = Math.abs(nw - nh) <= 6;
+       if (isSmall && isSquareish) {
+         setAvatarish(true);
+       } else {
+         setAvatarish(false);
        }
      }}
-      style={{ objectFit: 'cover' }}
+
+     style={{
+       objectFit: 'cover',
+       // 아바타로 판별되면 카드 전체가 아니라 작은 썸네일로 축소
+       width: avatarish ? 96 : '100%',
+       height: avatarish ? 96 : undefined,
+       borderRadius: avatarish ? 8 : 0,
+       margin: avatarish ? '8px auto' : 0,
+       display: 'block',
+     }}
     />
   );
 }
