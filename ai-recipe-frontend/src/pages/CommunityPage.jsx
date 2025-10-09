@@ -30,7 +30,7 @@ function toSafeSrc(u) {
     const url = new URL(u, window.location.origin);
     // 외부 HTTP는 프록시로 래핑 (서버 컨트롤러와 경로 일치!)
     if (url.origin === window.location.origin) return url.toString();
-   return `/api/img-proxy?u=${encodeURIComponent(url.toString())}`;
+  return `/api/img?u=${encodeURIComponent(url.toString())}`;
   } catch {
     // 파싱 실패 시 원본 문자열(혹은 빈 문자열) 반환
     return typeof u === 'string' ? u : '';
