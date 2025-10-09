@@ -421,7 +421,7 @@ export default function CommunityPage() {
     navigate('/write');
   }, [navigate]);
 
-  const load = useCallback(async (pageToLoad = 0, tabToLoad = tab) => {
+   const load = useCallback(async (pageToLoad = 0, tabToLoad = tab) => {
     setLoading(true);
     try {
       const category = tabToCategory(tabToLoad);
@@ -435,13 +435,34 @@ export default function CommunityPage() {
         cache: 'no-store',
         headers: { 'Cache-Control': 'no-store', 'Accept': 'application/json' },
       });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const list = await res.json();
-      const arr = Array.isArray(list) ? list : (Array.isArray(list?.items) ? list.items : []);
+
+      // ✅ 응답 형태 호환: Array | {content[]} | {items[]}
+      const arr =
+        Array.isArray(list) ? list
+        : Array.isArray(list?.content) ? list.content
+       : Array.isArray(list?.items) ? list.items
+        : [];
+
+      // ✅ 총 개수/마지막 페이지 판단
+      const totalElements =
+        typeof list?.totalElements === 'number' ? list.totalElements
+        : typeof list?.total === 'number' ? list.total
+        : arr.length;
+      const isLast =
+        typeof list?.last === 'boolean' ? list.last
+        : ((pageToLoad + 1) * size >= totalElements);
 
       const fixed = arr.map(p => {
         const covers = collectCoverCandidates(p);
+        // created_at/updated_at 케이스도 호환
+        const createdAt = p.createdAt ?? p.created_at ?? null;
+        const updatedAt = p.updatedAt ?? p.updated_at ?? null;
         return {
           ...p,
+          createdAt,
+          updatedAt,
           ...extractCounts(p),
           __covers: covers,
         };
@@ -450,10 +471,11 @@ export default function CommunityPage() {
       if (pageToLoad === 0) setPosts(fixed);
       else setPosts(prev => [...prev, ...fixed]);
 
-      setHasMore(arr.length === size);
+      setHasMore(!isLast);
       setPage(pageToLoad);
     } catch (e) {
       console.error(e);
+      if (pageToLoad === 0) { setPosts([]); setHasMore(false); }
     } finally {
       setLoading(false);
     }
