@@ -142,7 +142,9 @@ public class CommunityController {
             @RequestParam(defaultValue = "new") String sort
     ) {
         int s = clampSize(size, 1, 100);
+        System.out.printf("[COMMUNITY] list category=%s page=%d size=%d sort=%s%n", category, page, s, sort);
         return service.list(category, page, s, sort);
+        System.out.printf("[COMMUNITY] list result size=%d%n", out != null ? out.size() : -1);
     }
 
     @GetMapping("/posts/{id}")

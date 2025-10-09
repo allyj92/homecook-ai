@@ -28,12 +28,11 @@ function debounce(fn, ms = 300) {
 function toSafeSrc(u) {
   try {
     const url = new URL(u, window.location.origin);
-   // 혼합콘텐츠 방지: http는 이미지 프록시로 래핑
-   if (url.protocol === 'http:') {
-     return `/api/img-proxy?u=${encodeURIComponent(url.href)}`;
-   }
-   // https, data:, / 등은 그대로
-   return url.href;
+    if (url.protocol === 'http:') {
+      // 백엔드 컨트롤러 경로와 반드시 일치
+      return `/api/img-proxy?u=${encodeURIComponent(url.toString())}`;
+    }
+    return url.toString(); // https:, data:, / 전부 문자열 URL 반환
   } catch {
     return null;
   }
