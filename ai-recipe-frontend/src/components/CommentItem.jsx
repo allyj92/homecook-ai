@@ -4,7 +4,7 @@ import { updateComment, deleteComment } from '../api/community'; // ✅ 경로 �
 import DOMPurify from 'dompurify';
 import MarkdownIt from 'markdown-it';
 
-export default function CommentItem({ c, canEdit, onUpdated, onDeleted }) {
+export default function CommentItem({ c, canEdit, onUpdated, onDeleted, showAvatar = false }) {
   const [edit, setEdit] = useState(false);
   const [text, setText] = useState(c.content || '');
   const [saving, setSaving] = useState(false);
@@ -66,7 +66,7 @@ function safeCommentHtml(src = '') {
 
   return (
     <div className="d-flex gap-2 py-2 border-bottom">
-      {c.authorAvatar && (
+      {showAvatar && c.authorAvatar && (
         <img
           src={c.authorAvatar}
           alt=""
