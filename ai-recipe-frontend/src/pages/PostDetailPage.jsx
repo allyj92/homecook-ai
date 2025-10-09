@@ -62,7 +62,7 @@ md.renderer.rules.link_open = function (tokens, idx, options, env, self) {
 
 const ALLOWED_TAGS = [
   "p","br","blockquote","pre","code","span","strong","em","ul","ol","li",
-  "a","img","h1","h2","h3","h4","h5","h6","hr","table","thead","tbody","tr","th","td"
+  "a","h1","h2","h3","h4","h5","h6","hr","table","thead","tbody","tr","th","td"
 ];
 const ALLOWED_ATTR = [
   "href","target","rel","src","alt","title",
