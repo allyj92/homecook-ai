@@ -55,4 +55,6 @@ public interface CommunityCommentRepository extends JpaRepository<CommunityComme
        where c.post.id = :postId and c.deleted = false
     """)
     int softDeleteAllByPostId(@Param("postId") Long postId);
+
+    long countByAuthor_IdAndDeletedFalse(Long authorId);
 }

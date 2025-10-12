@@ -417,7 +417,7 @@ export default function MyPage() {
     const pull = async () => {
       setActLoading(true);
       try {
-        const res = await fetch('/api/activity/recent?limit=3', {
+        const res = await fetch('/api/activity?page=0&size=3', {
           credentials: 'include',
           cache: 'no-store',
           headers: { 'Accept': 'application/json', 'Cache-Control': 'no-store' },
@@ -516,7 +516,12 @@ export default function MyPage() {
       }
     : demoUser;
 
-  const stats = { recipes: myPosts.length, saved: wishlist.length, comments: 67, streak: 6 };
+  const stats = {
+  recipes: myPosts.length,
+  saved: wishlist.length,
+  comments: me?.commentCount ?? 0,
+  streak: 6
+};
   const oneLine = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
 
   return (

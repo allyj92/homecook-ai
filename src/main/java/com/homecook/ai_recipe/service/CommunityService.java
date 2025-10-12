@@ -32,6 +32,11 @@ public class CommunityService {
     private final Optional<CommunityPostLikeRepository> likeRepoOpt; // ✅ 선택 주입
     private final UserAccountRepository userRepo;
 
+
+    public long countCommentsByUser(Long userId) {
+        return commentRepo.countByAuthor_IdAndDeletedFalse(userId);
+    }
+
     public CommunityService(CommunityPostRepository postRepo,
                             CommunityCommentRepository commentRepo,
                             CommunityPostBookmarkRepository bookmarkRepo,
