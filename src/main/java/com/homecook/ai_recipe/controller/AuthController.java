@@ -31,6 +31,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.security.web.context.SecurityContextRepository;
+import com.homecook.ai_recipe.service.CommunityService;
 
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -51,6 +52,7 @@ public class AuthController {
     private final SecurityContextRepository securityContextRepository;
     private final OAuthAccountService oauthService;
     private final LocalAuthService localAuthService;
+    private final CommunityService communityService;
 
     /* ====================== 로컬 회원가입 / 로그인 ====================== */
 
@@ -124,6 +126,7 @@ public class AuthController {
             out.put("email", null);
             out.put("name", null);
             out.put("picture", null);
+            out.put("commentCount", 0L);
             return out;
         }
 
@@ -156,6 +159,7 @@ public class AuthController {
             out.put("email", email);
             out.put("name", name);
             out.put("picture", picture);
+            out.put("commentCount", (uid != null) ? communityService.countCommentsByUser(uid) : 0L);
             return out;
         }
 
@@ -177,6 +181,7 @@ public class AuthController {
             out.put("email", str(m.get("email")));
             out.put("name",  str(m.get("name")));
             out.put("picture", str(m.get("picture")));
+            out.put("commentCount", (uid != null) ? communityService.countCommentsByUser(uid) : 0L);
             return out;
         }
 
@@ -186,6 +191,7 @@ public class AuthController {
         out.put("email", null);
         out.put("name", String.valueOf(authentication.getName()));
         out.put("picture", null);
+        out.put("commentCount", 0L);
         return out;
     }
 

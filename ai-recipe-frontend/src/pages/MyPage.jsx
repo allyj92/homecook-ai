@@ -516,12 +516,7 @@ export default function MyPage() {
       }
     : demoUser;
 
-  const stats = {
-  recipes: myPosts.length,
-  saved: wishlist.length,
-  comments: me?.commentCount ?? 0,
-  streak: 6
-};
+  const stats = { recipes: myPosts.length, saved: wishlist.length, comments: me?.commentCount ?? 0, streak: 6 };
   const oneLine = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
 
   return (
