@@ -2,6 +2,8 @@
 package com.homecook.ai_recipe.controller;
 
 import com.homecook.ai_recipe.auth.UserAccount;
+import com.homecook.ai_recipe.repo.UserAccountRepository;
+import com.homecook.ai_recipe.service.ActivityService;
 import com.homecook.ai_recipe.service.LocalAuthService;
 import com.homecook.ai_recipe.service.OAuthAccountService;
 
@@ -53,6 +55,9 @@ public class AuthController {
     private final OAuthAccountService oauthService;
     private final LocalAuthService localAuthService;
     private final CommunityService communityService;
+
+    private final ActivityService activityService;
+    private final UserAccountRepository userAccountRepository; // lastActiveDate도 내려주고 싶으면
 
     /* ====================== 로컬 회원가입 / 로그인 ====================== */
 
@@ -127,6 +132,7 @@ public class AuthController {
             out.put("name", null);
             out.put("picture", null);
             out.put("commentCount", 0L);
+            out.put("streakDays", 0);
             return out;
         }
 
@@ -147,6 +153,14 @@ public class AuthController {
             }
             if (uid == null && provider != null && pid != null) {
                 uid = oauthService.findByProvider(provider, pid).map(UserAccount::getId).orElse(null);
+            }
+
+            int streak = (uid != null) ? activityService.markDailyActive(uid) : 0;
+            out.put("streakDays", streak);
+            if (uid != null) {
+                userAccountRepository.findById(uid).ifPresent(u ->
+                        out.put("lastActiveDate", u.getLastActiveDate())
+                );
             }
 
             String email   = str(firstNonNull(attrs.get("email"), nested(attrs, "response", "email")));
