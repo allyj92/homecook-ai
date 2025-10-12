@@ -254,7 +254,7 @@ export default function MyPage() {
     (async () => {
       setMeLoading(true);
       try {
-        const res = await apiFetch('/api/user/me', { noAuthRedirect: true });
+        const res = await apiFetch('/api/auth/me', { noAuthRedirect: true });
         if (aborted) return;
 
         if (res.status === 401) {
