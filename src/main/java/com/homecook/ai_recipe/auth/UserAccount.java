@@ -4,6 +4,7 @@ package com.homecook.ai_recipe.auth;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
@@ -46,6 +47,13 @@ public class UserAccount {
         this.createdAt = now;
         this.updatedAt = now;
     }
+
+    /* ✅ 추가한 스트릭 관련 필드 */
+    @Column(name = "streak_days", nullable = false)
+    private int streakDays = 0; // 연속 활동일 수
+
+    @Column(name = "last_active_date")
+    private LocalDate lastActiveDate; // 마지막 활동 날짜 (KST 기준)
 
     /** 엔티티 수정될 때 실행 */
     @PreUpdate
