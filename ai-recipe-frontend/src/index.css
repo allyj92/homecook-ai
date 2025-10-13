@@ -1063,3 +1063,49 @@ body{
   z-index: 5;
   display: none;
 }
+
+/* 상세 보기 + 에디터 공통 이미지 기본 */
+.post-content img,
+.toastui-editor-contents img { max-width: 100%; height: auto; }
+
+/* 랩 클래스: 작아진 이미지는 왼쪽에 붙고 텍스트가 오른쪽에 흐름 */
+.post-content img.rf-wrap-left,
+.toastui-editor-contents img.rf-wrap-left {
+  float: left;
+  margin: 0 12px 10px 0;
+}
+
+/* (옵션) 오른쪽 랩도 쓸 수 있게 지원 */
+.post-content img.rf-wrap-right,
+.toastui-editor-contents img.rf-wrap-right {
+  float: right;
+  margin: 0 0 10px 12px;
+}
+
+/* 랩된 이미지가 부모 영역을 벗어나지 않게 clearfix */
+.post-content::after,
+.toastui-editor-contents::after {
+  content: "";
+  display: table;
+  clear: both;
+}
+
+/* 선택 시 시각적 표시 (편집기 전용) */
+.rf-img-selected {
+  outline: 2px solid #2b8a3e !important;
+  outline-offset: 2px;
+}
+
+/* 리사이즈 핸들(이미 document.body 고정 생성됨) */
+.rf-img-handle{
+  /* inline style로 대부분 지정되지만, 폴백용 정의 유지 */
+  position: fixed;
+  width: 14px; height: 14px;
+  border: 2px solid #2b8a3e;
+  background: #fff;
+  border-radius: 4px;
+  cursor: nwse-resize;
+  box-shadow: 0 1px 4px rgba(0,0,0,.2);
+  z-index: 99999;
+  display: none;
+}
