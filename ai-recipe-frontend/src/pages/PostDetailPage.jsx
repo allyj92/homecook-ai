@@ -483,7 +483,9 @@ const onToggleBookmark = () =>
           <div className="d-flex gap-2">
             <button
               className="btn btn-sm btn-outline-primary"
-              onClick={() => navigate(`/write?id=${post.id}`, { state: { mode: 'edit', post } })}
+              onClick={() =>
+                 navigate(`/write/${post.id}`, { state: { editId: post.id } })
+              }
             >
               수정
             </button>

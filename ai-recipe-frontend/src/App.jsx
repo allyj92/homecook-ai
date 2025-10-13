@@ -41,7 +41,8 @@ export default function App() {
         {/* 상대 경로로 통일 */}
         <Route path="input" element={<InputPage />} />
         <Route path="result" element={<ResultPage />} />
-        <Route path="write" element={<WritePage />} />
+        <Route path="/write" element={<WritePage />} />
+        <Route path="/write/:id" element={<WritePage />} />
         <Route path="community" element={<CommunityPage />} />
         <Route path="community/:id" element={<PostDetailPage />} />
 
