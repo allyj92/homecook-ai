@@ -8,54 +8,19 @@ import { createPost, updatePost, getCommunityPost } from "../api/community";
 import { uploadFile, ytThumb } from "../lib/upload";
 import { logActivity } from "../lib/activity";
 import TagInput from "../components/TagInput";
-// ✅ WYSIWYG 에디터 사용
 import TuiHtmlEditor from "../components/TuiMdEditor";
- import MarkdownIt from "markdown-it";
-const md = new MarkdownIt({ linkify: true, breaks: true });
 
 const DRAFT_KEY = "draft:community:html";
 const CATEGORIES = ["후기", "질문", "레시피", "노하우", "자유"];
 
-
-// HTML/MD 판별(대충이라도 안전)
- function isLikelyHtml(s = "") {
-   return /<\/?[a-z][\s\S]*>/i.test(s);
- }
-// 서버가 contentFormat을 안 줄 때를 대비
- function toEditorHtml(p) {
-   const raw = String(p?.content ?? "");
-   const fmt = p?.contentFormat ?? (isLikelyHtml(raw) ? "html" : "md");
-   return fmt === "html" ? raw : md.render(raw);
- }
-
-/* 유튜브 URL/ID → videoId */
-function toYoutubeId(url) {
-  if (!url) return null;
-  const u = url.trim();
-  let m;
-  if ((m = u.match(/youtu\.be\/([A-Za-z0-9_-]{8,})/))) return m[1];
-  if ((m = u.match(/[?&]v=([A-Za-z0-9_-]{8,})/))) return m[1];
-  if ((m = u.match(/\/shorts\/([A-Za-z0-9_-]{8,})/))) return m[1];
-  if (/^[A-Za-z0-9_-]{8,32}$/.test(u)) return u; // ID만 들어온 경우
-  return null;
-}
-
-/* 업로드 응답을 표준화 */
-function pickUploadUrl(any) {
-  if (!any) return null;
-  if (typeof any === "string") return any;
-  const c =
-    any.url || any.URL || any.link || any.location || any.Location ||
-    any.secure_url || any.fileUrl || any.fileURL ||
-    (any.data && (any.data.url || any.data.link || any.data.Location));
-  return c || null;
-}
+const isLikelyHtml = (s = "") => /<\/?[a-z][\s\S]*>/i.test(s);
 
 export default function WritePage() {
   const navigate = useNavigate();
   const loc = useLocation();
   const postFromState = loc.state?.post;
-  // ✅ 수정 ID 여러 패턴 지원
+
+  // 수정 ID 여러 패턴 지원
   const params = new URLSearchParams(loc.search);
   let editId = params.get("id");
   if (!editId) {
@@ -74,17 +39,34 @@ export default function WritePage() {
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState(CATEGORIES[0]);
   const [tags, setTags] = useState([]);
-  const [contentHtml, setContentHtml] = useState(""); // ✅ HTML 본문
+
+  // 본문은 에디터에서 HTML로만 관리/저장
+  const [contentHtml, setContentHtml] = useState("");
+
+  // 에디터 초기 주입값 (원문 + 포맷)
+  const [initialValue, setInitialValue] = useState("");
+  const [initialFormat, setInitialFormat] = useState("auto"); // "md" | "html" | "auto"
+
   const [repImageUrl, setRepImageUrl] = useState("");
   const [youtubeUrl, setYoutubeUrl] = useState("");
 
-  // UX 상태
+  // UX
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
-  const [repUploading, setRepUploading] = useState(false); // 대표이미지 업로드 표시
+  const [repUploading, setRepUploading] = useState(false);
 
   // 유튜브
+  const toYoutubeId = (url) => {
+    if (!url) return null;
+    const u = url.trim();
+    let m;
+    if ((m = u.match(/youtu\.be\/([A-Za-z0-9_-]{8,})/))) return m[1];
+    if ((m = u.match(/[?&]v=([A-Za-z0-9_-]{8,})/))) return m[1];
+    if ((m = u.match(/\/shorts\/([A-Za-z0-9_-]{8,})/))) return m[1];
+    if (/^[A-Za-z0-9_-]{8,32}$/.test(u)) return u;
+    return null;
+  };
   const youtubeId = useMemo(() => toYoutubeId(youtubeUrl), [youtubeUrl]);
   const youtubeCover = useMemo(
     () => (youtubeId ? ytThumb(youtubeId, "maxresdefault") || ytThumb(youtubeId, "hqdefault") : null),
@@ -107,12 +89,16 @@ export default function WritePage() {
             navigate(`/community/${editId}`, { replace: true });
             return;
           }
+
           setTitle(p.title || "");
           setCategory(p.category || CATEGORIES[0]);
           setTags(Array.isArray(p.tags) ? p.tags : []);
-          // ⚠️ 기존 DB가 마크다운이었다면 서버에서 HTML로 변환해 내려주는 게 권장.
-          // 일단은 내려온 값을 HTML로 간주하고 세팅.
-          setContentHtml(toEditorHtml(p));
+
+          // ✅ 서버 원문 그대로/포맷 그대로 에디터에 주입
+          const fmt = p?.contentFormat ?? (isLikelyHtml(p?.content) ? "html" : "md");
+          setInitialValue(String(p?.content ?? ""));
+          setInitialFormat(fmt);
+
           setRepImageUrl(p.repImageUrl || "");
           setYoutubeUrl(p.youtubeId ? `https://youtu.be/${p.youtubeId}` : "");
         } catch (e) {
@@ -122,13 +108,17 @@ export default function WritePage() {
           return;
         }
       } else {
+        // 새 글: 임시저장 복구
         try {
           const saved = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null");
           if (saved) {
             setTitle(saved.title || "");
             setCategory(saved.category || CATEGORIES[0]);
             setTags(saved.tags || []);
-            setContentHtml(saved.contentHtml || "");
+
+            // 임시저장은 HTML로 저장해두므로 그대로 복구
+            setInitialValue(saved.contentHtml || "");
+            setInitialFormat("html");
             setRepImageUrl(saved.repImageUrl || "");
             setYoutubeUrl(saved.youtubeUrl || "");
           }
@@ -138,7 +128,7 @@ export default function WritePage() {
     })();
   }, [isEdit, editId, navigate, postFromState]);
 
-  // 새 글일 때 5초마다 자동 임시저장
+  // 새 글일 때 5초마다 자동 임시저장 (HTML 기반)
   useEffect(() => {
     if (isEdit) return;
     const timer = setInterval(() => {
@@ -148,7 +138,7 @@ export default function WritePage() {
     return () => clearInterval(timer);
   }, [isEdit, title, category, tags, contentHtml, repImageUrl, youtubeUrl]);
 
-  // 검증(HTML → 텍스트 길이 확인)
+  // 검증(HTML → 텍스트 길이)
   function validate() {
     const html = (contentHtml || "").replace(/\s+/g, " ").trim();
     const text = html.replace(/<[^>]*>/g, "").trim();
@@ -162,29 +152,25 @@ export default function WritePage() {
     return Object.keys(e).length === 0;
   }
 
-  // 대표이미지 업로드 (낙관적 미리보기 + 교체)
+  // 대표이미지 업로드
   async function onPickRep(e) {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // 간단 검증
     const okType = /^image\/(png|jpe?g|webp|gif)$/i.test(file.type);
     if (!okType) { alert("PNG, JPG, WEBP, GIF만 업로드할 수 있어요."); return; }
     if (file.size > 10 * 1024 * 1024) { alert("이미지 용량(10MB) 초과입니다."); return; }
 
-    // 로컬 미리보기 먼저
     const localUrl = URL.createObjectURL(file);
     setRepImageUrl(localUrl);
     setRepUploading(true);
 
     try {
       const up = await uploadFile(file);
-      const url = pickUploadUrl(up);
+      const url = up?.url || up?.URL || up?.link || up?.location || up?.Location || up?.secure_url || up?.fileUrl || up?.fileURL
+        || (up?.data && (up.data.url || up.data.link || up.data.Location));
       if (!url) throw new Error("업로드 응답에 URL이 없어요.");
-
-      setRepImageUrl(url); // 실제 URL로 교체
-      // 본문 이미지는 에디터에서 드래그/붙여넣기로 삽입됨.
-      // 대표이미지도 본문에 자동 추가하고 싶다면 에디터 ref를 써서 <img> 삽입 로직을 추가하면 됨.
+      setRepImageUrl(url);
     } catch (err) {
       console.error(err);
       alert(err?.message || "대표이미지 업로드에 실패했습니다.");
@@ -195,7 +181,7 @@ export default function WritePage() {
     }
   }
 
-  // 제출(등록/수정 공용) — ✅ HTML로 저장
+  // 제출(등록/수정) — HTML 저장
   const onSubmit = useCallback(
     async (e) => {
       e.preventDefault();
@@ -210,11 +196,11 @@ export default function WritePage() {
           title: title.trim(),
           category,
           tags: cleanTags,
-          content: html,            // ✅ HTML 저장
+          content: html,            // ✅ 항상 HTML 저장
           youtubeUrl: youtubeUrl.trim() || null,
           youtubeId: youtubeId || null,
           repImageUrl: finalRep || null,
-          contentFormat: "html",    // (선택) 서버에서 포맷 구분 필요 시
+          contentFormat: "html",
         };
 
         if (isEdit) {
@@ -290,7 +276,6 @@ export default function WritePage() {
 
           {/* 대표이미지 + 유튜브 */}
           <div className="row g-3 mb-3">
-            {/* 대표이미지 */}
             <div className="col-12 col-md-6">
               <label className="form-label d-flex align-items-center gap-2">
                 대표이미지 <span className="text-secondary small">(드래그·드롭/선택)</span>
@@ -318,8 +303,6 @@ export default function WritePage() {
                     제거
                   </button>
                 )}
-
-                {/* 업로드 스피너 */}
                 {repUploading && (
                   <div
                     className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
@@ -332,7 +315,6 @@ export default function WritePage() {
               </div>
             </div>
 
-            {/* 유튜브 URL */}
             <div className="col-12 col-md-6">
               <label className="form-label">유튜브 URL (선택)</label>
               <input
@@ -377,25 +359,28 @@ export default function WritePage() {
             <div className="form-text">최대 10개 · Enter 로 추가/Backspace 로 삭제</div>
           </div>
 
-          {/* 내용 (WYSIWYG) */}
+          {/* 내용 (에디터) */}
           <div className="mb-3">
             <label className="form-label d-flex align-items-center gap-2">
               내용 <span className="text-secondary small">(이미지 붙여넣기/드래그 업로드 가능)</span>
             </label>
             <div className={`border rounded-3 ${errors.content ? "border-danger" : ""}`}>
               <TuiHtmlEditor
-                valueHtml={contentHtml}
-                onChange={setContentHtml}
+                key={isEdit ? `edit-${editId}` : "new"}     // 글 전환 시 초기화
+                initialValue={initialValue}                  // ✅ 원문 그대로
+                initialFormat={initialFormat}                // ✅ md/html 구분
+                onChange={setContentHtml}                    // 항상 HTML이 들어옴
                 height="480px"
                 placeholder={`레시피/후기/질문 내용을 자유롭게 적어주세요.
 - 캡처 이미지를 붙여넣거나 드래그하면 자동 업로드됩니다.`}
                 upload={async (blob) => {
-                  // 업로드 → URL 회수 → 첫 이미지면 대표이미지 자동 세팅
                   const up = await uploadFile(blob);
-                  const url = pickUploadUrl(up);
+                  const url =
+                    up?.url || up?.URL || up?.link || up?.location || up?.Location || up?.secure_url || up?.fileUrl || up?.fileURL
+                    || (up?.data && (up.data.url || up.data.link || up.data.Location));
                   if (!url) throw new Error("업로드 응답에 URL이 없어요.");
                   if (!repImageUrl) setRepImageUrl(url);
-                  return url; // WYSIWYG가 <img src="...">로 삽입
+                  return url;
                 }}
               />
             </div>
@@ -417,6 +402,8 @@ export default function WritePage() {
                     setContentHtml("");
                     setRepImageUrl("");
                     setYoutubeUrl("");
+                    setInitialValue("");
+                    setInitialFormat("auto");
                   }
                 }}
               >
@@ -437,7 +424,7 @@ export default function WritePage() {
                   }}
                 >
                   임시저장
-                  </button>
+                </button>
               )}
               <button type="submit" className="btn btn-success" disabled={submitting || repUploading}>
                 {submitting ? (isEdit ? "수정 중…" : "등록 중…") : isEdit ? "수정하기" : "등록하기"}

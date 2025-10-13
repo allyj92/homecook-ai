@@ -1,445 +1,846 @@
-// src/pages/WritePage.jsx
-import { useEffect, useMemo, useState, useCallback } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
-import "bootstrap/dist/css/bootstrap.min.css";
-import BottomNav from "../components/BottomNav";
-import { ensureLogin, fetchMe } from "../lib/auth";
-import { createPost, updatePost, getCommunityPost } from "../api/community";
-import { uploadFile, ytThumb } from "../lib/upload";
-import { logActivity } from "../lib/activity";
-import TagInput from "../components/TagInput";
-import TuiHtmlEditor from "../components/TuiMdEditor";
+import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
+import BottomNav from '../components/BottomNav';
+import { apiFetch } from '../lib/http';
+import { listFavoritesSimple, removeFavorite } from '../lib/wishlist';
+import { getMyPosts } from '../api/community';
+import {
+  listActivitiesPaged,
+  subscribeActivity,
+  formatActivityText,
+  formatActivityHref,
+  logActivity,
+  ensureActivityNs,
+} from '../lib/activity';
 
-const DRAFT_KEY = "draft:community:html";
-const CATEGORIES = ["후기", "질문", "레시피", "노하우", "자유"];
 
-const isLikelyHtml = (s = "") => /<\/?[a-z][\s\S]*>/i.test(s);
 
-export default function WritePage() {
-  const navigate = useNavigate();
-  const loc = useLocation();
-  const postFromState = loc.state?.post;
+/* 숫자 ID만 허용(최대 19자리: Long 범위) */
+function isNumericId(id) {
+  return typeof id === 'string' && /^[0-9]{1,19}$/.test(id);
+}
 
-  // 수정 ID 여러 패턴 지원
-  const params = new URLSearchParams(loc.search);
-  let editId = params.get("id");
-  if (!editId) {
-    const m = loc.pathname.match(/\/write\/(\d+)/);
-    if (m) editId = m[1];
+/* URL 정규화 */
+function normalizeCoverUrl(url) {
+  if (!url) return null;
+  try {
+    if (url.startsWith('/')) return url;
+    const u = new URL(url, window.location.origin);
+    const here = window.location;
+    if (u.host === here.host) return u.pathname + u.search + u.hash;
+    if (here.protocol === 'https:' && u.protocol === 'http:') {
+      u.protocol = 'https:';
+      return u.toString();
+    }
+    return u.toString();
+  } catch {
+    return url;
   }
-  if (!editId && loc.state && typeof loc.state.editId !== "undefined") {
-    editId = String(loc.state.editId);
+}
+
+/* 캐시 버스터 */
+function withVersion(url, ver) {
+  if (!url) return url;
+  try {
+    const u = new URL(url, window.location.origin);
+    const v =
+      ver != null
+        ? (typeof ver === 'number' ? ver : Date.parse(ver) || Date.now())
+        : Date.now();
+    u.searchParams.set('v', String(v));
+    if (u.hostname === window.location.hostname && u.port === window.location.port) {
+      return u.pathname + (u.search || '') + (u.hash || '');
+    }
+    return u.toString();
+  } catch {
+    return url;
   }
-  const isEdit = !!editId;
+}
 
-  // 로그인/유저
-  const [auth, setAuth] = useState({ loading: true, user: null });
+/* 파스텔 */
+const PASTELS = [
+  ['#f3ebe3', '#e7d8c9'],
+  ['#efe2d1', '#e4d5c3'],
+  ['#f5eadf', '#e8dccb'],
+  ['#ede5da', '#e0d2c3'],
+  ['#f1e6d8', '#e5d6c6'],
+  ['#f2e8de', '#e6d8c9'],
+];
+function hashCode(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
 
-  // 폼 상태
-  const [title, setTitle] = useState("");
-  const [category, setCategory] = useState(CATEGORIES[0]);
-  const [tags, setTags] = useState([]);
-
-  // 본문은 에디터에서 HTML로만 관리/저장
-  const [contentHtml, setContentHtml] = useState("");
-
-  // 에디터 초기 주입값 (원문 + 포맷)
-  const [initialValue, setInitialValue] = useState("");
-  const [initialFormat, setInitialFormat] = useState("auto"); // "md" | "html" | "auto"
-
-  const [repImageUrl, setRepImageUrl] = useState("");
-  const [youtubeUrl, setYoutubeUrl] = useState("");
-
-  // UX
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [errors, setErrors] = useState({});
-  const [repUploading, setRepUploading] = useState(false);
-
-  // 유튜브
-  const toYoutubeId = (url) => {
-    if (!url) return null;
-    const u = url.trim();
-    let m;
-    if ((m = u.match(/youtu\.be\/([A-Za-z0-9_-]{8,})/))) return m[1];
-    if ((m = u.match(/[?&]v=([A-Za-z0-9_-]{8,})/))) return m[1];
-    if ((m = u.match(/\/shorts\/([A-Za-z0-9_-]{8,})/))) return m[1];
-    if (/^[A-Za-z0-9_-]{8,32}$/.test(u)) return u;
-    return null;
-  };
-  const youtubeId = useMemo(() => toYoutubeId(youtubeUrl), [youtubeUrl]);
-  const youtubeCover = useMemo(
-    () => (youtubeId ? ytThumb(youtubeId, "maxresdefault") || ytThumb(youtubeId, "hqdefault") : null),
-    [youtubeId]
-  );
-
-  // 초기화
+/* 썸네일 */
+function SmartThumb({ src, seed = 'fallback', alt = 'thumbnail', width = 80, height = 56, rounded = true, className = '' }) {
+  const [loaded, setLoaded] = useState(false);
+  const [broken, setBroken] = useState(false);
   useEffect(() => {
+    setLoaded(false);
+    setBroken(false);
+  }, [src]);
+  const [c1, c2] = useMemo(() => {
+    const idx = hashCode(String(seed)) % PASTELS.length;
+    return PASTELS[idx];
+  }, [seed]);
+  const hasImg = !!src && !broken;
+  return (
+    <div
+      className={`position-relative ${className}`}
+      style={{ width, height, borderRadius: rounded ? 8 : 0, overflow: 'hidden', background: `linear-gradient(135deg, ${c1}, ${c2})` }}
+      aria-label={alt}
+    >
+      {hasImg && (
+        <img
+          key={src || 'empty'}
+          src={src}
+          alt={alt}
+          loading="lazy"
+          className="position-absolute top-0 start-0 w-100 h-100 object-fit-cover"
+          style={{ display: loaded ? 'block' : 'none' }}
+          onLoad={() => setLoaded(true)}
+          onError={() => setBroken(true)}
+        />
+      )}
+    </div>
+  );
+}
+
+const ytThumb = (id) => (id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : null);
+const formatDate = (s) => {
+  try {
+    return new Date(s).toLocaleDateString();
+  } catch {
+    return '';
+  }
+};
+
+/* 단건 글 조회 (메타 최신화 때 사용 가능) */
+async function getPostById(id) {
+  try {
+    const res = await apiFetch(`/api/community/posts/${encodeURIComponent(id)}`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+/* 🔥 글 삭제 API */
+async function deleteCommunityPost(id) {
+  let res = await apiFetch(`/api/community/posts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (res.status === 405 || res.status === 400 || res.status === 501) {
+    res = await apiFetch(`/api/community/posts/${encodeURIComponent(id)}/delete`, { method: 'POST' });
+  }
+  if (!res.ok) {
+    let msg = '삭제에 실패했어요.';
+    try {
+      msg = (await res.text()) || msg;
+    } catch {}
+    throw new Error(msg);
+  }
+  return true;
+}
+
+/* snake_case → 표준화 */
+function normalizePostMeta(p) {
+  if (!p) return null;
+  const youtubeId = p.youtubeId ?? p.youtube_id ?? null;
+  const repImageUrlRaw = p.repImageUrl ?? p.rep_image_url ?? p.image ?? null;
+  const updatedAt = p.updatedAt ?? p.updated_at ?? p.createdAt ?? p.created_at ?? null;
+  const repImageUrl = withVersion(normalizeCoverUrl(repImageUrlRaw), updatedAt);
+  const yt = ytThumb(youtubeId);
+  return {
+    ...p,
+    youtubeId,
+    repImageUrl,
+    title: p.title ?? '',
+    category: p.category ?? '',
+    __cover: repImageUrl || yt || null,
+  };
+}
+
+/* ▼▼▼ 하단 스티키 바 (커뮤니티 스타일) ▼▼▼ */
+function StickyBottomAd({
+  id = 'ad-sticky-bottom',
+  heightMobile = 80,
+  heightDesktop = 120,
+  label = 'Bottom Sticky 320×50 / 728×90',
+}) {
+  const [offset, setOffset] = useState(0);
+  const [height, setHeight] = useState(heightDesktop);
+
+  const recompute = useCallback(() => {
+    const isDesktop = window.matchMedia('(min-width: 992px)').matches;
+    setHeight(isDesktop ? heightDesktop : heightMobile);
+    const sp = document.querySelector('.bottom-nav-spacer');
+    const spH = sp ? sp.getBoundingClientRect().height : 0;
+    setOffset(isDesktop ? 0 : spH);
+  }, [heightDesktop, heightMobile]);
+
+  useEffect(() => {
+    recompute();
+    window.addEventListener('resize', recompute);
+    window.addEventListener('orientationchange', recompute);
+    return () => {
+      window.removeEventListener('resize', recompute);
+      window.removeEventListener('orientationchange', recompute);
+    };
+  }, [recompute]);
+
+  return (
+    <>
+      <div style={{ height: height + 8 }} aria-hidden="true" />
+      <div
+        id={id}
+        className="position-fixed border-top bg-light d-flex align-items-center justify-content-center"
+        role="complementary"
+        aria-label="하단 광고영역"
+        style={{
+          left: 0,
+          right: 0,
+          bottom: `calc(${offset}px + env(safe-area-inset-bottom))`,
+          minHeight: height,
+          zIndex: 1040,
+          boxShadow: '0 -2px 10px rgba(0,0,0,0.08)',
+        }}
+      >
+        <span className="fw-semibold text-secondary text-uppercase small">{label}</span>
+      </div>
+    </>
+  );
+}
+
+export default function MyPage() {
+  const DEBUG = /\bdebug=1\b/.test(window.location.search) || localStorage.getItem('rf:debug') === '1';
+  const dlog = (...a) => { if (DEBUG) console.log('%c[MyPage]', 'color:#09f', ...a); };
+
+  const navigate = useNavigate();
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
+
+  /* 세션 */
+  const [me, setMe] = useState(null);
+  const [meLoading, setMeLoading] = useState(true);
+
+  /* 즐겨찾기(레시피) */
+  const [wishLoading, setWishLoading] = useState(false);
+  const [wishErr, setWishErr] = useState('');
+  const [wishlist, setWishlist] = useState([]);
+
+  /* 내가 쓴 글 */
+  const [myPosts, setMyPosts] = useState([]);
+  const [myLoading, setMyLoading] = useState(false);
+  const [myErr, setMyErr] = useState('');
+  const [deletingId, setDeletingId] = useState(null);
+
+  /* 최근 활동 */
+  const [activities, setActivities] = useState([]);
+  const [actLoading, setActLoading] = useState(true);
+  const [actTotal, setActTotal] = useState(0);
+
+  /* 북마크(서버) */
+  const [bookmarks, setBookmarks] = useState([]);
+  const [bmLoading, setBmLoading] = useState(false);
+
+  // ✅ 활동 로그 네임스페이스 보정
+  useEffect(() => { ensureActivityNs(); }, []);
+
+  /* me 먼저 로드 */
+  useEffect(() => {
+    let aborted = false;
     (async () => {
-      const me = await ensureLogin(isEdit ? `/write?id=${editId}` : "/write");
-      if (!me) return;
-      const u = await fetchMe();
-      setAuth({ loading: false, user: u ?? null });
+      setMeLoading(true);
+      try {
+        const res = await apiFetch('/api/auth/me', { noAuthRedirect: true });
+        if (aborted) return;
 
-      if (isEdit) {
-        try {
-          const p = postFromState ?? (await getCommunityPost(editId));
-          if (p?.authorId && u?.uid && Number(p.authorId) !== Number(u.uid)) {
-            alert("본인의 글만 수정할 수 있어요.");
-            navigate(`/community/${editId}`, { replace: true });
-            return;
-          }
-
-          setTitle(p.title || "");
-          setCategory(p.category || CATEGORIES[0]);
-          setTags(Array.isArray(p.tags) ? p.tags : []);
-
-          // ✅ 서버 원문 그대로/포맷 그대로 에디터에 주입
-          const fmt = p?.contentFormat ?? (isLikelyHtml(p?.content) ? "html" : "md");
-          setInitialValue(String(p?.content ?? ""));
-          setInitialFormat(fmt);
-
-          setRepImageUrl(p.repImageUrl || "");
-          setYoutubeUrl(p.youtubeId ? `https://youtu.be/${p.youtubeId}` : "");
-        } catch (e) {
-          console.error(e);
-          alert("글을 불러오지 못했어요.");
-          navigate(-1);
+        if (res.status === 401) {
+          try { localStorage.removeItem('authUser'); } catch {}
+          localStorage.setItem('postLoginRedirect', '/mypage');
+          navigate('/login-signup', { replace: true, state: { from: '/mypage' } });
           return;
         }
-      } else {
-        // 새 글: 임시저장 복구
+        if (!res.ok) {
+          navigate('/login-signup', { replace: true, state: { from: '/mypage' } });
+          return;
+        }
+        const meData = await res.json();
+        if (aborted) return;
+
+        if (!meData?.authenticated) {
+          try { localStorage.removeItem('authUser'); } catch {}
+          localStorage.setItem('postLoginRedirect', '/mypage');
+          navigate('/login-signup', { replace: true, state: { from: '/mypage' } });
+          return;
+        }
+
+        setMe(meData);
+
+        /* 저장한 레시피 */
+        setWishLoading(true);
+        setWishErr('');
         try {
-          const saved = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null");
-          if (saved) {
-            setTitle(saved.title || "");
-            setCategory(saved.category || CATEGORIES[0]);
-            setTags(saved.tags || []);
+          const items = await listFavoritesSimple(3);
+          if (!aborted) setWishlist(Array.isArray(items) ? items : []);
+        } catch {
+          if (!aborted) setWishErr('저장한 레시피를 불러오지 못했어요.');
+        } finally {
+          if (!aborted) setWishLoading(false);
+        }
 
-            // 임시저장은 HTML로 저장해두므로 그대로 복구
-            setInitialValue(saved.contentHtml || "");
-            setInitialFormat("html");
-            setRepImageUrl(saved.repImageUrl || "");
-            setYoutubeUrl(saved.youtubeUrl || "");
-          }
-        } catch {}
+        /* 내가 쓴 글 */
+        setMyLoading(true);
+        setMyErr('');
+        try {
+          const posts = await getMyPosts(5);
+          const fixed = (Array.isArray(posts) ? posts : []).map(normalizePostMeta);
+          if (!aborted) setMyPosts(fixed);
+        } catch {
+          if (!aborted) setMyErr('내가 쓴 글을 불러오지 못했어요.');
+        } finally {
+          if (!aborted) setMyLoading(false);
+        }
+      } finally {
+        if (!aborted) setMeLoading(false);
       }
-      setLoading(false);
     })();
-  }, [isEdit, editId, navigate, postFromState]);
+    return () => { aborted = true; };
+  }, [navigate]);
 
-  // 새 글일 때 5초마다 자동 임시저장 (HTML 기반)
-  useEffect(() => {
-    if (isEdit) return;
-    const timer = setInterval(() => {
-      const payload = { title, category, tags, contentHtml, repImageUrl, youtubeUrl, savedAt: Date.now() };
-      localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
-    }, 5000);
-    return () => clearInterval(timer);
-  }, [isEdit, title, category, tags, contentHtml, repImageUrl, youtubeUrl]);
+  /* 찜 해제(레시피) */
+  async function onRemove(e, recipeId) {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    const rid = Number(recipeId);
+    if (!Number.isFinite(rid) || rid <= 0) return;
 
-  // 검증(HTML → 텍스트 길이)
-  function validate() {
-    const html = (contentHtml || "").replace(/\s+/g, " ").trim();
-    const text = html.replace(/<[^>]*>/g, "").trim();
-    const e = {};
-    if (!title.trim()) e.title = "제목을 입력하세요.";
-    else if (title.trim().length < 4) e.title = "제목은 4자 이상 권장해요.";
-    if (!text) e.content = "내용을 입력하세요.";
-    else if (text.length < 10) e.content = "내용은 10자 이상 작성해주세요.";
-    if (youtubeUrl && !youtubeId) e.youtubeUrl = "유효한 유튜브 URL 또는 ID를 입력해주세요.";
-    setErrors(e);
-    return Object.keys(e).length === 0;
-  }
-
-  // 대표이미지 업로드
-  async function onPickRep(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const okType = /^image\/(png|jpe?g|webp|gif)$/i.test(file.type);
-    if (!okType) { alert("PNG, JPG, WEBP, GIF만 업로드할 수 있어요."); return; }
-    if (file.size > 10 * 1024 * 1024) { alert("이미지 용량(10MB) 초과입니다."); return; }
-
-    const localUrl = URL.createObjectURL(file);
-    setRepImageUrl(localUrl);
-    setRepUploading(true);
-
+    const prev = wishlist;
+    setWishlist((arr) => arr.filter((it) => Number(it.recipeId) !== rid));
     try {
-      const up = await uploadFile(file);
-      const url = up?.url || up?.URL || up?.link || up?.location || up?.Location || up?.secure_url || up?.fileUrl || up?.fileURL
-        || (up?.data && (up.data.url || up.data.link || up.data.Location));
-      if (!url) throw new Error("업로드 응답에 URL이 없어요.");
-      setRepImageUrl(url);
-    } catch (err) {
-      console.error(err);
-      alert(err?.message || "대표이미지 업로드에 실패했습니다.");
-      setRepImageUrl(youtubeCover || "");
-    } finally {
-      setRepUploading(false);
-      try { URL.revokeObjectURL(localUrl); } catch {}
+      await removeFavorite(rid);
+      const removed = prev.find((it) => Number(it.recipeId) === rid);
+      try {
+        logActivity('favorite_remove', {
+          recipeId: rid,
+          recipeTitle: removed?.title || `#${rid}`,
+        });
+      } catch {}
+    } catch {
+      alert('삭제에 실패했어요.');
+      setWishlist(prev);
     }
   }
 
-  // 제출(등록/수정) — HTML 저장
-  const onSubmit = useCallback(
-    async (e) => {
-      e.preventDefault();
-      if (!validate()) return;
-      if (submitting) return;
-      setSubmitting(true);
-      try {
-        const html = (contentHtml || "").trim();
-        const finalRep = repImageUrl || youtubeCover || "";
-        const cleanTags = tags.map((t) => String(t).trim()).filter(Boolean);
-        const payload = {
-          title: title.trim(),
-          category,
-          tags: cleanTags,
-          content: html,            // ✅ 항상 HTML 저장
-          youtubeUrl: youtubeUrl.trim() || null,
-          youtubeId: youtubeId || null,
-          repImageUrl: finalRep || null,
-          contentFormat: "html",
-        };
+  /* ✅ 내가 쓴 글 삭제 */
+  const onDeletePost = async (e, post) => {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    if (!post?.id) return;
+    const id = String(post.id);
+    const title = post.title || `게시글 #${id}`;
 
-        if (isEdit) {
-          await updatePost(editId, payload);
-          try { logActivity("post_update", { postId: Number(editId), title: payload.title }); } catch {}
-          navigate(`/community/${editId}`);
-        } else {
-          const { id } = await createPost(payload);
-          try { logActivity("post_create", { postId: id, title: payload.title }); } catch {}
-          localStorage.removeItem(DRAFT_KEY);
-          navigate(`/community/${id}`);
+    if (!window.confirm(`정말 삭제할까요?\n\n"${title}"`)) return;
+
+    setDeletingId(id);
+    // 북마크 목록에서도 제거 시도(있다면)
+    onUnbookmark(undefined, id);
+    try {
+      await deleteCommunityPost(id);
+      setMyPosts((arr) => arr.filter((p) => String(p.id) !== id));
+      try { logActivity('post_delete', { postId: id, postTitle: title }); } catch {}
+    } catch (err) {
+      alert((err && err.message) ? err.message : '삭제에 실패했어요.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  /* 북마크 로드(서버 기반) */
+  const fetchBookmarks = useCallback(async () => {
+    if (!me) return;
+    setBmLoading(true);
+    try {
+      const url = `/api/community/bookmarks?page=0&size=5&_=${Date.now()}`;
+      const res = await apiFetch(url, { cache: 'no-store' });
+      if (!res.ok) throw new Error('bookmark_list_failed');
+      const page = await res.json();
+      setBookmarks((page?.content ?? []).map(normalizePostMeta));
+    } catch {
+      setBookmarks([]);
+    } finally {
+      setBmLoading(false);
+    }
+  }, [me]);
+
+  useEffect(() => { fetchBookmarks(); }, [fetchBookmarks]);
+
+  /* 북마크 변경/화면 복귀 시 새로고침 */
+  useEffect(() => {
+    const onBM = () => fetchBookmarks();
+    const onVis = () => { if (document.visibilityState === 'visible') fetchBookmarks(); };
+    window.addEventListener('bookmark-changed', onBM);
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      window.removeEventListener('bookmark-changed', onBM);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [fetchBookmarks]);
+
+  /* 북마크 해제(서버 호출) */
+  async function onUnbookmark(e, postId) {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    const id = String(postId);
+    const prev = bookmarks;
+
+    // UI 낙관적 업데이트
+    setBookmarks(arr => arr.filter(b => String(b.id) !== id));
+
+    try {
+      const res = await apiFetch(`/api/community/bookmarks/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('bookmark_remove_failed');
+
+      try {
+        const removed = prev.find(b => String(b.id) === id);
+        logActivity('bookmark_remove', { postId: Number(id), postTitle: removed?.title || `#${id}` });
+      } catch {}
+      window.dispatchEvent(new Event('bookmark-changed'));
+    } catch (err) {
+      setBookmarks(prev);
+      alert('북마크 해제에 실패했어요.');
+    }
+  }
+
+ /* 최근 활동: 상위 3개만 (서버 우선, 캐시 삭제해도 정상 동작) */
+  useEffect(() => {
+    let aborted = false;
+    const pull = async () => {
+      setActLoading(true);
+      try {
+        const res = await fetch('/api/activity?page=0&size=3', {
+          credentials: 'include',
+          cache: 'no-store',
+          headers: { 'Accept': 'application/json', 'Cache-Control': 'no-store' },
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        // 응답 형태 호환: Array | {items[]} | {content[]}
+        const items = Array.isArray(data)
+          ? data
+          : (Array.isArray(data?.items) ? data.items
+             : (Array.isArray(data?.content) ? data.content : []));
+        const total =
+          typeof data?.total === 'number' ? data.total
+          : (typeof data?.totalElements === 'number' ? data.totalElements
+             : (typeof data?.count === 'number' ? data.count : items.length));
+        if (!aborted) {
+          setActivities(items);
+          setActTotal(total);
         }
-      } catch (err) {
-        console.error(err);
-        if (err?.status === 401 || /401/.test(String(err?.message))) {
-          const ok = await ensureLogin(isEdit ? `/write?id=${editId}` : "/write");
-          if (ok) alert("로그인이 갱신되었습니다. 다시 시도해주세요.");
-        } else if (err?.status === 403) {
-          alert("본인의 글만 수정할 수 있어요.");
-        } else {
-          alert(err?.message || "처리 중 오류가 발생했어요. 잠시 후 다시 시도해주세요.");
+      } catch (e) {
+        // 서버 오류 시에도 화면이 안텅 비게 로컬 보조(있으면)로 시도
+        try {
+          const fallback = await Promise.resolve(listActivitiesPaged?.(0, 3));
+          const items = fallback?.items ?? fallback?.content ?? (Array.isArray(fallback) ? fallback : []);
+          const total = typeof fallback?.total === 'number'
+            ? fallback.total
+            : (typeof fallback?.totalElements === 'number' ? fallback.totalElements : items.length);
+          if (!aborted) { setActivities(items); setActTotal(total); }
+        } catch {
+          if (!aborted) { setActivities([]); setActTotal(0); }
         }
       } finally {
-        setSubmitting(false);
+        if (!aborted) setActLoading(false);
       }
-    },
-    [isEdit, editId, title, category, tags, contentHtml, youtubeUrl, youtubeId, repImageUrl, youtubeCover, submitting, navigate]
-  );
+    };
+    pull();
+    // 활동 변경 시 갱신 (이벤트는 그대로 사용)
+    const off = subscribeActivity?.(pull) || (() => {});
+    const onVis = () => { if (document.visibilityState === 'visible') pull(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { aborted = true; off(); document.removeEventListener('visibilitychange', onVis); };
+  }, []);
 
-  if (loading || auth.loading) {
+  /* 로딩 스켈레톤 (me) */
+  if (meLoading) {
     return (
-      <div className="container-xxl py-3">
-        <div className="placeholder-glow">
-          <h1 className="h4 placeholder col-6"></h1>
+      <div className="container-xxl py-3" style={{ paddingBottom: 160 }}>
+        <div className="row g-4">
+          <aside className="col-12 col-lg-4">
+            <div className="card shadow-sm mb-3">
+              <div className="card-body">
+                <div className="placeholder-glow">
+                  <div className="placeholder col-6 mb-2" />
+                  <div className="placeholder col-4 mb-2" />
+                  <div className="placeholder col-8" />
+                </div>
+              </div>
+            </div>
+          </aside>
+          <section className="col-12 col-lg-8">
+            <div className="card shadow-sm mb-3">
+              <div className="card-header">
+                <h5 className="m-0">저장한 레시피</h5>
+              </div>
+              <div className="p-3">
+                <div className="placeholder-glow">
+                  <div className="placeholder col-12 mb-2" style={{ height: 18 }} />
+                  <div className="placeholder col-10 mb-2" style={{ height: 18 }} />
+                  <div className="placeholder col-8" style={{ height: 18 }} />
+                </div>
+              </div>
+            </div>
+          </section>
         </div>
+        <StickyBottomAd />
         <BottomNav />
       </div>
     );
   }
 
+  /* 데모 유저 */
+  const demoUser = {
+    name: '레시프리',
+    handle: '@recipfree',
+    bio: '레시프리와 함께, 자유롭게 창작하는 맞춤형 건강 레시피.',
+    avatar: 'https://picsum.photos/seed/recipfree/200/200',
+  };
+
+  /* 실제 로그인 정보 */
+  const user = me
+    ? {
+        name: me.name || (me.email ? me.email.split('@')[0] : '회원'),
+        handle: me.email ? `@${me.email.split('@')[0]}` : '@member',
+        bio: demoUser.bio,
+        avatar: me.avatar || me.picture || demoUser.avatar,
+      }
+    : demoUser;
+
+   const stats = {
+   recipes: myPosts.length,
+   saved: wishlist.length,
+   comments: Number(me?.commentCount ?? 0),
+   streak: Number(me?.streakDays ?? 0), // 서버에서 나중에 내려주면 자동 반영
+ };
+  const oneLine = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
+
   return (
-    <div className="container-xxl py-3">
-      <header className="mb-3">
-        <h1 className="h4 mb-1">{isEdit ? "글 수정" : "글쓰기"}</h1>
-        <p className="text-secondary small mb-0">커뮤니티 가이드에 맞지 않는 글은 숨김/제한될 수 있어요.</p>
-      </header>
+    <div className="container-xxl py-3 mypage" style={{ paddingBottom: 84 }}>
+      <div className="d-flex align-items-center justify-content-between mb-2">
+        <h1 className="h4 fw-bold">마이페이지</h1>
+        <div className="d-flex gap-2">
+          <button className="btn btn-success btn-sm" onClick={() => navigate('/profile')}>프로필 편집</button>
+          <button className="btn btn-outline-secondary btn-sm" onClick={() => navigate('/settings')}>계정/보안</button>
+        </div>
+      </div>
 
-      <form className="card shadow-sm" onSubmit={onSubmit}>
-        <div className="card-body">
-          {/* 제목 */}
-          <div className="mb-3">
-            <label className="form-label">제목</label>
-            <input
-              type="text"
-              className={`form-control ${errors.title ? "is-invalid" : ""}`}
-              placeholder="예) 저염 식단으로 한 달 -3.8kg, 이렇게 했어요"
-              value={title}
-              maxLength={120}
-              onChange={(e) => setTitle(e.target.value)}
-            />
-            {errors.title && <div className="invalid-feedback">{errors.title}</div>}
-          </div>
-
-          {/* 카테고리 */}
-          <div className="mb-3">
-            <label className="form-label">카테고리</label>
-            <select className="form-select" value={category} onChange={(e) => setCategory(e.target.value)}>
-              {CATEGORIES.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* 대표이미지 + 유튜브 */}
-          <div className="row g-3 mb-3">
-            <div className="col-12 col-md-6">
-              <label className="form-label d-flex align-items-center gap-2">
-                대표이미지 <span className="text-secondary small">(드래그·드롭/선택)</span>
-              </label>
-              <div className="border rounded-3 p-2 d-flex align-items-center gap-3 position-relative">
-                <div className="flex-shrink-0">
-                  <div
-                    style={{
-                      width: 120,
-                      height: 80,
-                      borderRadius: 8,
-                      background: "#f3f3f3",
-                      backgroundImage: repImageUrl ? `url(${repImageUrl})` : undefined,
-                      backgroundSize: "cover",
-                      backgroundPosition: "center",
-                    }}
-                  />
-                </div>
-                <div className="flex-grow-1">
-                  <input type="file" accept="image/*" className="form-control" onChange={onPickRep} />
-                  <div className="form-text">* 미선택 시 유튜브 썸네일을 자동 사용합니다.</div>
-                </div>
-                {repImageUrl && (
-                  <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setRepImageUrl("")}>
-                    제거
-                  </button>
-                )}
-                {repUploading && (
-                  <div
-                    className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
-                    style={{ background: "rgba(255,255,255,0.5)", borderRadius: 12 }}
-                    aria-label="업로드 중"
-                  >
-                    <div className="spinner-border text-secondary" role="status" />
+      <div className="row g-4">
+        <aside className="col-12 col-lg-4">
+          <div className="sticky-lg-top" style={{ top: 0, zIndex: 2, marginTop: '-8px' }}>
+            <div className="card shadow-sm mb-3">
+              <div className="card-body text-center">
+                <h5 className="fw-bold">{user.name}</h5>
+                <div className="text-secondary small mb-1">{user.handle}</div>
+                <p className="text-secondary small">{user.bio}</p>
+                <div className="row text-center mt-3">
+                  <div className="col">
+                    <strong>{stats.recipes}</strong>
+                    <div className="small">작성</div>
                   </div>
-                )}
+                  <div className="col">
+                    <strong>{stats.saved}</strong>
+                    <div className="small">저장</div>
+                  </div>
+                  <div className="col">
+                    <strong>{stats.comments}</strong>
+                    <div className="small">댓글</div>
+                  </div>
+                  <div className="col">
+                    <strong>{stats.streak}일</strong>
+                    <div className="small">연속</div>
+                  </div>
+                </div>
+                <div className="d-grid gap-2 mt-3">
+                  <button className="btn btn-outline-success btn-sm" onClick={() => navigate('/saved')}>저장한 레시피</button>
+                  <button className="btn btn-outline-secondary btn-sm" onClick={() => navigate('/activity')}>활동 내역</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        <section className="col-12 col-lg-8">
+          {/* 저장한 레시피 */}
+          <div className="card shadow-sm mb-3">
+            <div className="card-header d-flex justify-content-between align-items-center">
+              <h5 className="m-0">저장한 레시피</h5>
+              <div className="d-flex align-items-center gap-2">
+                <span className="text-secondary small">{wishlist.length}개</span>
+                <Link className="btn btn-sm btn-outline-primary" to="/saved">전체보기</Link>
               </div>
             </div>
 
-            <div className="col-12 col-md-6">
-              <label className="form-label">유튜브 URL (선택)</label>
-              <input
-                type="url"
-                className={`form-control ${errors.youtubeUrl ? "is-invalid" : ""}`}
-                placeholder="https://youtu.be/XXXX 또는 https://www.youtube.com/watch?v=XXXX"
-                value={youtubeUrl}
-                onChange={(e) => setYoutubeUrl(e.target.value)}
-              />
-              {errors.youtubeUrl && <div className="invalid-feedback">{errors.youtubeUrl}</div>}
-
-              {!!youtubeId && (
-                <>
-                  <div className="d-flex align-items-center gap-2 mt-2">
-                    <img
-                      src={youtubeCover || ytThumb(youtubeId, "hqdefault")}
-                      alt="YT thumbnail"
-                      width={120}
-                      height={68}
-                      style={{ borderRadius: 8, objectFit: "cover" }}
-                    />
-                    <div className="small text-secondary">유튜브 썸네일이 대표이미지로 사용될 수 있어요.</div>
-                  </div>
-
-                  <div className="ratio ratio-16x9 mt-2" style={{ borderRadius: 8, overflow: "hidden" }}>
-                    <iframe
-                      src={`https://www.youtube.com/embed/${youtubeId}`}
-                      title="YouTube video"
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                      allowFullScreen
-                    />
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* 태그 */}
-          <div className="mb-3">
-            <label className="form-label">태그</label>
-            <TagInput value={tags} onChange={setTags} placeholder="태그 입력 후 Enter" maxTags={10} />
-            <div className="form-text">최대 10개 · Enter 로 추가/Backspace 로 삭제</div>
-          </div>
-
-          {/* 내용 (에디터) */}
-          <div className="mb-3">
-            <label className="form-label d-flex align-items-center gap-2">
-              내용 <span className="text-secondary small">(이미지 붙여넣기/드래그 업로드 가능)</span>
-            </label>
-            <div className={`border rounded-3 ${errors.content ? "border-danger" : ""}`}>
-              <TuiHtmlEditor
-                key={isEdit ? `edit-${editId}` : "new"}     // 글 전환 시 초기화
-                initialValue={initialValue}                  // ✅ 원문 그대로
-                initialFormat={initialFormat}                // ✅ md/html 구분
-                onChange={setContentHtml}                    // 항상 HTML이 들어옴
-                height="480px"
-                placeholder={`레시피/후기/질문 내용을 자유롭게 적어주세요.
-- 캡처 이미지를 붙여넣거나 드래그하면 자동 업로드됩니다.`}
-                upload={async (blob) => {
-                  const up = await uploadFile(blob);
-                  const url =
-                    up?.url || up?.URL || up?.link || up?.location || up?.Location || up?.secure_url || up?.fileUrl || up?.fileURL
-                    || (up?.data && (up.data.url || up.data.link || up.data.Location));
-                  if (!url) throw new Error("업로드 응답에 URL이 없어요.");
-                  if (!repImageUrl) setRepImageUrl(url);
-                  return url;
-                }}
-              />
-            </div>
-            {errors.content && <div className="invalid-feedback d-block">{errors.content}</div>}
-          </div>
-
-          {/* 액션 */}
-          <div className="d-flex justify-content-between">
-            {!isEdit && (
-              <button
-                type="button"
-                className="btn btn-outline-secondary"
-                onClick={() => {
-                  if (confirm("임시저장을 삭제할까요?")) {
-                    localStorage.removeItem(DRAFT_KEY);
-                    setTitle("");
-                    setCategory(CATEGORIES[0]);
-                    setTags([]);
-                    setContentHtml("");
-                    setRepImageUrl("");
-                    setYoutubeUrl("");
-                    setInitialValue("");
-                    setInitialFormat("auto");
-                  }
-                }}
-              >
-                임시저장 초기화
-              </button>
+            {wishLoading && (
+              <div className="p-3">
+                <div className="placeholder-glow">
+                  <div className="placeholder col-12 mb-2" style={{ height: 18 }} />
+                  <div className="placeholder col-10 mb-2" style={{ height: 18 }} />
+                  <div className="placeholder col-8" style={{ height: 18 }} />
+                </div>
+              </div>
             )}
-            <div className="d-flex gap-2 ms-auto">
-              {!isEdit && (
-                <button
-                  type="button"
-                  className="btn btn-outline-primary"
-                  onClick={() => {
-                    localStorage.setItem(
-                      DRAFT_KEY,
-                      JSON.stringify({ title, category, tags, contentHtml, repImageUrl, youtubeUrl, savedAt: Date.now() })
-                    );
-                    alert("임시저장 완료!");
-                  }}
-                >
-                  임시저장
-                </button>
-              )}
-              <button type="submit" className="btn btn-success" disabled={submitting || repUploading}>
-                {submitting ? (isEdit ? "수정 중…" : "등록 중…") : isEdit ? "수정하기" : "등록하기"}
-              </button>
-            </div>
-          </div>
-        </div>
-      </form>
 
-      <footer className="text-center text-secondary mt-4">
-        <div className="small">* 커뮤니티 내 일부 링크는 제휴/광고일 수 있으며, 구매 시 수수료를 받을 수 있습니다.</div>
-        <div className="small">© {new Date().getFullYear()} RecipFree</div>
+            {!wishLoading && wishErr && (
+              <div className="alert alert-danger m-3" role="alert">{wishErr}</div>
+            )}
+
+            {!wishLoading && !wishErr && wishlist.length === 0 && (
+              <div className="p-4 text-center text-secondary">
+                아직 저장한 레시피가 없어요.
+                <div className="mt-2">
+                  <Link className="btn btn-sm btn-success" to="/input">레시피 받으러 가기</Link>
+                </div>
+              </div>
+            )}
+
+            {!wishLoading && !wishErr && wishlist.length > 0 && (
+              <div className="list-group list-group-flush">
+                {wishlist.slice(0, 3).map((w) => {
+                  const key = w.id ?? w.recipeId;
+                  const to = `/result?id=${encodeURIComponent(w.recipeId)}`;
+                  return (
+                    <Link key={key} to={to} className="list-group-item list-group-item-action">
+                      <div className="d-flex align-items-center gap-3">
+                        <div className="flex-grow-1" style={{ minWidth: 0 }}>
+                          <div className="fw-semibold" style={oneLine}>
+                            {w.title ?? `레시피 #${w.recipeId}`}
+                          </div>
+                          {w.meta && (
+                            <div className="small text-secondary" style={oneLine}>{w.meta}</div>
+                          )}
+                          {w.summary && (
+                            <div className="small text-secondary" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                              {w.summary}
+                            </div>
+                          )}
+                        </div>
+                        <div className="d-flex gap-2 flex-shrink-0">
+                          <button
+                            className="btn btn-sm btn-outline-danger"
+                            style={{ minWidth: 72, height: 32, padding: '0 12px' }}
+                            onClick={(e) => onRemove(e, w.recipeId)}
+                            title="찜 해제"
+                          >
+                            제거
+                          </button>
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* 내가 쓴 글 */}
+          <div className="card shadow-sm mb-3">
+            <div className="card-header d-flex justify-content-between align-items-center">
+              <h5 className="m-0">내가 쓴 글</h5>
+              <div className="d-flex align-items-center gap-2">
+                <span className="text-secondary small">{myPosts.length}개</span>
+                <button
+                  className="btn btn-sm btn-primary"
+                  onClick={() => navigate('/write')}
+                >
+                 글 쓰기
+                </button>
+                <Link className="btn btn-sm btn-outline-secondary" to="/community?tab=all&mine=1">
+                  전체보기
+                </Link>
+              </div>
+            </div>
+
+            {myLoading && (
+              <div className="p-3">
+                <div className="placeholder-glow">
+                  <div className="placeholder col-12 mb-2" style={{ height: 18 }} />
+                  <div className="placeholder col-10 mb-2" style={{ height: 18 }} />
+                  <div className="placeholder col-8" style={{ height: 18 }} />
+                </div>
+              </div>
+            )}
+
+            {!myLoading && myErr && (
+              <div className="alert alert-danger m-3" role="alert">{myErr}</div>
+            )}
+
+            {!myLoading && !myErr && myPosts.length === 0 && (
+              <div className="p-4 text-center text-secondary">
+                아직 작성한 글이 없어요.
+                <div className="mt-2">
+                  <button className="btn btn-sm btn-primary" onClick={() => navigate('/community/new')}>
+                    글 쓰기
+                  </button>
+               </div>
+              </div>
+            )}
+
+            {!myLoading && !myErr && myPosts.length > 0 && (
+              <div className="list-group list-group-flush">
+                {myPosts.slice(0, 3).map((p) => (
+                  <Link
+                    key={p.id}
+                    to={`/community/${p.id}`}
+                    className="list-group-item list-group-item-action"
+                  >
+                    <div className="d-flex align-items-center gap-3">
+                      <SmartThumb
+                        src={p.__cover}
+                        seed={String(p.id)}
+                        width={80}
+                        height={56}
+                        className="flex-shrink-0"
+                      />
+                      <div className="flex-grow-1" style={{ minWidth: 0 }}>
+                        <div className="fw-semibold" style={oneLine}>{p.title || `게시글 #${p.id}`}</div>
+                        <div className="small text-secondary" style={oneLine}>
+                          {(p.category || '커뮤니티')}{p.createdAt ? ` · ${formatDate(p.createdAt)}` : ''}
+                        </div>
+                      </div>
+                      <div className="d-flex gap-2 flex-shrink-0">
+                        <button
+                          className="btn btn-sm btn-outline-danger"
+                          disabled={deletingId === String(p.id)}
+                          onClick={(e) => onDeletePost(e, p)}
+                        >
+                          {deletingId === String(p.id) ? '삭제중…' : '삭제'}
+                        </button>
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+         </div>
+
+          {/* 북마크한 글 */}
+          <div className="card shadow-sm mb-3">
+            <div className="card-header d-flex justify-content-between align-items-center">
+              <h5 className="m-0">북마크한 글</h5>
+              <div className="d-flex align-items-center gap-2">
+                <span className="text-secondary small">{bookmarks.length}개</span>
+                <Link className="btn btn-sm btn-outline-primary" to="/bookmarks">전체보기</Link>
+              </div>
+            </div>
+
+            {bmLoading && (
+              <div className="p-3">
+                <div className="placeholder-glow">
+                  <div className="placeholder col-12 mb-2" style={{ height: 18 }} />
+                  <div className="placeholder col-10 mb-2" style={{ height: 18 }} />
+                  <div className="placeholder col-8" style={{ height: 18 }} />
+                </div>
+              </div>
+            )}
+
+            {!bmLoading && bookmarks.length === 0 && (
+              <div className="p-4 text-center text-secondary">
+                아직 북마크한 글이 없어요.
+                <div className="mt-2">
+                  <Link className="btn btn-sm btn-success" to="/community">커뮤니티로 가기</Link>
+                </div>
+              </div>
+            )}
+
+            {!bmLoading && bookmarks.length > 0 && (
+              <div className="list-group list-group-flush">
+                {bookmarks.slice(0, 3).map((b) => {
+                  const to = `/community/${b.id}`;
+                  return (
+                    <Link key={b.id} to={to} className="list-group-item list-group-item-action">
+                      <div className="d-flex align-items-center gap-3">
+                        <div className="flex-grow-1" style={{ minWidth: 0 }}>
+                          <div className="fw-semibold" style={oneLine}>{b.title || `게시글 #${b.id}`}</div>
+                          <div className="small text-secondary" style={oneLine}>
+                            {(b.category || '커뮤니티')}
+                            {b.createdAt ? ` · ${formatDate(b.createdAt)}` : ''}
+                          </div>
+                        </div>
+                        <div className="d-flex gap-2 flex-shrink-0">
+                          <button
+                            className="btn btn-sm btn-outline-danger"
+                            style={{ minWidth: 72, height: 32, padding: '0 12px' }}
+                            onClick={(e) => onUnbookmark(e, b.id)}
+                            title="북마크 해제"
+                          >
+                            해제
+                          </button>
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* 최근 활동 */}
+          <div className="card shadow-sm mb-3">
+            <div className="card-header d-flex justify-content-between align-items-center">
+              <h5 className="m-0">최근 활동</h5>
+              <div className="d-flex align-items-center gap-2">
+                <span className="text-secondary small">총 {actTotal}건</span>
+                <button className="btn btn-link btn-sm" onClick={() => navigate('/activity')}>전체보기</button>
+              </div>
+            </div>
+
+            {actLoading ? (
+              <div className="p-3">
+                <div className="placeholder-glow">
+                  <div className="placeholder col-12 mb-2" style={{ height: 18 }} />
+                  <div className="placeholder col-10 mb-2" style={{ height: 18 }} />
+                  <div className="placeholder col-8" style={{ height: 18 }} />
+                </div>
+              </div>
+            ) : activities.length === 0 ? (
+              <div className="p-4 text-center text-secondary">아직 활동 내역이 없어요.</div>
+            ) : (
+              <ul className="list-group list-group-flush">
+                {activities.map((a) => {
+                  const href = formatActivityHref(a);
+                  const text = formatActivityText(a);
+                  return (
+                    <li key={a.id} className="list-group-item d-flex justify-content-between">
+                      <span>{href ? <Link to={href} className="text-decoration-none">{text}</Link> : text}</span>
+                      <small className="text-secondary">{new Date(a.ts).toLocaleString()}</small>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </section>
+      </div>
+
+      <footer className="text-center text-secondary small mt-4">
+        * 일부 링크는 제휴/광고일 수 있으며, 구매 시 수수료를 받을 수 있습니다.
+        <br />
+        © {new Date().getFullYear()} <span className="fw-semibold">RECIP</span><span className="text-primary fw-semibold">FREE</span>
       </footer>
 
+      <StickyBottomAd label="Bottom Sticky 320×50 / 728×90" />
       <BottomNav />
+      <div className="bottom-nav-spacer" aria-hidden="true" />
+
+      {DEBUG && (
+        <pre className="mt-3 p-2 border rounded bg-light small" style={{whiteSpace:'pre-wrap'}}>
+          <b>DEBUG</b>
+          {"\n"}me.authenticated: {String(!!me?.authenticated)}
+          {"\n"}bookmarks: {bookmarks.length}
+          {"\n"}first: {bookmarks[0] ? JSON.stringify(bookmarks[0], null, 2) : '-'}
+          {"\n"}(buttons) <button className="btn btn-sm btn-outline-primary" onClick={fetchBookmarks}>북마크 재로딩</button>
+        </pre>
+      )}
     </div>
   );
 }
