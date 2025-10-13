@@ -42,7 +42,7 @@ export default function TuiHtmlEditor({
     if (fmt === "html") ed.setHTML(initialValue || "");
     else ed.setMarkdown(initialValue || "");
 
-    // 변경 시: img 스타일 width → width 속성 동기화 후 콜백
+    // 변경 시: img style.width(px) → width 속성 동기화 후 콜백
     const emitHtml = () => {
       let html = ed.getHTML();
       try {
@@ -80,13 +80,13 @@ export default function TuiHtmlEditor({
 }
 
 /**
- * 이미지 드래그 리사이즈 - 핸들을 document.body에 고정으로 띄워 clipping 문제 제거
- * - 이미지 클릭 시 핸들 표시
- * - 드래그로 img.style.width(px) 변경
- * - 변경 후 외부 onChanged 호출
+ * 이미지 리사이즈
+ * - 이미지 "모서리 직접 드래그" 가능 (핸들 안 보여도 동작)
+ * - 핸들(document.body 고정)도 함께 제공
+ * - 작아지면 자동 랩(rf-wrap-left) 부여, 커지면 해제
  */
 function enableImageResize(editor, onChanged) {
-  // 에디터 내부 ProseMirror 루트 찾기 (여러 버전 대응)
+  // 에디터 내부 ProseMirror 루트 (버전별 대응)
   const els = editor.getEditorElements?.();
   const editorEl =
     els?.wwEditor ||
@@ -100,12 +100,13 @@ function enableImageResize(editor, onChanged) {
     editorEl?.querySelector?.(".toastui-editor-contents") ||
     editorEl;
 
-  // 상태
+  // ---- 상태
   let targetImg = null;
   let startX = 0;
   let startW = 0;
+  const EDGE_GRAB = 16; // 모서리 인식 범위(px)
 
-  // 핸들(document.body 고정)
+  // ---- 핸들(document.body 고정)
   const handle = document.createElement("div");
   handle.className = "rf-img-handle";
   Object.assign(handle.style, {
@@ -123,13 +124,12 @@ function enableImageResize(editor, onChanged) {
   handle.title = "드래그해서 크기 조절";
   document.body.appendChild(handle);
 
-  // 컨테이너 폭
+  // ---- 유틸
   const getContentWidth = () => {
     const r = prose.getBoundingClientRect?.();
     return r?.width || prose.clientWidth || 800;
   };
 
-  // 현재 이미지 폭(px) 파싱
   const getImgPxWidth = (img) => {
     const sw = (img.style?.width || "").trim();
     const m = sw.match(/^(\d+(?:\.\d+)?)px$/i);
@@ -138,8 +138,13 @@ function enableImageResize(editor, onChanged) {
     return img.clientWidth || 200;
   };
 
-  // 폭 기준으로 자동 랩 클래스 적용/해제
-  const WRAP_RATIO = 0.66; // 66% 이하이면 랩 적용
+  const isNearBottomRight = (img, clientX, clientY) => {
+    const r = img.getBoundingClientRect();
+    return (r.right - clientX <= EDGE_GRAB) && (r.bottom - clientY <= EDGE_GRAB);
+  };
+
+  // 폭 기준으로 자동 랩 적용/해제
+  const WRAP_RATIO = 0.66; // 66% 이하 → 랩
   const autoWrapByWidth = (img) => {
     const cw = getContentWidth();
     const w  = getImgPxWidth(img);
@@ -165,8 +170,7 @@ function enableImageResize(editor, onChanged) {
       targetImg.style.outline = "2px solid #2b8a3e";
       targetImg.style.outlineOffset = "2px";
       positionHandle();
-      // 클릭 시점에도 한 번 자동 랩 평가
-      autoWrapByWidth(targetImg);
+      autoWrapByWidth(targetImg); // 선택 시에도 한 번 평가
     } else {
       hideHandle();
     }
@@ -190,34 +194,37 @@ function enableImageResize(editor, onChanged) {
     targetImg = null;
   };
 
-  // 클릭으로 이미지 선택
+  // ---- 이벤트: 클릭으로 선택
   const onClick = (e) => {
     const img = e.target?.closest?.("img");
     if (img && prose.contains(img)) selectImg(img);
     else hideHandle();
   };
 
-  // 드래그 시작
-  const onHandleDown = (e) => {
-    if (!targetImg) return;
+  // ---- 이벤트: 이미지 모서리 "직접" 드래그
+  const onMouseDown = (e) => {
+    const img = e.target?.closest?.("img");
+    if (!img || !prose.contains(img)) return;
+
+    // 모서리 근처에서만 리사이즈 시작
+    if (!isNearBottomRight(img, e.clientX, e.clientY)) return;
+
     e.preventDefault();
+    selectImg(img); // 선택 표시 + 핸들 위치
     startX = e.clientX;
-    startW = getImgPxWidth(targetImg);
+    startW = getImgPxWidth(img);
+
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
   };
 
-  // 드래그 중
   const onMove = (e) => {
     if (!targetImg) return;
     const dx = e.clientX - startX;
     const next = Math.max(80, Math.round(startW + dx));
     targetImg.style.width = `${next}px`;
 
-    // 자동 랩 적용/해제
     autoWrapByWidth(targetImg);
-
-    // 변경 통지
     try { editor.eventEmitter?.emit("change"); } catch {}
     try { onChanged?.(); } catch {}
     positionHandle();
@@ -228,15 +235,28 @@ function enableImageResize(editor, onChanged) {
     document.removeEventListener("mouseup", onUp);
   };
 
+  // ---- 핸들 드래그 (핸들 보일 때도 사용 가능)
+  const onHandleDown = (e) => {
+    if (!targetImg) return;
+    e.preventDefault();
+    startX = e.clientX;
+    startW = getImgPxWidth(targetImg);
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
+
+  // ---- 위치 보정
   const onAnyScroll = () => positionHandle();
   const onWinResize = () => positionHandle();
 
+  // 리스너
   prose.addEventListener("click", onClick, true);
+  prose.addEventListener("mousedown", onMouseDown, true); // ← 모서리 직접 드래그
   document.addEventListener("scroll", onAnyScroll, true);
   window.addEventListener("resize", onWinResize, { passive: true });
   handle.addEventListener("mousedown", onHandleDown);
 
-  // 초기 DOM 스캔: 이미 들어있는 이미지들도 한 번 자동 랩
+  // 초기 DOM 스캔
   const scanAndWrap = () => {
     prose.querySelectorAll("img").forEach((img) => autoWrapByWidth(img));
   };
@@ -246,7 +266,6 @@ function enableImageResize(editor, onChanged) {
   const mo = new MutationObserver(() => {
     if (!targetImg || !prose.contains(targetImg)) hideHandle();
     else positionHandle();
-    // 새 이미지/폭 변경도 반영
     scanAndWrap();
   });
   mo.observe(prose, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "width", "class"] });
@@ -255,6 +274,7 @@ function enableImageResize(editor, onChanged) {
   return () => {
     try { mo.disconnect(); } catch {}
     prose.removeEventListener("click", onClick, true);
+    prose.removeEventListener("mousedown", onMouseDown, true);
     document.removeEventListener("scroll", onAnyScroll, true);
     window.removeEventListener("resize", onWinResize);
     handle.removeEventListener("mousedown", onHandleDown);
