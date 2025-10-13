@@ -1047,3 +1047,19 @@ body{
   aspect-ratio: auto !important; /* 정사각 강제 해제 */
   display: block !important;
 }
+
+/* 상세 보기 영역 안전장치 */
+.post-content img { max-width: 100%; height: auto; }
+
+/* 에디터용 리사이즈 핸들 */
+.rf-img-handle{
+  position: absolute;
+  width: 14px; height: 14px;
+  border: 2px solid #2b8a3e;
+  background: #fff;
+  border-radius: 4px;
+  cursor: nwse-resize;
+  box-shadow: 0 1px 4px rgba(0,0,0,.2);
+  z-index: 5;
+  display: none;
+}

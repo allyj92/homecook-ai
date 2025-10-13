@@ -3,94 +3,143 @@ import { useEffect, useRef } from "react";
 import Editor from "@toast-ui/editor";
 import "@toast-ui/editor/dist/toastui-editor.css";
 
-/**
- * Toast UI Editor (하이브리드)
- * - initialValue: 서버/초기 원문 (MD 또는 HTML)
- * - initialFormat: "md" | "html" | "auto"
- * - onChange: (html) => void  // 항상 HTML로 콜백
- * - upload: (file: Blob) => Promise<string>
- * - height, placeholder
- *
- * ⚠️ 초기값은 mount 때만 주입. 값 교체는 key 변경으로 새로 마운트하세요.
- */
+const isLikelyHtml = (s = "") => /<\/?[a-z][\s\S]*>/i.test(s);
+
 export default function TuiHtmlEditor({
   initialValue = "",
-  initialFormat = "auto",
+  initialFormat = "auto", // "md" | "html" | "auto"
   onChange,
+  height = "480px",
+  placeholder,
   upload,
-  height = "520px",
-  placeholder = "여기에 내용을 입력하세요…",
 }) {
-  const elRef = useRef(null);
-  const instRef = useRef(null);
-
-  const isLikelyHtml = (s = "") => /<\/?[a-z][\s\S]*>/i.test(s);
+  const rootRef = useRef(null);
+  const edRef = useRef(null);
 
   useEffect(() => {
-    if (!elRef.current) return;
-
-    const editor = new Editor({
-      el: elRef.current,
+    const ed = new Editor({
+      el: rootRef.current,
       height,
-      initialEditType: "wysiwyg",     // 시각 모드
+      initialEditType: "wysiwyg", // HTML 편집 기본
       previewStyle: "vertical",
-      initialValue: "",               // 바로 아래에서 set으로 주입
-      usageStatistics: false,
       placeholder,
+      usageStatistics: false,
       hooks: {
-        addImageBlobHook: async (blob, callback) => {
+        addImageBlobHook: async (blob, cb) => {
           try {
-            if (!upload) throw new Error("업로드 함수가 없습니다.");
-            const url = await upload(blob);
-            if (!url) throw new Error("업로드 응답에 URL이 없습니다.");
-            callback(url, "image"); // WYSIWYG에 <img>가 들어가게
+            const url = await upload?.(blob);
+            cb(url, "image");
           } catch (e) {
-            console.error(e);
-            alert(e?.message || "이미지 업로드에 실패했어요.");
+            alert(e?.message || "이미지 업로드 실패");
           }
-          return false;
         },
       },
     });
+    edRef.current = ed;
 
-    // 초기 원문 주입 (MD면 setMarkdown, HTML이면 setHTML)
-    try {
-      const useFmt =
-        initialFormat === "auto"
-          ? (isLikelyHtml(initialValue) ? "html" : "md")
-          : initialFormat;
+    // 초기 컨텐츠 주입 (md/html 구분)
+    const fmt = initialFormat === "auto" ? (isLikelyHtml(initialValue) ? "html" : "md") : initialFormat;
+    if (fmt === "html") ed.setHTML(initialValue || "");
+    else ed.setMarkdown(initialValue || "");
 
-      if (useFmt === "md") editor.setMarkdown(initialValue || "");
-      else editor.setHTML?.(initialValue || "");
-    } catch (e) {
-      // 어느 쪽이든 실패하면 안전하게 markdown로
-      try { editor.setMarkdown(initialValue || ""); } catch {}
-    }
+    // 변경 시 HTML로만 콜백
+    ed.on("change", () => {
+      onChange?.(ed.getHTML());
+    });
 
-    // 변경 시 항상 HTML로 부모에 전달
-    const push = () => {
-      try { onChange?.(editor.getHTML()); }
-      catch { try { onChange?.(editor.getMarkdown()); } catch {} }
-    };
-    editor.on("change", push);
+    // 이미지 드래그 리사이즈 활성화
+    enableImageResize(ed);
 
-    // ✅ mount 직후 한 번 현재값을 부모로 전달(검증/임시저장에 필요)
-    push();
-
-    instRef.current = editor;
-    return () => {
-      try { editor.destroy(); } catch {}
-      instRef.current = null;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => ed?.destroy();
   }, []);
 
-  // 높이 변경 반영
+  // key 변경 없이 외부에서 초기값 바꾸는 케이스 대비
   useEffect(() => {
-    const ed = instRef.current;
+    const ed = edRef.current;
     if (!ed) return;
-    try { ed.setHeight(height); } catch {}
-  }, [height]);
+    const fmt = initialFormat === "auto" ? (isLikelyHtml(initialValue) ? "html" : "md") : initialFormat;
+    if (fmt === "html") ed.setHTML(initialValue || "");
+    else ed.setMarkdown(initialValue || "");
+  }, [initialValue, initialFormat]);
 
-  return <div ref={elRef} />;
+  return <div ref={rootRef} />;
+}
+
+/** 아주 단순한 이미지 리사이즈 핸들 */
+function enableImageResize(editor) {
+  const root = editor.getEditorElements?.().wysiwyg || editor.getRootElement?.() || document;
+  let targetImg = null;
+  let startX = 0;
+  let startW = 0;
+  let handle = null;
+
+  const ensureHandle = () => {
+    if (handle) return handle;
+    handle = document.createElement("div");
+    handle.className = "rf-img-handle";
+    handle.title = "드래그해서 크기 조절";
+    root.appendChild(handle);
+    handle.addEventListener("mousedown", onDown);
+    return handle;
+  };
+
+  const onDown = (e) => {
+    if (!targetImg) return;
+    e.preventDefault();
+    startX = e.clientX;
+    startW = parseInt(targetImg.getAttribute("width") || targetImg.clientWidth || 200, 10);
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
+
+  const onMove = (e) => {
+    if (!targetImg) return;
+    const dx = e.clientX - startX;
+    const next = Math.max(80, startW + dx);
+    targetImg.setAttribute("width", String(Math.round(next)));
+    // 에디터에 변경 통지
+    try {
+      editor.eventEmitter?.emit("change");
+    } catch {
+      // fallback: 강제로 HTML 재설정하여 변경 이벤트 유발
+      const html = editor.getHTML();
+      editor.setHTML(html);
+    }
+    positionHandle();
+  };
+
+  const onUp = () => {
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onUp);
+  };
+
+  const positionHandle = () => {
+    if (!handle || !targetImg) return;
+    const r = targetImg.getBoundingClientRect();
+    const rr = root.getBoundingClientRect?.() || { left: 0, top: 0 };
+    handle.style.display = "block";
+    handle.style.left = `${r.right - rr.left - 8}px`;
+    handle.style.top = `${r.bottom - rr.top - 8}px`;
+  };
+
+  const hideHandle = () => {
+    if (handle) handle.style.display = "none";
+    targetImg = null;
+  };
+
+  // 이미지 클릭 시 핸들 표시
+  root.addEventListener("click", (e) => {
+    const img = e.target.closest?.("img");
+    if (img) {
+      targetImg = img;
+      ensureHandle();
+      positionHandle();
+    } else {
+      hideHandle();
+    }
+  });
+
+  // 스크롤/리사이즈 시 위치 보정
+  root.addEventListener("scroll", positionHandle, true);
+  window.addEventListener("resize", positionHandle);
 }

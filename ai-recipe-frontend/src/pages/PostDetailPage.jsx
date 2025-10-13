@@ -7,9 +7,6 @@ import { ensureLogin, fetchMe } from "../lib/auth";
 import { getCommunityPost } from "../api/community";
 import { logActivity, ensureActivityNs } from "../lib/activity";
 
-
-
-
 /* ✅ 마크다운 렌더링 */
 import MarkdownIt from "markdown-it";
 import DOMPurify from "dompurify";
@@ -23,25 +20,22 @@ const toProxied = (u) => (u ? PROXY + encodeURIComponent(u) : null);
 function toSafeSrc(u) {
   try {
     const url = new URL(u, window.location.origin);
-    // 같은 오리진(상대경로 포함)은 그대로 사용
-    if (url.origin === window.location.origin) return url.toString();
-    // 외부(https/http)는 Netlify 이미지 프록시로 래핑
-    return toProxied(url.toString());
+    if (url.origin === window.location.origin) return url.toString(); // 같은 오리진(상대경로 포함)
+    return toProxied(url.toString()); // 외부(https/http)는 프록시
   } catch {
     return typeof u === "string" ? u : "";
   }
 }
 
-// 추가: 서버 북마크 토글
+// 서버 북마크 토글
 async function apiToggleBookmark(postId, on) {
-   const url = `/api/community/bookmarks/${encodeURIComponent(postId)}`;
-   const res = await fetch(url, {
-     method: on ? 'PUT' : 'DELETE',
-     credentials: 'include',
-   });
-   if (!res.ok) throw new Error('BOOKMARK_TOGGLE_FAILED');
- }
-
+  const url = `/api/community/bookmarks/${encodeURIComponent(postId)}`;
+  const res = await fetch(url, {
+    method: on ? "PUT" : "DELETE",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("BOOKMARK_TOGGLE_FAILED");
+}
 
 /* ── MarkdownIt 설정 ───────────────────────────────────── */
 const md = new MarkdownIt({
@@ -50,7 +44,7 @@ const md = new MarkdownIt({
   breaks: true,
 });
 
-// ✅ 이미지 토큰 렌더: src를 안전 경로로 치환하고 필요한 속성 부여
+// ✅ 이미지 토큰 렌더: src 안전 경로로 치환 + 속성 부여
 const defaultImage =
   md.renderer.rules.image ||
   function (tokens, idx, options, env, self) {
@@ -63,10 +57,10 @@ md.renderer.rules.image = function (tokens, idx, options, env, self) {
     const orig = token.attrs[srcIdx][1];
     token.attrs[srcIdx][1] = toSafeSrc(orig);
   }
-  // 접근성/성능/프라이버시 속성 보강
   const addAttr = (k, v) => {
     const i = token.attrIndex(k);
-    if (i < 0) token.attrPush([k, v]); else token.attrs[i][1] = v;
+    if (i < 0) token.attrPush([k, v]);
+    else token.attrs[i][1] = v;
   };
   addAttr("loading", "lazy");
   addAttr("decoding", "async");
@@ -75,7 +69,7 @@ md.renderer.rules.image = function (tokens, idx, options, env, self) {
   return defaultImage(tokens, idx, options, env, self);
 };
 
-// 링크를 새 탭으로 열고 안전 속성 부여
+// 링크 새 탭 + 안전 속성
 const defaultLinkOpen =
   md.renderer.rules.link_open ||
   function (tokens, idx, options, env, self) {
@@ -94,8 +88,8 @@ md.renderer.rules.link_open = function (tokens, idx, options, env, self) {
 
 const ALLOWED_TAGS = [
   "p","br","blockquote","pre","code","span","strong","em","ul","ol","li",
- "a","h1","h2","h3","h4","h5","h6","hr","table","thead","tbody","tr","th","td",
-  "img" // ✅ 이미지 허용
+  "a","h1","h2","h3","h4","h5","h6","hr","table","thead","tbody","tr","th","td",
+  "img"
 ];
 const ALLOWED_ATTR = [
   // 링크
@@ -107,6 +101,8 @@ const ALLOWED_ATTR = [
 /* ---- 유틸 ---- */
 const handleFromEmail = (email) => (email ? "@" + String(email).split("@")[0] : null);
 const nameFromEmail = (email) => (email ? String(email).split("@")[0] : null);
+
+const isLikelyHtml = (s = "") => /<\/?[a-z][\s\S]*>/i.test(s);
 
 /** 텍스트 프리뷰(댓글 내용 짧게) */
 function commentPreview(input, maxLen = 80) {
@@ -149,6 +145,7 @@ function normalizePost(raw) {
     title: d.title ?? d.subject ?? "",
     category: d.category ?? d.type ?? "",
     content: d.content ?? d.body ?? "",
+    contentFormat: d.contentFormat ?? d.content_format ?? null, // ★ 포맷 보존
     tags: Array.isArray(d.tags) ? d.tags : (Array.isArray(d.tagList) ? d.tagList : []),
 
     authorId: d.authorId ?? d.userId ?? d.author_id ?? d.user_id ?? null,
@@ -161,6 +158,9 @@ function normalizePost(raw) {
     updatedAt: d.updatedAt ?? d.updated_at ?? null,
     repImageUrl: d.repImageUrl ?? d.rep_image_url ?? null,
     youtubeId: d.youtubeId ?? d.youtube_id ?? null,
+
+    likeCount: d.likeCount ?? d.likes ?? 0,
+    bookmarkCount: d.bookmarkCount ?? d.bookmarks ?? d.bmCount ?? 0,
   };
 }
 
@@ -232,8 +232,38 @@ function migrateLegacyForThisPost(uid, provider, postId) {
   } catch {}
 }
 
+/** HTML 컨텐츠 내 <img>/<a> 정리(프록시/속성 부여) */
+function transformHtml(rawHtml = "") {
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(rawHtml, "text/html");
+
+    doc.querySelectorAll("img").forEach((img) => {
+      const orig = img.getAttribute("src") || "";
+      img.setAttribute("src", toSafeSrc(orig));
+      img.setAttribute("loading", "lazy");
+      img.setAttribute("decoding", "async");
+      img.setAttribute("fetchpriority", "low");
+      img.setAttribute("referrerpolicy", "no-referrer");
+      // width 속성이 전혀 없을 때만 기본 폭 제한(안전)
+      if (!img.getAttribute("width")) {
+        // 컨테이너 대응은 CSS에서 max-width:100%로 처리
+      }
+    });
+
+    doc.querySelectorAll("a[href]").forEach((a) => {
+      a.setAttribute("target", "_blank");
+      a.setAttribute("rel", "noopener noreferrer nofollow");
+    });
+
+    return doc.body.innerHTML;
+  } catch {
+    return rawHtml;
+  }
+}
+
 export default function PostDetailPage() {
-  console.log("PostDetail LOADED v-2025-10-01-md+comments");
+  console.log("PostDetail LOADED v-2025-10-13 html+md+comments");
 
   const { id } = useParams();
   const navigate = useNavigate();
@@ -252,10 +282,10 @@ export default function PostDetailPage() {
     try { ensureActivityNs(); } catch {}
   }, []);
 
-   // ✅ 활동 로그용 네임스페이스 동기화 (authUser 세팅)
- useEffect(() => {
-   ensureActivityNs();
- }, []);
+  // 활동 로그용 네임스페이스 동기화
+  useEffect(() => {
+    ensureActivityNs();
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -332,7 +362,7 @@ export default function PostDetailPage() {
     }
   }, [auth.user, loc, syncAuth]);
 
-  // ✅ 서버에 좋아요 반영
+  // 서버 좋아요 반영
   async function apiToggleLike(postId, on) {
     const url = `/api/community/posts/${encodeURIComponent(postId)}/like`;
     let res = await fetch(url, { method: on ? "POST" : "DELETE", credentials: "include" });
@@ -347,77 +377,70 @@ export default function PostDetailPage() {
     requireAuth(async () => {
       if (!uid || !provider || !post?.id) return;
 
-      // nextOn은 setState 전에 계산 (상태 참조 꼬임 방지)
       const nextOn = !liked;
-
-      // 낙관적 업데이트
-      setLiked(nextOn);
+      setLiked(nextOn); // 낙관적 업데이트
       try {
         try { localStorage.setItem(likeKey(uid, provider, post.id), nextOn ? "1" : "0"); } catch {}
         await apiToggleLike(post.id, nextOn);
         logActivity("post_like", { postId: post.id, postTitle: post.title, on: nextOn });
         try { window.dispatchEvent(new Event("activity:changed")); } catch {}
         try {
-       window.dispatchEvent(new Event('bookmark-changed'));   // 북마크 목록 재로딩
-      window.dispatchEvent(new Event('activity:changed'));   // 최근 활동 재로딩 ← 요게 핵심!
-     } catch {}
+          window.dispatchEvent(new Event("bookmark-changed"));
+          window.dispatchEvent(new Event("activity:changed"));
+        } catch {}
       } catch (e) {
-        // 롤백
-        setLiked(!nextOn);
+        setLiked(!nextOn); // 롤백
         try { localStorage.setItem(likeKey(uid, provider, post.id), !nextOn ? "1" : "0"); } catch {}
         alert("좋아요 처리에 실패했어요. 잠시 후 다시 시도해주세요.");
       }
     });
 
-const onToggleBookmark = () =>
-  requireAuth(async () => {
-    if (!post?.id) return;
+  const onToggleBookmark = () =>
+    requireAuth(async () => {
+      if (!post?.id) return;
 
-    const next = !bookmarked;     // ✅ 토글값 먼저 계산
-    setBookmarked(next);          // ✅ UI 낙관적 반영
+      const next = !bookmarked;
+      setBookmarked(next); // 낙관적 반영
 
-    try {
-      await apiToggleBookmark(post.id, next);   // ✅ 서버 반영
+      try {
+        await apiToggleBookmark(post.id, next);
 
-       // ✅ 활동 로그 (추가/삭제)
-     try {
-       logActivity(next ? "bookmark_add" : "bookmark_remove", {
-         postId: post.id,
-         postTitle: post.title,
-       });
-     } catch {}
+        try {
+          logActivity(next ? "bookmark_add" : "bookmark_remove", {
+            postId: post.id,
+            postTitle: post.title,
+          });
+        } catch {}
 
-     // ✅ 로컬 키도 계정별로 저장(초기 진입 표시 일관성)
-     try {
-       if (uid && provider) {
-         localStorage.setItem(bmKey(uid, provider, post.id), next ? "1" : "0");
-         localStorage.setItem(
-           bmDataKey(uid, provider, post.id),
-           JSON.stringify({ postId: post.id, postTitle: post.title })
-         );
-       }
-     } catch {}
+        try {
+          if (uid && provider) {
+            localStorage.setItem(bmKey(uid, provider, post.id), next ? "1" : "0");
+            localStorage.setItem(
+              bmDataKey(uid, provider, post.id),
+              JSON.stringify({ postId: post.id, postTitle: post.title })
+            );
+          }
+        } catch {}
 
-      // ✅ 서버가 카운트를 안 주면 로컬에서 안전하게 증감
-      setPost((prev) => {
-        if (!prev) return prev;
-        const cur = Number(prev.bookmarkCount ?? 0);
-        const delta = next ? 1 : -1;
-        return { ...prev, bookmarkCount: Math.max(0, cur + delta) };
-      });
+        setPost((prev) => {
+          if (!prev) return prev;
+          const cur = Number(prev.bookmarkCount ?? 0);
+          const delta = next ? 1 : -1;
+          return { ...prev, bookmarkCount: Math.max(0, cur + delta) };
+        });
 
-      // (옵션) 다른 탭/화면 갱신 신호
-      try { window.dispatchEvent(new Event('bookmark-changed')); } catch {}
-    } catch {
-      setBookmarked(!next);       // ✅ 실패 시 롤백
-       try {
-       if (uid && provider) {
-         localStorage.setItem(bmKey(uid, provider, post.id), !next ? "1" : "0");
-       }
-     } catch {}
-      alert('북마크 처리에 실패했어요.');
-    }
-  });
+        try { window.dispatchEvent(new Event("bookmark-changed")); } catch {}
+      } catch {
+        setBookmarked(!next); // 롤백
+        try {
+          if (uid && provider) {
+            localStorage.setItem(bmKey(uid, provider, post.id), !next ? "1" : "0");
+          }
+        } catch {}
+        alert("북마크 처리에 실패했어요.");
+      }
+    });
+
   // 편집 권한
   const canEdit =
     !!auth.user?.authenticated &&
@@ -426,16 +449,29 @@ const onToggleBookmark = () =>
       (!!post?.authorEmail && post.authorEmail === auth.user.email)
     );
 
-  /* ✅ 마크다운 → 안전한 HTML */
+  /* ✅ 포맷 분기: html 은 그대로, md 는 마크다운 렌더 */
   const renderedHtml = useMemo(() => {
-    const raw = md.render(post?.content || "");
-    const lazyRaw = raw.replaceAll("<img ", '<img loading="lazy" ');
-    return DOMPurify.sanitize(lazyRaw, {
-      ALLOWED_TAGS,
-      ALLOWED_ATTR,
-      USE_PROFILES: { html: true },
-    });
-  }, [post?.content]);
+    const body = post?.content || "";
+    const fmt = (post?.contentFormat || "").toLowerCase();
+    const asHtml = fmt === "html" || (!fmt && isLikelyHtml(body));
+
+    if (asHtml) {
+      const transformed = transformHtml(body);
+      return DOMPurify.sanitize(transformed, {
+        ALLOWED_TAGS,
+        ALLOWED_ATTR,
+        USE_PROFILES: { html: true },
+      });
+    } else {
+      const raw = md.render(body);
+      const lazyRaw = raw.replaceAll("<img ", '<img loading="lazy" ');
+      return DOMPurify.sanitize(lazyRaw, {
+        ALLOWED_TAGS,
+        ALLOWED_ATTR,
+        USE_PROFILES: { html: true },
+      });
+    }
+  }, [post?.content, post?.contentFormat]);
 
   // 댓글 목록 리프레시 트리거
   const [commentsVersion, setCommentsVersion] = useState(0);
@@ -484,7 +520,7 @@ const onToggleBookmark = () =>
             <button
               className="btn btn-sm btn-outline-primary"
               onClick={() =>
-                 navigate(`/write/${post.id}`, { state: { editId: post.id } })
+                navigate(`/write/${post.id}`, { state: { editId: post.id } })
               }
             >
               수정
@@ -508,7 +544,7 @@ const onToggleBookmark = () =>
 
           <h1 className="h4 mb-1">{post.title || "제목 없음"}</h1>
 
-          {/* ✅ 작성자 메타 */}
+          {/* 작성자 메타 */}
           <Meta
             authorId={post.authorId}
             authorName={post.authorName}
@@ -556,7 +592,7 @@ const onToggleBookmark = () =>
 
           <hr />
 
-          {/* ✅ 마크다운을 이미지 포함 HTML로 렌더링 */}
+          {/* ✅ 포맷 분기된 안전 HTML 렌더링 */}
           {post.content ? (
             <div
               className="mt-2 post-content"
@@ -566,7 +602,7 @@ const onToggleBookmark = () =>
             <span className="text-secondary">내용이 비어 있습니다.</span>
           )}
 
-          {/* ✅ 댓글 섹션 */}
+          {/* 댓글 섹션 */}
           <section className="mt-4" id="comments">
             <h2 className="h6 mb-3">댓글</h2>
 
@@ -583,7 +619,7 @@ const onToggleBookmark = () =>
                     });
                   } catch {}
                   setCommentsVersion((v) => v + 1);
-                  try { window.dispatchEvent(new Event('activity:changed')); } catch {}
+                  try { window.dispatchEvent(new Event("activity:changed")); } catch {}
                 }}
               />
             ) : (
@@ -601,18 +637,18 @@ const onToggleBookmark = () =>
               </div>
             )}
 
-             <CommentList
+            <CommentList
               key={commentsVersion}
               postId={post.id}
               me={auth.user}
               pageSize={20}
-              onDeleted={() => setCommentsVersion(v => v + 1)}
+              onDeleted={() => setCommentsVersion((v) => v + 1)}
             />
           </section>
         </div>
       </article>
 
-      <div className="text-center text-secondary small mt-2">PostDetail v-2025-10-01</div>
+      <div className="text-center text-secondary small mt-2">PostDetail v-2025-10-13</div>
 
       <footer className="text-center text-secondary mt-4">
         <div className="small">* 커뮤니티 내 일부 링크는 제휴/광고일 수 있으며, 구매 시 수수료를 받을 수 있습니다.</div>
