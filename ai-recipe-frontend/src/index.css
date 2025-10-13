@@ -1048,7 +1048,7 @@ body{
   display: block !important;
 }
 
-/* 상세 보기 영역 안전장치 */
+/* 상세 보기 영역 */
 .post-content img { max-width: 100%; height: auto; }
 
 /* 에디터용 리사이즈 핸들 */

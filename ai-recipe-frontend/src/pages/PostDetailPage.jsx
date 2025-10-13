@@ -95,7 +95,8 @@ const ALLOWED_ATTR = [
   // 링크
   "href","target","rel","title",
   // 이미지
-  "src","alt","width","height","loading","decoding","fetchpriority","referrerpolicy"
+  "src","alt","width","height","loading","decoding","fetchpriority","referrerpolicy",
+  "style" // ← 이미지 인라인 width(px) 허용
 ];
 
 /* ---- 유틸 ---- */
