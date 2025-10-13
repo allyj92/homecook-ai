@@ -1075,30 +1075,30 @@ body{
   margin: 0 12px 10px 0;
 }
 
-/* (옵션) 오른쪽 랩도 쓸 수 있게 지원 */
-.post-content img.rf-wrap-right,
-.toastui-editor-contents img.rf-wrap-right {
-  float: right;
-  margin: 0 0 10px 12px;
+/* 보기/편집 공통: 기본 이미지 */
+.post-content img,
+.toastui-editor-contents img {
+  max-width: 100%;
+  height: auto;
 }
 
-/* 랩된 이미지가 부모 영역을 벗어나지 않게 clearfix */
-.post-content::after,
-.toastui-editor-contents::after {
-  content: "";
-  display: table;
-  clear: both;
+/* 병렬 배치용: inline-block + 여백 */
+.post-content img.rf-inline,
+.toastui-editor-contents img.rf-inline {
+  display: inline-block;
+  vertical-align: top;
+  margin-right: 12px;
+  margin-bottom: 12px;
 }
 
-/* 선택 시 시각적 표시 (편집기 전용) */
+/* 선택 표시(편집기 전용) */
 .rf-img-selected {
   outline: 2px solid #2b8a3e !important;
   outline-offset: 2px;
 }
 
-/* 리사이즈 핸들(이미 document.body 고정 생성됨) */
+/* 드래그 핸들 (옵션) */
 .rf-img-handle{
-  /* inline style로 대부분 지정되지만, 폴백용 정의 유지 */
   position: fixed;
   width: 14px; height: 14px;
   border: 2px solid #2b8a3e;
