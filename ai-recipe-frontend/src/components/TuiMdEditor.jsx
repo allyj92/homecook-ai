@@ -4,17 +4,18 @@ import Editor from "@toast-ui/editor";
 import "@toast-ui/editor/dist/toastui-editor.css";
 
 /**
- * HTML 기반 Toast UI Editor 래퍼
+ * Toast UI Editor (하이브리드)
+ * - initialValue: 서버/초기 원문 (MD 또는 HTML)
+ * - initialFormat: "md" | "html" | "auto"
+ * - onChange: (html) => void  // 항상 HTML로 콜백
+ * - upload: (file: Blob) => Promise<string>
+ * - height, placeholder
  *
- * props:
- * - valueHtml: string (초기/외부 값 - HTML)
- * - onChange: (html: string) => void  // 변경 시 HTML 반환
- * - upload: (file: Blob) => Promise<string>  // 이미지 업로드 후 URL 반환
- * - height?: string (기본 520px)
- * - placeholder?: string
+ * ⚠️ 초기값은 mount 때만 주입. 값 교체는 key 변경으로 새로 마운트하세요.
  */
 export default function TuiHtmlEditor({
-  valueHtml = "",
+  initialValue = "",
+  initialFormat = "auto",
   onChange,
   upload,
   height = "520px",
@@ -23,52 +24,58 @@ export default function TuiHtmlEditor({
   const elRef = useRef(null);
   const instRef = useRef(null);
 
-  // 1) 에디터 생성
+  const isLikelyHtml = (s = "") => /<\/?[a-z][\s\S]*>/i.test(s);
+
   useEffect(() => {
     if (!elRef.current) return;
 
     const editor = new Editor({
       el: elRef.current,
       height,
-      initialEditType: "wysiwyg", // WYSIWYG 모드
+      initialEditType: "wysiwyg",     // 시각 모드
       previewStyle: "vertical",
-      initialValue: "", // 최초는 비워두고 아래서 setHTML로 주입
+      initialValue: "",               // 바로 아래에서 set으로 주입
       usageStatistics: false,
       placeholder,
       hooks: {
-        // 붙여넣기/드래그 이미지 → 업로드 → 본문 삽입
         addImageBlobHook: async (blob, callback) => {
           try {
             if (!upload) throw new Error("업로드 함수가 없습니다.");
             const url = await upload(blob);
             if (!url) throw new Error("업로드 응답에 URL이 없습니다.");
-            callback(url, "image"); // WYSIWYG에 <img> 삽입
+            callback(url, "image"); // WYSIWYG에 <img>가 들어가게
           } catch (e) {
             console.error(e);
             alert(e?.message || "이미지 업로드에 실패했어요.");
           }
-          return false; // 기본 업로더 막기
+          return false;
         },
       },
     });
 
-    // 최초 값(HTML) 주입
+    // 초기 원문 주입 (MD면 setMarkdown, HTML이면 setHTML)
     try {
-      if (valueHtml) editor.setHTML?.(valueHtml);
-    } catch {
-      // setHTML이 실패하면 마크다운 폴백
-      try { editor.setMarkdown(valueHtml || ""); } catch {}
+      const useFmt =
+        initialFormat === "auto"
+          ? (isLikelyHtml(initialValue) ? "html" : "md")
+          : initialFormat;
+
+      if (useFmt === "md") editor.setMarkdown(initialValue || "");
+      else editor.setHTML?.(initialValue || "");
+    } catch (e) {
+      // 어느 쪽이든 실패하면 안전하게 markdown로
+      try { editor.setMarkdown(initialValue || ""); } catch {}
     }
 
-    // 변경 감지 → HTML로 외부 전달
-    editor.on("change", () => {
-      try {
-        onChange?.(editor.getHTML());
-      } catch {
-        // 폴백
-        onChange?.(editor.getMarkdown());
-      }
-    });
+    // 변경 시 항상 HTML로 부모에 전달
+    const push = () => {
+      try { onChange?.(editor.getHTML()); }
+      catch { try { onChange?.(editor.getMarkdown()); } catch {} }
+    };
+    editor.on("change", push);
+
+    // ✅ mount 직후 한 번 현재값을 부모로 전달(검증/임시저장에 필요)
+    push();
 
     instRef.current = editor;
     return () => {
@@ -78,19 +85,7 @@ export default function TuiHtmlEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 2) 외부 valueHtml 변경 시 동기화
-  useEffect(() => {
-    const ed = instRef.current;
-    if (!ed) return;
-    let curr = "";
-    try { curr = ed.getHTML(); } catch { curr = ed.getMarkdown(); }
-    if ((valueHtml || "") !== (curr || "")) {
-      try { ed.setHTML?.(valueHtml || ""); }
-      catch { try { ed.setMarkdown(valueHtml || ""); } catch {} }
-    }
-  }, [valueHtml]);
-
-  // 3) 높이 반영
+  // 높이 변경 반영
   useEffect(() => {
     const ed = instRef.current;
     if (!ed) return;
