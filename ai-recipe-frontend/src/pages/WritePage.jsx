@@ -10,9 +10,23 @@ import { logActivity } from "../lib/activity";
 import TagInput from "../components/TagInput";
 // ✅ WYSIWYG 에디터 사용
 import TuiHtmlEditor from "../components/TuiMdEditor";
+ import MarkdownIt from "markdown-it";
+const md = new MarkdownIt({ linkify: true, breaks: true });
 
 const DRAFT_KEY = "draft:community:html";
 const CATEGORIES = ["후기", "질문", "레시피", "노하우", "자유"];
+
+
+// HTML/MD 판별(대충이라도 안전)
+ function isLikelyHtml(s = "") {
+   return /<\/?[a-z][\s\S]*>/i.test(s);
+ }
+// 서버가 contentFormat을 안 줄 때를 대비
+ function toEditorHtml(p) {
+   const raw = String(p?.content ?? "");
+   const fmt = p?.contentFormat ?? (isLikelyHtml(raw) ? "html" : "md");
+   return fmt === "html" ? raw : md.render(raw);
+ }
 
 /* 유튜브 URL/ID → videoId */
 function toYoutubeId(url) {
@@ -40,7 +54,7 @@ function pickUploadUrl(any) {
 export default function WritePage() {
   const navigate = useNavigate();
   const loc = useLocation();
-
+  const postFromState = loc.state?.post;
   // ✅ 수정 ID 여러 패턴 지원
   const params = new URLSearchParams(loc.search);
   let editId = params.get("id");
@@ -87,7 +101,7 @@ export default function WritePage() {
 
       if (isEdit) {
         try {
-          const p = await getCommunityPost(editId);
+          const p = postFromState ?? (await getCommunityPost(editId));
           if (p?.authorId && u?.uid && Number(p.authorId) !== Number(u.uid)) {
             alert("본인의 글만 수정할 수 있어요.");
             navigate(`/community/${editId}`, { replace: true });
@@ -98,7 +112,7 @@ export default function WritePage() {
           setTags(Array.isArray(p.tags) ? p.tags : []);
           // ⚠️ 기존 DB가 마크다운이었다면 서버에서 HTML로 변환해 내려주는 게 권장.
           // 일단은 내려온 값을 HTML로 간주하고 세팅.
-          setContentHtml(p.content || "");
+          setContentHtml(toEditorHtml(p));
           setRepImageUrl(p.repImageUrl || "");
           setYoutubeUrl(p.youtubeId ? `https://youtu.be/${p.youtubeId}` : "");
         } catch (e) {
@@ -122,7 +136,7 @@ export default function WritePage() {
       }
       setLoading(false);
     })();
-  }, [isEdit, editId, navigate]);
+  }, [isEdit, editId, navigate, postFromState]);
 
   // 새 글일 때 5초마다 자동 임시저장
   useEffect(() => {
