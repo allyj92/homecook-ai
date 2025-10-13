@@ -3,281 +3,94 @@ import { useEffect, useRef } from "react";
 import Editor from "@toast-ui/editor";
 import "@toast-ui/editor/dist/toastui-editor.css";
 
-const isLikelyHtml = (s = "") => /<\/?[a-z][\s\S]*>/i.test(s);
-
+/**
+ * Toast UI Editor (하이브리드)
+ * - initialValue: 서버/초기 원문 (MD 또는 HTML)
+ * - initialFormat: "md" | "html" | "auto"
+ * - onChange: (html) => void  // 항상 HTML로 콜백
+ * - upload: (file: Blob) => Promise<string>
+ * - height, placeholder
+ *
+ * ⚠️ 초기값은 mount 때만 주입. 값 교체는 key 변경으로 새로 마운트하세요.
+ */
 export default function TuiHtmlEditor({
   initialValue = "",
-  initialFormat = "auto", // "md" | "html" | "auto"
+  initialFormat = "auto",
   onChange,
-  height = "480px",
-  placeholder,
   upload,
+  height = "520px",
+  placeholder = "여기에 내용을 입력하세요…",
 }) {
-  const rootRef = useRef(null);
-  const edRef = useRef(null);
+  const elRef = useRef(null);
+  const instRef = useRef(null);
+
+  const isLikelyHtml = (s = "") => /<\/?[a-z][\s\S]*>/i.test(s);
 
   useEffect(() => {
-    const ed = new Editor({
-      el: rootRef.current,
+    if (!elRef.current) return;
+
+    const editor = new Editor({
+      el: elRef.current,
       height,
-      initialEditType: "wysiwyg",
+      initialEditType: "wysiwyg",     // 시각 모드
       previewStyle: "vertical",
-      placeholder,
+      initialValue: "",               // 바로 아래에서 set으로 주입
       usageStatistics: false,
+      placeholder,
       hooks: {
-        addImageBlobHook: async (blob, cb) => {
+        addImageBlobHook: async (blob, callback) => {
           try {
-            const url = await upload?.(blob);
-            cb(url, "image");
+            if (!upload) throw new Error("업로드 함수가 없습니다.");
+            const url = await upload(blob);
+            if (!url) throw new Error("업로드 응답에 URL이 없습니다.");
+            callback(url, "image"); // WYSIWYG에 <img>가 들어가게
           } catch (e) {
-            alert(e?.message || "이미지 업로드 실패");
+            console.error(e);
+            alert(e?.message || "이미지 업로드에 실패했어요.");
           }
+          return false;
         },
       },
     });
-    edRef.current = ed;
 
-    // 초기 컨텐츠 주입 (md/html 구분)
-    const fmt = initialFormat === "auto" ? (isLikelyHtml(initialValue) ? "html" : "md") : initialFormat;
-    if (fmt === "html") ed.setHTML(initialValue || "");
-    else ed.setMarkdown(initialValue || "");
+    // 초기 원문 주입 (MD면 setMarkdown, HTML이면 setHTML)
+    try {
+      const useFmt =
+        initialFormat === "auto"
+          ? (isLikelyHtml(initialValue) ? "html" : "md")
+          : initialFormat;
 
-    // 변경 시: img style.width(px) → width 속성 동기화 후 콜백
-    const emitHtml = () => {
-      let html = ed.getHTML();
-      try {
-        const doc = new DOMParser().parseFromString(html, "text/html");
-        doc.querySelectorAll("img").forEach((img) => {
-          const sw = (img.style?.width || "").trim();
-          const m = sw.match(/^(\d+(?:\.\d+)?)px$/i);
-          if (m) img.setAttribute("width", String(Math.round(parseFloat(m[1]))));
-        });
-        html = doc.body.innerHTML;
-      } catch {}
-      onChange?.(html);
+      if (useFmt === "md") editor.setMarkdown(initialValue || "");
+      else editor.setHTML?.(initialValue || "");
+    } catch (e) {
+      // 어느 쪽이든 실패하면 안전하게 markdown로
+      try { editor.setMarkdown(initialValue || ""); } catch {}
+    }
+
+    // 변경 시 항상 HTML로 부모에 전달
+    const push = () => {
+      try { onChange?.(editor.getHTML()); }
+      catch { try { onChange?.(editor.getMarkdown()); } catch {} }
     };
-    ed.on("change", emitHtml);
+    editor.on("change", push);
 
-    // 이미지 드래그 리사이즈 활성화
-    const dispose = enableImageResize(ed, emitHtml);
+    // ✅ mount 직후 한 번 현재값을 부모로 전달(검증/임시저장에 필요)
+    push();
 
+    instRef.current = editor;
     return () => {
-      try { dispose?.(); } catch {}
-      ed?.destroy();
+      try { editor.destroy(); } catch {}
+      instRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 외부에서 초기값/포맷 변경 시 반영
+  // 높이 변경 반영
   useEffect(() => {
-    const ed = edRef.current;
+    const ed = instRef.current;
     if (!ed) return;
-    const fmt = initialFormat === "auto" ? (isLikelyHtml(initialValue) ? "html" : "md") : initialFormat;
-    if (fmt === "html") ed.setHTML(initialValue || "");
-    else ed.setMarkdown(initialValue || "");
-  }, [initialValue, initialFormat]);
+    try { ed.setHeight(height); } catch {}
+  }, [height]);
 
-  return <div ref={rootRef} />;
-}
-
-/**
- * 이미지 리사이즈
- * - 이미지 "모서리 직접 드래그" 가능 (핸들 안 보여도 동작)
- * - 핸들(document.body 고정)도 함께 제공
- * - 작아지면 자동 랩(rf-wrap-left) 부여, 커지면 해제
- */
-function enableImageResize(editor, onChanged) {
-  // 에디터 내부 ProseMirror 루트 (버전별 대응)
-  const els = editor.getEditorElements?.();
-  const editorEl =
-    els?.wwEditor ||
-    els?.el?.querySelector?.(".toastui-editor-ww-container") ||
-    els?.el ||
-    editor?.getRootElement?.() ||
-    document;
-
-  const prose =
-    editorEl?.querySelector?.(".ProseMirror") ||
-    editorEl?.querySelector?.(".toastui-editor-contents") ||
-    editorEl;
-
-  // ---- 상태
-  let targetImg = null;
-  let startX = 0;
-  let startW = 0;
-  const EDGE_GRAB = 16; // 모서리 인식 범위(px)
-
-  // ---- 핸들(document.body 고정)
-  const handle = document.createElement("div");
-  handle.className = "rf-img-handle";
-  Object.assign(handle.style, {
-    position: "fixed",
-    width: "14px",
-    height: "14px",
-    border: "2px solid #2b8a3e",
-    background: "#fff",
-    borderRadius: "4px",
-    cursor: "nwse-resize",
-    boxShadow: "0 1px 4px rgba(0,0,0,.2)",
-    zIndex: "99999",
-    display: "none",
-  });
-  handle.title = "드래그해서 크기 조절";
-  document.body.appendChild(handle);
-
-  // ---- 유틸
-  const getContentWidth = () => {
-    const r = prose.getBoundingClientRect?.();
-    return r?.width || prose.clientWidth || 800;
-  };
-
-  const getImgPxWidth = (img) => {
-    const sw = (img.style?.width || "").trim();
-    const m = sw.match(/^(\d+(?:\.\d+)?)px$/i);
-    if (m) return parseFloat(m[1]);
-    if (img.getAttribute("width")) return parseFloat(img.getAttribute("width")) || img.clientWidth || 200;
-    return img.clientWidth || 200;
-  };
-
-  const isNearBottomRight = (img, clientX, clientY) => {
-    const r = img.getBoundingClientRect();
-    return (r.right - clientX <= EDGE_GRAB) && (r.bottom - clientY <= EDGE_GRAB);
-  };
-
-  // 폭 기준으로 자동 랩 적용/해제
-  const WRAP_RATIO = 0.66; // 66% 이하 → 랩
-  const autoWrapByWidth = (img) => {
-    const cw = getContentWidth();
-    const w  = getImgPxWidth(img);
-    if (w <= cw * WRAP_RATIO) {
-      img.classList.add("rf-wrap-left");
-      img.classList.remove("rf-wrap-right");
-    } else {
-      img.classList.remove("rf-wrap-left");
-      img.classList.remove("rf-wrap-right");
-    }
-  };
-
-  // 선택 강조 & 핸들 위치
-  const selectImg = (img) => {
-    if (targetImg && targetImg !== img) {
-      targetImg.classList.remove("rf-img-selected");
-      targetImg.style.outline = "";
-      targetImg.style.outlineOffset = "";
-    }
-    targetImg = img;
-    if (targetImg) {
-      targetImg.classList.add("rf-img-selected");
-      targetImg.style.outline = "2px solid #2b8a3e";
-      targetImg.style.outlineOffset = "2px";
-      positionHandle();
-      autoWrapByWidth(targetImg); // 선택 시에도 한 번 평가
-    } else {
-      hideHandle();
-    }
-  };
-
-  const positionHandle = () => {
-    if (!targetImg) return hideHandle();
-    const r = targetImg.getBoundingClientRect();
-    handle.style.left = `${r.right - 8}px`;
-    handle.style.top  = `${r.bottom - 8}px`;
-    handle.style.display = "block";
-  };
-
-  const hideHandle = () => {
-    handle.style.display = "none";
-    if (targetImg) {
-      targetImg.classList.remove("rf-img-selected");
-      targetImg.style.outline = "";
-      targetImg.style.outlineOffset = "";
-    }
-    targetImg = null;
-  };
-
-  // ---- 이벤트: 클릭으로 선택
-  const onClick = (e) => {
-    const img = e.target?.closest?.("img");
-    if (img && prose.contains(img)) selectImg(img);
-    else hideHandle();
-  };
-
-  // ---- 이벤트: 이미지 모서리 "직접" 드래그
-  const onMouseDown = (e) => {
-    const img = e.target?.closest?.("img");
-    if (!img || !prose.contains(img)) return;
-
-    // 모서리 근처에서만 리사이즈 시작
-    if (!isNearBottomRight(img, e.clientX, e.clientY)) return;
-
-    e.preventDefault();
-    selectImg(img); // 선택 표시 + 핸들 위치
-    startX = e.clientX;
-    startW = getImgPxWidth(img);
-
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  };
-
-  const onMove = (e) => {
-    if (!targetImg) return;
-    const dx = e.clientX - startX;
-    const next = Math.max(80, Math.round(startW + dx));
-    targetImg.style.width = `${next}px`;
-
-    autoWrapByWidth(targetImg);
-    try { editor.eventEmitter?.emit("change"); } catch {}
-    try { onChanged?.(); } catch {}
-    positionHandle();
-  };
-
-  const onUp = () => {
-    document.removeEventListener("mousemove", onMove);
-    document.removeEventListener("mouseup", onUp);
-  };
-
-  // ---- 핸들 드래그 (핸들 보일 때도 사용 가능)
-  const onHandleDown = (e) => {
-    if (!targetImg) return;
-    e.preventDefault();
-    startX = e.clientX;
-    startW = getImgPxWidth(targetImg);
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  };
-
-  // ---- 위치 보정
-  const onAnyScroll = () => positionHandle();
-  const onWinResize = () => positionHandle();
-
-  // 리스너
-  prose.addEventListener("click", onClick, true);
-  prose.addEventListener("mousedown", onMouseDown, true); // ← 모서리 직접 드래그
-  document.addEventListener("scroll", onAnyScroll, true);
-  window.addEventListener("resize", onWinResize, { passive: true });
-  handle.addEventListener("mousedown", onHandleDown);
-
-  // 초기 DOM 스캔
-  const scanAndWrap = () => {
-    prose.querySelectorAll("img").forEach((img) => autoWrapByWidth(img));
-  };
-  scanAndWrap();
-
-  // DOM 변화 추적
-  const mo = new MutationObserver(() => {
-    if (!targetImg || !prose.contains(targetImg)) hideHandle();
-    else positionHandle();
-    scanAndWrap();
-  });
-  mo.observe(prose, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "width", "class"] });
-
-  // 클린업
-  return () => {
-    try { mo.disconnect(); } catch {}
-    prose.removeEventListener("click", onClick, true);
-    prose.removeEventListener("mousedown", onMouseDown, true);
-    document.removeEventListener("scroll", onAnyScroll, true);
-    window.removeEventListener("resize", onWinResize);
-    handle.removeEventListener("mousedown", onHandleDown);
-    try { handle.remove(); } catch {}
-  };
+  return <div ref={elRef} />;
 }
