@@ -525,7 +525,7 @@ export default function CommunityPage() {
         </section>
       </main>
 
-      <BottomNav />
+      <SiteFooter />
 
       {/* ✅ 모바일 FAB */}
       <MobileWriteMiniBtnTopRight onClick={onWrite} />

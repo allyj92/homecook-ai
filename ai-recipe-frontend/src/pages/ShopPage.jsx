@@ -5,7 +5,7 @@ import '../index.css';
 import BottomNav from '../components/BottomNav';
 import AdCarousel from '../components/AdCarousel';
 import { ensureLogin } from '../auth/ensureLogin';
-
+import SiteFooter from '../components/SiteFooter';
 
 /* ── 하단 고정 광고 (커뮤니티와 동일) ───────────────── */
 function StickyBottomAd({
@@ -707,6 +707,10 @@ export default function ShopPage() {
 
       {productModalOpen && <CloseButtonFixed onClick={() => setProductModalOpen(false)} />}
       {bundleModalOpen && <CloseButtonFixed onClick={() => setBundleModalOpen(false)} />}
+
+        <SiteFooter />
     </div>
+
+    
   );
 }

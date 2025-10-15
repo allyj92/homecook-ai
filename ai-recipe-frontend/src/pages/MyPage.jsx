@@ -4,6 +4,8 @@ import BottomNav from '../components/BottomNav';
 import { apiFetch } from '../lib/http';
 import { listFavoritesSimple, removeFavorite } from '../lib/wishlist';
 import { getMyPosts } from '../api/community';
+
+import SiteFooter from '../components/SiteFooter';
 import {
   listActivitiesPaged,
   subscribeActivity,
@@ -821,7 +823,7 @@ export default function MyPage() {
           </div>
         </section>
       </div>
-
+      <SiteFooter />
      <BottomNav />
 
       <StickyBottomAd label="Bottom Sticky 320×50 / 728×90" />
