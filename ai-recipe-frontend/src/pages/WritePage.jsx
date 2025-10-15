@@ -1,3 +1,4 @@
+// src/pages/WritePage.jsx
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import "bootstrap/dist/css/bootstrap.min.css";
@@ -74,6 +75,24 @@ function htmlForSave(html = "") {
   }
 }
 
+/** 태그 안전 정규화: 어떤 입력이 와도 string[] */
+function normalizeTags(v) {
+  if (!v) return [];
+  if (Array.isArray(v)) {
+    return v
+      .map((t) => (typeof t === "string" ? t : (t?.value ?? t?.text ?? String(t ?? ""))))
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  if (typeof v === "string") {
+    return v
+      .split(/[,\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
 export default function WritePage() {
   const navigate = useNavigate();
   const loc = useLocation();
@@ -122,6 +141,8 @@ export default function WritePage() {
     [youtubeId]
   );
 
+  const onTagsChange = useCallback((v) => setTags(normalizeTags(v)), []);
+
   // 초기화
   useEffect(() => {
     (async () => {
@@ -141,7 +162,7 @@ export default function WritePage() {
 
           setTitle(p.title || "");
           setCategory(p.category || CATEGORIES[0]);
-          setTags(Array.isArray(p.tags) ? p.tags : []);
+          setTags(normalizeTags(p.tags));
 
           // 서버 원문 그대로/포맷 그대로 에디터에 주입 (+ 이스케이프 복원 + width 유지)
           const raw = String(p?.content ?? "");
@@ -167,7 +188,7 @@ export default function WritePage() {
           if (saved) {
             setTitle(saved.title || "");
             setCategory(saved.category || CATEGORIES[0]);
-            setTags(saved.tags || []);
+            setTags(normalizeTags(saved.tags));
             setInitialValue(saved.contentHtml || "");
             setInitialFormat("html");
             setRepImageUrl(saved.repImageUrl || "");
@@ -183,7 +204,7 @@ export default function WritePage() {
   useEffect(() => {
     if (isEdit) return;
     const timer = setInterval(() => {
-      const payload = { title, category, tags, contentHtml, repImageUrl, youtubeUrl, savedAt: Date.now() };
+      const payload = { title, category, tags: normalizeTags(tags), contentHtml, repImageUrl, youtubeUrl, savedAt: Date.now() };
       localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
     }, 5000);
     return () => clearInterval(timer);
@@ -244,7 +265,7 @@ export default function WritePage() {
         // 저장 전에 style.width → width 로 환원
         const html = htmlForSave((contentHtml || "").trim());
         const finalRep = repImageUrl || youtubeCover || "";
-        const cleanTags = tags.map((t) => String(t).trim()).filter(Boolean);
+        const cleanTags = normalizeTags(tags);
         const payload = {
           title: title.trim(),
           category,
@@ -408,7 +429,12 @@ export default function WritePage() {
           {/* 태그 */}
           <div className="mb-3">
             <label className="form-label">태그</label>
-            <TagInput value={tags} onChange={setTags} placeholder="태그 입력 후 Enter" maxTags={10} />
+            <TagInput
+              value={Array.isArray(tags) ? tags : normalizeTags(tags)}
+              onChange={onTagsChange}
+              placeholder="태그 입력 후 Enter"
+              maxTags={10}
+            />
             <div className="form-text">최대 10개 · Enter 로 추가/Backspace 로 삭제</div>
           </div>
 
@@ -471,7 +497,15 @@ export default function WritePage() {
                   onClick={() => {
                     localStorage.setItem(
                       DRAFT_KEY,
-                      JSON.stringify({ title, category, tags, contentHtml, repImageUrl, youtubeUrl, savedAt: Date.now() })
+                      JSON.stringify({
+                        title,
+                        category,
+                        tags: normalizeTags(tags),
+                        contentHtml,
+                        repImageUrl,
+                        youtubeUrl,
+                        savedAt: Date.now(),
+                      })
                     );
                     alert("임시저장 완료!");
                   }}

@@ -1,3 +1,4 @@
+// src/components/TuiMdEditor.jsx
 import { useEffect, useRef } from "react";
 import Editor from "@toast-ui/editor";
 import "@toast-ui/editor/dist/toastui-editor.css";
@@ -29,6 +30,9 @@ export default function TuiHtmlEditor({
   useEffect(() => {
     if (!elRef.current) return;
 
+    // StrictMode/재마운트 대비: 컨테이너 정리
+    try { elRef.current.innerHTML = ""; } catch {}
+
     // 커스텀 툴바: 이미지 크기 버튼
     const imgSizeBtn = document.createElement("button");
     imgSizeBtn.type = "button";
@@ -44,6 +48,7 @@ export default function TuiHtmlEditor({
       height,
       initialEditType: "wysiwyg",
       previewStyle: "vertical",
+      hideModeSwitch: true, // 에디터 모드 전환 버튼 숨김 (이중 입력창 느낌 방지)
       initialValue: "",
       usageStatistics: false,
       placeholder,
@@ -93,7 +98,7 @@ export default function TuiHtmlEditor({
     // 마운트 직후 한 번 현재값 전달(검증/임시저장용)
     push();
 
-    // 에디터 영역에서 IMG 추적 (getRootElement 사용 안 함)
+    // 에디터 영역에서 IMG 추적
     const root = elRef.current;
     const onClick = (e) => {
       const img = e.target && (e.target.closest ? e.target.closest("img") : null);
@@ -136,6 +141,8 @@ export default function TuiHtmlEditor({
     return () => {
       try { root.removeEventListener("click", onClick); } catch {}
       try { editor.destroy(); } catch {}
+      // 남아있는 내부 DOM 강제 제거 (중복 생성 방지)
+      try { if (elRef.current) elRef.current.innerHTML = ""; } catch {}
       instRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
