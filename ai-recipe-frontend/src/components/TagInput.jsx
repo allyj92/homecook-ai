@@ -30,16 +30,6 @@ export default function TuiHtmlEditor({
   useEffect(() => {
     if (!elRef.current) return;
 
-    // 커스텀 툴바: 이미지 크기 버튼
-    const imgSizeBtn = document.createElement("button");
-    imgSizeBtn.type = "button";
-    imgSizeBtn.className = "toastui-editor-toolbar-icons";
-    imgSizeBtn.style.width = "28px";
-    imgSizeBtn.style.height = "28px";
-    imgSizeBtn.style.backgroundSize = "18px 18px";
-    imgSizeBtn.title = "이미지 크기";
-    imgSizeBtn.innerHTML = "↔️"; // 간단 아이콘
-
     const editor = new Editor({
       el: elRef.current,
       height,
@@ -48,12 +38,12 @@ export default function TuiHtmlEditor({
       initialValue: "",
       usageStatistics: false,
       placeholder,
+      // 표준 툴바만 넣고, 커스텀 버튼은 마운트 후 DOM에 붙입니다.
       toolbarItems: [
         ["heading", "bold", "italic", "strike"],
         ["hr", "quote"],
         ["ul", "ol", "task", "indent", "outdent"],
         ["table", "image", "link"],
-        [{ el: imgSizeBtn, tooltip: "이미지 크기" }],
         ["code", "codeblock"],
       ],
       hooks: {
@@ -79,7 +69,8 @@ export default function TuiHtmlEditor({
           ? (isLikelyHtml(initialValue) ? "html" : "md")
           : initialFormat;
       if (fmt === "md") editor.setMarkdown(initialValue || "");
-      else editor.setHTML?.(initialValue || "");
+      else if (typeof editor.setHTML === "function") editor.setHTML(initialValue || "");
+      else editor.setMarkdown(initialValue || ""); // 구버전 안전장치
     } catch {
       try { editor.setMarkdown(initialValue || ""); } catch {}
     }
@@ -90,46 +81,69 @@ export default function TuiHtmlEditor({
       catch { try { onChange?.(editor.getMarkdown()); } catch {} }
     };
     editor.on("change", push);
-
-    // 마운트 직후 한 번 현재값 전달(검증/임시저장용)
+    // 마운트 직후 한 번 현재값 전달
     push();
 
-    // 에디터 내부에서 클릭된 IMG 추적
-    const root = editor.getRootElement();
+    // 루트 엘리먼트 (버전 호환)
+    const rootEl =
+      typeof editor.getRootElement === "function"
+        ? editor.getRootElement()
+        : elRef.current;
+
+    // 에디터 내부 IMG 클릭 추적
     const onClick = (e) => {
       const t = e.target;
       if (t && t.tagName === "IMG") lastImgRef.current = t;
     };
-    root.addEventListener("click", onClick);
+    rootEl.addEventListener("click", onClick);
 
-    // 이미지 크기 버튼 동작
-    imgSizeBtn.onclick = () => {
-      const img = lastImgRef.current;
-      if (!img) {
-        alert("크기를 조절할 이미지를 먼저 클릭하세요.");
-        return;
-      }
-      const current = img.getAttribute("width") || "";
-      const val = prompt("이미지 너비(px). 예: 320  (비우면 자동)", current);
-      if (val == null) return; // 취소
-      const px = String(val).trim();
-      if (!px) {
-        img.removeAttribute("width");
-        img.removeAttribute("height");
-      } else if (!/^\d+$/.test(px)) {
-        alert("숫자(px)만 입력해주세요. 예: 320");
-        return;
-      } else {
-        img.setAttribute("width", px);
-        img.removeAttribute("height"); // 비율 유지
-      }
-      // 에디터 HTML 갱신을 강제로 트리거
-      push();
-    };
+    // 🔧 커스텀: 이미지 크기 버튼을 툴바에 추가
+    const toolbar = elRef.current.querySelector(".toastui-editor-defaultUI-toolbar");
+    let imgSizeBtn;
+    if (toolbar) {
+      imgSizeBtn = document.createElement("button");
+      imgSizeBtn.type = "button";
+      imgSizeBtn.className = "toastui-editor-toolbar-icons";
+      imgSizeBtn.style.width = "28px";
+      imgSizeBtn.style.height = "28px";
+      imgSizeBtn.style.backgroundSize = "18px 18px";
+      imgSizeBtn.title = "이미지 크기";
+      imgSizeBtn.textContent = "↔️"; // 간단 아이콘
+
+      imgSizeBtn.addEventListener("click", () => {
+        const img = lastImgRef.current;
+        if (!img) {
+          alert("크기를 조절할 이미지를 먼저 클릭하세요.");
+          return;
+        }
+        const current = img.getAttribute("width") || "";
+        const val = prompt("이미지 너비(px). 예: 320  (비우면 자동)", current);
+        if (val == null) return; // 취소
+
+        const px = String(val).trim();
+        if (!px) {
+          img.removeAttribute("width");
+          img.removeAttribute("height");
+        } else if (!/^\d+$/.test(px)) {
+          alert("숫자(px)만 입력해주세요. 예: 320");
+          return;
+        } else {
+          img.setAttribute("width", px);
+          img.removeAttribute("height"); // 비율 유지
+        }
+        // 에디터 HTML 갱신 푸시
+        push();
+      });
+
+      // 우측 끝에 붙이기
+      toolbar.appendChild(imgSizeBtn);
+    }
 
     instRef.current = editor;
+
     return () => {
-      try { root.removeEventListener("click", onClick); } catch {}
+      try { rootEl.removeEventListener("click", onClick); } catch {}
+      try { imgSizeBtn && imgSizeBtn.remove(); } catch {}
       try { editor.destroy(); } catch {}
       instRef.current = null;
     };
