@@ -1053,7 +1053,7 @@ body{
 
 /* 상세 보기 + 에디터 공통 이미지 기본 */
 .post-content img,
-.toastui-editor-contents img { max-width: 100%; height: auto; }
+.toastui-editor-contents img { max-width: 100%; height: auto;display: block; }
 
 /* 랩 클래스: 작아진 이미지는 왼쪽에 붙고 텍스트가 오른쪽에 흐름 */
 .post-content img.rf-wrap-left,

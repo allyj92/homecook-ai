@@ -420,7 +420,7 @@ export default function WritePage() {
                 initialValue={initialValue}
                 initialFormat={initialFormat}
                 onChange={setContentHtml}
-                height="480px"
+                height="72vh"
                 placeholder={`레시피/후기/질문 내용을 자유롭게 적어주세요.
 - 캡처 이미지를 붙여넣거나 드래그하면 자동 업로드됩니다.`}
                 upload={async (blob) => {

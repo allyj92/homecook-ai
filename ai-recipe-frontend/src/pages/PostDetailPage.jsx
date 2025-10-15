@@ -39,7 +39,7 @@ async function apiToggleBookmark(postId, on) {
 
 /* ── MarkdownIt 설정 ───────────────────────────────────── */
 const md = new MarkdownIt({
-  html: false,
+  html: true,
   linkify: true,
   breaks: true,
 });
@@ -521,7 +521,7 @@ export default function PostDetailPage() {
             <button
               className="btn btn-sm btn-outline-primary"
               onClick={() =>
-                navigate(`/write/${post.id}`, { state: { editId: post.id } })
+                navigate(`/write/${post.id}`, { state: { post, editId: post.id } })
               }
             >
               수정
