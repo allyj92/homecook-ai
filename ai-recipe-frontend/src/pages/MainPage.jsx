@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import '../index.css';
 import BottomNav from '../components/BottomNav';
 import { ensureLogin } from '../lib/auth';
+import SiteFooter from '../components/SiteFooter';
 
 const BRAND = {
   orange: '#ff7f32',
@@ -1063,14 +1064,7 @@ export default function MainPage() {
 
       {/* 하단 고정 띠배너 광고 */}
       <StickyBottomAd heightMobile={80} heightDesktop={120} label="Bottom Sticky" />
-      <footer className="text-center mt-4">
-        <div className="small" style={{ color: BRAND.mute }}>
-          * 일부 영역에는 제휴/광고 링크가 포함될 수 있으며, 구매 시 서비스 운영을 위한 수익이 발생할 수 있습니다.
-        </div>
-        <div className="small" style={{ color: BRAND.mute }}>
-          © {new Date().getFullYear()} <strong style={{ color: BRAND.orange }}>Recip</strong><strong style={{ color: BRAND.teal }}>Free</strong>
-        </div>
-      </footer>
+         <SiteFooter />
 
       <BottomNav />
       <div className="bottom-nav-spacer" aria-hidden="true" />
