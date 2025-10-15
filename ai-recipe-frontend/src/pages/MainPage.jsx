@@ -1062,12 +1062,14 @@ export default function MainPage() {
         </section>
       </main>
 
-      {/* 하단 고정 띠배너 광고 */}
+       {/* 사이트 푸터 (사업자 정보) */}
+      <SiteFooter />
+
+      {/* 하단 고정 띠배너 광고 + 네비게이션 */}
+      <StickyBottomAd label="Bottom Sticky 320×50 / 728×90" />
       <BottomNav />
-      
-            <StickyBottomAd label="Bottom Sticky 320×50 / 728×90" />
-            <BottomNav />
       <div className="bottom-nav-spacer" aria-hidden="true" />
+          <div className="bottom-nav-spacer" aria-hidden="true" />
 
       {/* 모달: 최신 레시피 전체보기 */}
       <div className={`modal fade ${modalOpen ? 'show d-block' : ''}`} tabIndex="-1" role="dialog" aria-hidden={!modalOpen} onClick={() => setModalOpen(false)}>
