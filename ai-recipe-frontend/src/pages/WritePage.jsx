@@ -1,4 +1,3 @@
-// src/pages/WritePage.jsx
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import "bootstrap/dist/css/bootstrap.min.css";
@@ -7,18 +6,22 @@ import { ensureLogin, fetchMe } from "../lib/auth";
 import { createPost, updatePost, getCommunityPost } from "../api/community";
 import { uploadFile, ytThumb } from "../lib/upload";
 import { logActivity } from "../lib/activity";
-// import TagInput from "../components/TagInput"; // ❌ 제거
+import TagInput from "../components/TagInput";
 import TuiHtmlEditor from "../components/TuiMdEditor";
 
 const DRAFT_KEY = "draft:community:html";
 const CATEGORIES = ["후기", "질문", "레시피", "노하우", "자유"];
 
+// 대충이라도 HTML 냄새 감지
 const isLikelyHtml = (s = "") => /<\/?[a-z][\s\S]*>/i.test(s);
+
+// 서버가 &lt;p&gt; 같은 이스케이프된 HTML을 줄 때 복원
 const unescapeIfHtmlEscaped = (s = "") =>
   /&lt;\/?[a-z]/i.test(s)
     ? s.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&")
     : s;
 
+// 유튜브 URL/ID -> videoId
 const toYoutubeId = (url) => {
   if (!url) return null;
   const u = url.trim();
@@ -30,55 +33,45 @@ const toYoutubeId = (url) => {
   return null;
 };
 
-/** 🔹 이 페이지 전용 간단 태그 입력기 */
-function SimpleTagInput({ value, onChange, placeholder = "태그 입력 후 Enter", maxTags = 10 }) {
-  const [draft, setDraft] = useState("");
+/** 에디터에 넣기 전에: <img width="320"> → style="width:320px" 로 변환 */
+function htmlForEditor(html = "") {
+  try {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    doc.querySelectorAll("img").forEach((img) => {
+      const wAttr = (img.getAttribute("width") || "").trim();
+      if (wAttr && /^\d+$/.test(wAttr)) {
+        img.style.width = `${parseInt(wAttr, 10)}px`;
+        img.setAttribute("data-w", String(parseInt(wAttr, 10))); // 저장시 복원용
+      }
+    });
+    return doc.body.innerHTML;
+  } catch {
+    return html;
+  }
+}
 
-  const add = (t) => {
-    const tag = String(t || "").trim();
-    if (!tag) return;
-    const next = Array.from(new Set([...(value || []), tag])).slice(0, maxTags);
-    onChange?.(next);
-    setDraft("");
-  };
-
-  const removeAt = (idx) => {
-    const next = (value || []).filter((_, i) => i !== idx);
-    onChange?.(next);
-  };
-
-  return (
-    <div className="form-control d-flex flex-wrap gap-2 p-2" style={{ minHeight: 46 }}>
-      {(value || []).map((t, i) => (
-        <span key={`${t}-${i}`} className="badge bg-primary-subtle text-primary border">
-          #{t}
-          <button
-            type="button"
-            className="btn btn-sm btn-link text-decoration-none ms-1 p-0"
-            onClick={() => removeAt(i)}
-            aria-label={`${t} 제거`}
-          >
-            ×
-          </button>
-        </span>
-      ))}
-
-      <input
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") { e.preventDefault(); add(draft); }
-          else if (e.key === "Backspace" && !draft && (value || []).length) {
-            e.preventDefault();
-            removeAt((value || []).length - 1);
-          }
-        }}
-        placeholder={placeholder}
-        className="border-0 flex-grow-1"
-        style={{ minWidth: 160, outline: "none" }}
-      />
-    </div>
-  );
+/** 저장하기 전에: style="width:320px" → <img width="320"> 로 환원 */
+function htmlForSave(html = "") {
+  try {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    doc.querySelectorAll("img").forEach((img) => {
+      let w = "";
+      const sw = (img.style.width || "").trim();
+      const dw = (img.getAttribute("data-w") || "").trim();
+      const aw = (img.getAttribute("width") || "").trim();
+      if (/^\d+px$/.test(sw)) w = sw.replace("px", "");
+      else if (/^\d+$/.test(dw)) w = dw;
+      else if (/^\d+$/.test(aw)) w = aw;
+      if (w) {
+        img.setAttribute("width", String(parseInt(w, 10)));
+        img.style.width = "";
+        img.removeAttribute("data-w");
+      }
+    });
+    return doc.body.innerHTML;
+  } catch {
+    return html;
+  }
 }
 
 export default function WritePage() {
@@ -86,7 +79,7 @@ export default function WritePage() {
   const loc = useLocation();
   const postFromState = loc.state?.post;
 
-  // 수정 ID
+  // 수정 ID 여러 패턴 지원
   const params = new URLSearchParams(loc.search);
   let editId = params.get("id");
   if (!editId) {
@@ -106,12 +99,12 @@ export default function WritePage() {
   const [category, setCategory] = useState(CATEGORIES[0]);
   const [tags, setTags] = useState([]);
 
-  // 본문(HTML 저장)
+  // 본문은 에디터에서 HTML로만 관리/저장
   const [contentHtml, setContentHtml] = useState("");
 
-  // 에디터 초기값/포맷
+  // 에디터 초기 주입값 (원문 + 포맷)
   const [initialValue, setInitialValue] = useState("");
-  const [initialFormat, setInitialFormat] = useState("auto");
+  const [initialFormat, setInitialFormat] = useState("auto"); // "md" | "html" | "auto"
 
   const [repImageUrl, setRepImageUrl] = useState("");
   const [youtubeUrl, setYoutubeUrl] = useState("");
@@ -150,11 +143,13 @@ export default function WritePage() {
           setCategory(p.category || CATEGORIES[0]);
           setTags(Array.isArray(p.tags) ? p.tags : []);
 
-          // 원문/포맷 (이스케이프 복원 포함)
+          // 서버 원문 그대로/포맷 그대로 에디터에 주입 (+ 이스케이프 복원 + width 유지)
           const raw = String(p?.content ?? "");
           const looksHtml = isLikelyHtml(raw) || /&lt;[a-z]/i.test(raw);
           const fmt = p?.contentFormat ?? (looksHtml ? "html" : "md");
-          setInitialValue(fmt === "html" ? unescapeIfHtmlEscaped(raw) : raw);
+          setInitialValue(
+            fmt === "html" ? htmlForEditor(unescapeIfHtmlEscaped(raw)) : raw
+          );
           setInitialFormat(fmt);
 
           setRepImageUrl(p.repImageUrl || "");
@@ -166,6 +161,7 @@ export default function WritePage() {
           return;
         }
       } else {
+        // 새 글: 임시저장 복구 (HTML 기반)
         try {
           const saved = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null");
           if (saved) {
@@ -183,7 +179,7 @@ export default function WritePage() {
     })();
   }, [isEdit, editId, navigate, postFromState]);
 
-  // 새 글 자동 임시저장
+  // 새 글일 때 5초마다 자동 임시저장 (HTML 기반)
   useEffect(() => {
     if (isEdit) return;
     const timer = setInterval(() => {
@@ -193,7 +189,7 @@ export default function WritePage() {
     return () => clearInterval(timer);
   }, [isEdit, title, category, tags, contentHtml, repImageUrl, youtubeUrl]);
 
-  // 검증
+  // 검증(HTML → 텍스트 길이)
   function validate() {
     const html = (contentHtml || "").replace(/\s+/g, " ").trim();
     const text = html.replace(/<[^>]*>/g, "").trim();
@@ -211,6 +207,7 @@ export default function WritePage() {
   async function onPickRep(e) {
     const file = e.target.files?.[0];
     if (!file) return;
+
     const okType = /^image\/(png|jpe?g|webp|gif)$/i.test(file.type);
     if (!okType) { alert("PNG, JPG, WEBP, GIF만 업로드할 수 있어요."); return; }
     if (file.size > 10 * 1024 * 1024) { alert("이미지 용량(10MB) 초과입니다."); return; }
@@ -222,9 +219,8 @@ export default function WritePage() {
     try {
       const up = await uploadFile(file);
       const url =
-        up?.url || up?.URL || up?.link || up?.location || up?.Location ||
-        up?.secure_url || up?.fileUrl || up?.fileURL ||
-        (up?.data && (up.data.url || up.data.link || up.data.Location));
+        up?.url || up?.URL || up?.link || up?.location || up?.Location || up?.secure_url || up?.fileUrl || up?.fileURL
+        || (up?.data && (up.data.url || up.data.link || up.data.Location));
       if (!url) throw new Error("업로드 응답에 URL이 없어요.");
       setRepImageUrl(url);
     } catch (err) {
@@ -237,51 +233,55 @@ export default function WritePage() {
     }
   }
 
-  // 제출
-  const onSubmit = useCallback(async (e) => {
-    e.preventDefault();
-    if (!validate()) return;
-    if (submitting) return;
-    setSubmitting(true);
-    try {
-      const html = (contentHtml || "").trim();
-      const finalRep = repImageUrl || youtubeCover || "";
-      const cleanTags = tags.map((t) => String(t).trim()).filter(Boolean);
-      const payload = {
-        title: title.trim(),
-        category,
-        tags: cleanTags,
-        content: html,                 // 항상 HTML 저장
-        youtubeUrl: youtubeUrl.trim() || null,
-        youtubeId,
-        repImageUrl: finalRep || null,
-        contentFormat: "html",
-      };
+  // 제출(등록/수정) — HTML 저장
+  const onSubmit = useCallback(
+    async (e) => {
+      e.preventDefault();
+      if (!validate()) return;
+      if (submitting) return;
+      setSubmitting(true);
+      try {
+        // 저장 전에 style.width → width 로 환원
+        const html = htmlForSave((contentHtml || "").trim());
+        const finalRep = repImageUrl || youtubeCover || "";
+        const cleanTags = tags.map((t) => String(t).trim()).filter(Boolean);
+        const payload = {
+          title: title.trim(),
+          category,
+          tags: cleanTags,
+          content: html,            // 항상 HTML 저장
+          youtubeUrl: youtubeUrl.trim() || null,
+          youtubeId: youtubeId || null,
+          repImageUrl: finalRep || null,
+          contentFormat: "html",
+        };
 
-      if (isEdit) {
-        await updatePost(editId, payload);
-        try { logActivity("post_update", { postId: Number(editId), title: payload.title }); } catch {}
-        navigate(`/community/${editId}`);
-      } else {
-        const { id } = await createPost(payload);
-        try { logActivity("post_create", { postId: id, title: payload.title }); } catch {}
-        localStorage.removeItem(DRAFT_KEY);
-        navigate(`/community/${id}`);
+        if (isEdit) {
+          await updatePost(editId, payload);
+          try { logActivity("post_update", { postId: Number(editId), title: payload.title }); } catch {}
+          navigate(`/community/${editId}`);
+        } else {
+          const { id } = await createPost(payload);
+          try { logActivity("post_create", { postId: id, title: payload.title }); } catch {}
+          localStorage.removeItem(DRAFT_KEY);
+          navigate(`/community/${id}`);
+        }
+      } catch (err) {
+        console.error(err);
+        if (err?.status === 401 || /401/.test(String(err?.message))) {
+          const ok = await ensureLogin(isEdit ? `/write?id=${editId}` : "/write");
+          if (ok) alert("로그인이 갱신되었습니다. 다시 시도해주세요.");
+        } else if (err?.status === 403) {
+          alert("본인의 글만 수정할 수 있어요.");
+        } else {
+          alert(err?.message || "처리 중 오류가 발생했어요. 잠시 후 다시 시도해주세요.");
+        }
+      } finally {
+        setSubmitting(false);
       }
-    } catch (err) {
-      console.error(err);
-      if (err?.status === 401 || /401/.test(String(err?.message))) {
-        const ok = await ensureLogin(isEdit ? `/write?id=${editId}` : "/write");
-        if (ok) alert("로그인이 갱신되었습니다. 다시 시도해주세요.");
-      } else if (err?.status === 403) {
-        alert("본인의 글만 수정할 수 있어요.");
-      } else {
-        alert(err?.message || "처리 중 오류가 발생했어요. 잠시 후 다시 시도해주세요.");
-      }
-    } finally {
-      setSubmitting(false);
-    }
-  }, [isEdit, editId, title, category, tags, contentHtml, youtubeUrl, youtubeId, repImageUrl, youtubeCover, submitting, navigate]);
+    },
+    [isEdit, editId, title, category, tags, contentHtml, youtubeUrl, youtubeId, repImageUrl, youtubeCover, submitting, navigate]
+  );
 
   if (loading || auth.loading) {
     return (
@@ -321,7 +321,9 @@ export default function WritePage() {
           <div className="mb-3">
             <label className="form-label">카테고리</label>
             <select className="form-select" value={category} onChange={(e) => setCategory(e.target.value)}>
-              {CATEGORIES.map((c) => (<option key={c} value={c}>{c}</option>))}
+              {CATEGORIES.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
             </select>
           </div>
 
@@ -335,9 +337,13 @@ export default function WritePage() {
                 <div className="flex-shrink-0">
                   <div
                     style={{
-                      width: 120, height: 80, borderRadius: 8, background: "#f3f3f3",
+                      width: 120,
+                      height: 80,
+                      borderRadius: 8,
+                      background: "#f3f3f3",
                       backgroundImage: repImageUrl ? `url(${repImageUrl})` : undefined,
-                      backgroundSize: "cover", backgroundPosition: "center",
+                      backgroundSize: "cover",
+                      backgroundPosition: "center",
                     }}
                   />
                 </div>
@@ -351,9 +357,11 @@ export default function WritePage() {
                   </button>
                 )}
                 {repUploading && (
-                  <div className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
-                       style={{ background: "rgba(255,255,255,0.5)", borderRadius: 12 }}
-                       aria-label="업로드 중">
+                  <div
+                    className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
+                    style={{ background: "rgba(255,255,255,0.5)", borderRadius: 12 }}
+                    aria-label="업로드 중"
+                  >
                     <div className="spinner-border text-secondary" role="status" />
                   </div>
                 )}
@@ -397,15 +405,10 @@ export default function WritePage() {
             </div>
           </div>
 
-          {/* 태그 — 로컬 구현 */}
+          {/* 태그 */}
           <div className="mb-3">
             <label className="form-label">태그</label>
-            <SimpleTagInput
-              value={tags}
-              onChange={setTags}
-              placeholder="태그 입력 후 Enter"
-              maxTags={10}
-            />
+            <TagInput value={tags} onChange={setTags} placeholder="태그 입력 후 Enter" maxTags={10} />
             <div className="form-text">최대 10개 · Enter 로 추가/Backspace 로 삭제</div>
           </div>
 
@@ -416,19 +419,18 @@ export default function WritePage() {
             </label>
             <div className={`border rounded-3 ${errors.content ? "border-danger" : ""}`}>
               <TuiHtmlEditor
-                key={isEdit ? `edit-${editId}` : "new"}
-                initialValue={initialValue}
-                initialFormat={initialFormat}
-                onChange={setContentHtml}
-                height="72vh"
+                key={isEdit ? `edit-${editId}` : "new"}     // 글 전환 시 초기화
+                initialValue={initialValue}                  // 원문 그대로
+                initialFormat={initialFormat}                // md/html 구분
+                onChange={setContentHtml}                    // 항상 HTML이 들어옴
+                height="80vh"                                // ★ 시원하게 키움
                 placeholder={`레시피/후기/질문 내용을 자유롭게 적어주세요.
 - 캡처 이미지를 붙여넣거나 드래그하면 자동 업로드됩니다.`}
                 upload={async (blob) => {
                   const up = await uploadFile(blob);
                   const url =
-                    up?.url || up?.URL || up?.link || up?.location || up?.Location ||
-                    up?.secure_url || up?.fileUrl || up?.fileURL ||
-                    (up?.data && (up.data.url || up.data.link || up.data.Location));
+                    up?.url || up?.URL || up?.link || up?.location || up?.Location || up?.secure_url || up?.fileUrl || up?.fileURL
+                    || (up?.data && (up.data.url || up.data.link || up.data.Location));
                   if (!url) throw new Error("업로드 응답에 URL이 없어요.");
                   if (!repImageUrl) setRepImageUrl(url);
                   return url;
@@ -447,9 +449,14 @@ export default function WritePage() {
                 onClick={() => {
                   if (confirm("임시저장을 삭제할까요?")) {
                     localStorage.removeItem(DRAFT_KEY);
-                    setTitle(""); setCategory(CATEGORIES[0]); setTags([]);
-                    setContentHtml(""); setRepImageUrl(""); setYoutubeUrl("");
-                    setInitialValue(""); setInitialFormat("auto");
+                    setTitle("");
+                    setCategory(CATEGORIES[0]);
+                    setTags([]);
+                    setContentHtml("");
+                    setRepImageUrl("");
+                    setYoutubeUrl("");
+                    setInitialValue("");
+                    setInitialFormat("auto");
                   }
                 }}
               >
