@@ -1063,10 +1063,10 @@ export default function MainPage() {
       </main>
 
       {/* 하단 고정 띠배너 광고 */}
-      <StickyBottomAd heightMobile={80} heightDesktop={120} label="Bottom Sticky" />
-         <SiteFooter />
-
       <BottomNav />
+      
+            <StickyBottomAd label="Bottom Sticky 320×50 / 728×90" />
+            <BottomNav />
       <div className="bottom-nav-spacer" aria-hidden="true" />
 
       {/* 모달: 최신 레시피 전체보기 */}

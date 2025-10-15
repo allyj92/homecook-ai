@@ -5,7 +5,7 @@ import { ensureLogin } from '../lib/auth';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import BottomNav from '../components/BottomNav';
 import '../index.css';
-
+import SiteFooter from '../components/SiteFooter';
 /* ------------ 공통 유틸 ------------- */
 const fmtNum = (n) => {
   const x = Number(n || 0);
@@ -525,7 +525,7 @@ export default function CommunityPage() {
         </section>
       </main>
 
-      <SiteFooter />
+      <SiteFooter reserveForSticky={false} />
 
       {/* ✅ 모바일 FAB */}
       <MobileWriteMiniBtnTopRight onClick={onWrite} />
