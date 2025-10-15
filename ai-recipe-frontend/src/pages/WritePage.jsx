@@ -76,23 +76,25 @@ function htmlForSave(html = "") {
 }
 
 /** 태그 안전 정규화: 어떤 입력이 와도 string[] */
-function normalizeTags(v) {
-  if (!v) return [];
-  if (Array.isArray(v)) {
-    return v
-      .map((t) => (typeof t === "string" ? t : (t?.value ?? t?.text ?? String(t ?? ""))))
-      .map((s) => s.trim())
-      .filter(Boolean);
-  }
-  if (typeof v === "string") {
-    return v
-      .split(/[,\s]+/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-  }
-  return [];
-}
-
+ function normalizeTags(v, maxLen = 30) {
+   const stripHtml = (s = "") =>
+     String(s)
+       .replace(/<[^>]*>/g, " ")
+       .replace(/[<>]/g, " ")
+       .replace(/\s+/g, " ")
+       .trim();
+   const canon = (s = "") => stripHtml(s).toLowerCase().slice(0, maxLen);
+   const norm = (x) => {
+     if (!x && x !== 0) return "";
+     if (typeof x === "string") return canon(x);
+     if (typeof x === "object" && x) return canon(x.value ?? x.text ?? String(x));
+     return canon(String(x));
+   };
+   if (!v) return [];
+   if (Array.isArray(v)) return v.map(norm).filter(Boolean);
+   if (typeof v === "string") return v.split(/[,\s]+/).map(norm).filter(Boolean);
+   return [];
+ }
 export default function WritePage() {
   const navigate = useNavigate();
   const loc = useLocation();

@@ -250,6 +250,21 @@ function transformHtml(rawHtml = "") {
       if (!img.getAttribute("width")) {
         // 컨테이너 대응은 CSS에서 max-width:100%로 처리
       }
+       try {
+        const sw = (img.style.width || "").trim();
+        const dw = (img.getAttribute("data-w") || "").trim();
+        const aw = (img.getAttribute("width") || "").trim();
+        let w = "";
+        if (/^\d+px$/.test(sw)) w = sw.replace("px", "");
+        else if (/^\d+$/.test(dw)) w = dw;
+        else if (/^\d+$/.test(aw)) w = aw;
+        if (w) {
+          img.setAttribute("width", String(parseInt(w, 10)));
+          // 화면 렌더 쪽은 width 속성만으로도 충분하므로 style은 비워도 OK
+          img.style.width = "";
+          img.removeAttribute("data-w");
+        }
+      } catch {}
     });
 
     doc.querySelectorAll("a[href]").forEach((a) => {
