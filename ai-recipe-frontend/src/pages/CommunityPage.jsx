@@ -25,23 +25,70 @@ function debounce(fn, ms = 300) {
 /* ------------ 썸네일/프리뷰 유틸 ------------- */
 const ytThumb = (id) => (id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : null);
 
+/** 의미 없는 이미지 대체 텍스트인지 판단 */
+function isGenericAlt(altRaw = '') {
+  const alt = String(altRaw).trim().toLowerCase();
+  if (!alt) return true;
+  // 흔한 제너릭 토큰/패턴
+  const genericWords = [
+    'image','img','photo','picture','screenshot','thumbnail','thumb','cover',
+    '이미지','사진','스크린샷','섬네일','썸네일','표지'
+  ];
+  if (genericWords.includes(alt)) return true;
+  // 파일명/기기캡처 패턴
+  if (/^(img|image|photo|screenshot)[-_ ]?\d+/i.test(alt)) return true;
+  if (/\.(png|jpe?g|gif|webp|avif|bmp|heic|heif)$/i.test(alt)) return true;
+  // 너무 짧은(잡음) alt
+  if (alt.length <= 2) return true;
+  return false;
+}
+
+/** 카드용 본문 프리뷰 생성 */
 function makePreviewText(input, maxLen = 120) {
   if (!input) return '';
+
   let s = String(input);
-  s = s.replace(/!\[([^\]]*)]\(([^)]+)\)/g, (_m, alt) => (alt || '').trim()); // MD 이미지 → alt
-  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, text) => (text || '').trim()); // MD 링크 → text
-  s = s.replace(/<img[^>]*alt=["']?([^"'>]*)["']?[^>]*>/gi, (_m, alt) => (alt || '').trim()); // IMG alt
-  s = s.replace(/<a[^>]*>(.*?)<\/a>/gi, (_m, inner) => (inner || '').trim()); // A 텍스트
-  s = s.replace(/\bhttps?:\/\/[^\s)]+/gi, ''); // URL 삭제
+
+  // 1) 마크다운 이미지: alt가 의미 있을 때만 남기고, 아니면 제거
+  s = s.replace(/!\[([^\]]*)]\(([^)]+)\)/g, (_m, alt) => {
+    return isGenericAlt(alt) ? ' ' : (` ${String(alt).trim()} `);
+  });
+
+  // 2) HTML IMG: alt가 의미 있을 때만 남기고, 아니면 제거
+  s = s.replace(/<img[^>]*alt=["']?([^"'>]*)["']?[^>]*>/gi, (_m, alt) => {
+    return isGenericAlt(alt) ? ' ' : (` ${String(alt).trim()} `);
+  });
+
+  // 3) 마크다운 링크는 텍스트만 유지
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, text) => (text || '').trim());
+
+  // 4) HTML 링크는 내부 텍스트만 유지
+  s = s.replace(/<a[^>]*>(.*?)<\/a>/gi, (_m, inner) => (inner || '').trim());
+
+  // 5) URL 제거
+  s = s.replace(/\bhttps?:\/\/[^\s)]+/gi, '');
   s = s.replace(/\bwww\.[^\s)]+/gi, '');
-  s = s.replace(/<\/?[^>]+>/g, ' '); // HTML 태그 제거
-  s = s.replace(/[#>*`_~\-]{1,}/g, ' '); // MD 기호 정리
+
+  // 6) 나머지 HTML 태그 제거
+  s = s.replace(/<\/?[^>]+>/g, ' ');
+
+  // 7) 마크다운 기호 정리
+  s = s.replace(/[#>*`_~\-]{1,}/g, ' ');
+
+  // 8) 중복 단어 연속 축약 (image image → image), 한글엔 영향 거의 없음
+  s = s.replace(/\b(\S+)(\s+\1\b)+/gi, '$1');
+
+  // 9) 공백 정리
   s = s.replace(/\s+/g, ' ').trim();
 
-  if (!s) return '이미지 첨부';
+  // 10) 텍스트가 거의 없으면 이미지 전용 안내
+  if (!s || s.length < 2) return '이미지 첨부';
 
+  // 11) 문장 3개 이내로 줄이기
   const sentences = s.split(/(?<=[.!?])\s+/).slice(0, 3);
   s = sentences.join(' ');
+
+  // 12) 길이 제한
   if (s.length > maxLen) s = s.slice(0, maxLen).trim() + '…';
   return s;
 }
@@ -318,7 +365,6 @@ export default function CommunityPage() {
           createdAt,
           updatedAt,
           ...extractCounts(p),
-          // __covers 제거 (프록시/커버 후보 미사용)
         };
       });
 
