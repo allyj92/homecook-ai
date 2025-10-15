@@ -256,7 +256,7 @@ function migrateLegacyForThisPost(uid, provider, postId) {
   } catch {}
 }
 
-/** HTML 컨텐츠 내 <img>/<a> 정리(프록시/속성 부여, 무효 이미지 제거) */
+/** HTML 컨텐츠 내 <img>/<a> 정리(프록시/속성 부여, 폭 복원 강화) */
 function transformHtml(rawHtml = "") {
   try {
     const parser = new DOMParser();
@@ -266,7 +266,7 @@ function transformHtml(rawHtml = "") {
       const orig = (img.getAttribute("src") || "").trim();
       const safe = toSafeSrc(orig);
 
-      // src 무효 → 빈 공간 생기므로 즉시 제거
+      // src 무효 → 제거
       if (!safe) {
         img.remove();
         return;
@@ -278,27 +278,54 @@ function transformHtml(rawHtml = "") {
       img.setAttribute("fetchpriority", "low");
       img.setAttribute("referrerpolicy", "no-referrer");
 
-      // writer에서 폭 힌트 복원: style.width/data-w/width → width로 통일, height는 제거
+      // 폭 힌트 복원: style.width / data-w / width (px 또는 % 지원)
       try {
         const sw = (img.style.width || "").trim();
         const dw = (img.getAttribute("data-w") || "").trim();
         const aw = (img.getAttribute("width") || "").trim();
-        let w = "";
-        if (/^\d+px$/.test(sw)) w = sw.replace("px", "");
-        else if (/^\d+$/.test(dw)) w = dw;
-        else if (/^\d+$/.test(aw)) w = aw;
 
-        if (w) {
-          img.setAttribute("width", String(parseInt(w, 10)));
-          img.style.width = "";
-          img.removeAttribute("data-w");
-          img.removeAttribute("height"); // 고정 높이 제거 (유령 여백 방지)
+        // 우선순위: style.width(px/%) > data-w(숫자=px) > width(숫자=px or %)
+        let value = "";
+        let unit = "px";
+
+        const pick = [sw, dw, aw].find(Boolean);
+
+        if (pick) {
+          if (/^\d+px$/i.test(pick)) {
+            value = String(parseInt(pick, 10));
+            unit = "px";
+          } else if (/^\d+%$/i.test(pick)) {
+            value = String(parseInt(pick, 10));
+            unit = "%";
+          } else if (/^\d+$/i.test(pick)) {
+            value = String(parseInt(pick, 10));
+            unit = "px";
+          }
         }
-      } catch {}
 
-      // 안전 기본값
-      img.style.maxWidth = "100%";
-      img.style.height = "auto";
+        if (value) {
+          // 인라인 + !important 로 강제 (외부 CSS의 !important 도 이김)
+          img.style.setProperty("width", value + unit, "important");
+          img.style.setProperty("height", "auto", "important");
+          // 보조: 속성 width는 px일 때만 유지
+          if (unit === "px") {
+            img.setAttribute("width", value);
+          } else {
+            img.removeAttribute("width");
+          }
+          // 잔여 속성/스타일 정리
+          img.style.maxWidth = "100%";
+          img.removeAttribute("data-w");
+          img.removeAttribute("height");
+        } else {
+          // 폭 힌트가 없으면 반응형 기본
+          img.style.maxWidth = "100%";
+          img.style.height = "auto";
+        }
+      } catch {
+        img.style.maxWidth = "100%";
+        img.style.height = "auto";
+      }
     });
 
     doc.querySelectorAll("a[href]").forEach((a) => {
@@ -313,7 +340,7 @@ function transformHtml(rawHtml = "") {
 }
 
 export default function PostDetailPage() {
-  console.log("PostDetail LOADED v-2025-10-13 html+md+comments");
+  console.log("PostDetail LOADED v-2025-10-15 html+md+comments");
 
   const { id } = useParams();
   const navigate = useNavigate();
@@ -698,7 +725,7 @@ export default function PostDetailPage() {
         </div>
       </article>
 
-      <div className="text-center text-secondary small mt-2">PostDetail v-2025-10-13</div>
+      <div className="text-center text-secondary small mt-2">PostDetail v-2025-10-15</div>
 
       <footer className="text-center text-secondary mt-4">
         <div className="small">* 커뮤니티 내 일부 링크는 제휴/광고일 수 있으며, 구매 시 수수료를 받을 수 있습니다.</div>
