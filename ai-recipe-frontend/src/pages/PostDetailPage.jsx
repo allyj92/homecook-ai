@@ -17,14 +17,32 @@ import CommentEditor from "../components/CommentEditor";
 /* ------------ 이미지 프록시 유틸 (CommunityPage와 동일 컨벤션) ------------- */
 const PROXY = "/api/img-proxy?u=";
 const toProxied = (u) => (u ? PROXY + encodeURIComponent(u) : null);
+
+/** 외부 이미지 안전 변환:
+ * - javascript:, data:text/html → 차단
+ * - data:, blob: → 그대로 허용 (프록시 X)
+ * - 같은 오리진/상대경로 → 그대로
+ * - http/https 외부 → 프록시
+ * - 그 외 스킴 → 차단
+ */
 function toSafeSrc(u) {
+  const s = (u ?? "").trim();
+  if (!s || s === "null" || s === "undefined") return "";
+  const low = s.toLowerCase();
+  if (low.startsWith("javascript:") || low.startsWith("data:text/html")) return "";
+  if (low.startsWith("data:") || low.startsWith("blob:")) return s;
+
+  let url;
   try {
-    const url = new URL(u, window.location.origin);
-    if (url.origin === window.location.origin) return url.toString(); // 같은 오리진(상대경로 포함)
-    return toProxied(url.toString()); // 외부(https/http)는 프록시
+    url = new URL(s, window.location.origin);
   } catch {
-    return typeof u === "string" ? u : "";
+    return ""; // 파싱 실패 → 드롭 (빈 이미지 박스 방지)
   }
+  if (url.origin === window.location.origin) return url.toString();
+  if (url.protocol === "http:" || url.protocol === "https:") {
+    return toProxied(url.toString());
+  }
+  return "";
 }
 
 // 서버 북마크 토글
@@ -44,7 +62,7 @@ const md = new MarkdownIt({
   breaks: true,
 });
 
-// ✅ 이미지 토큰 렌더: src 안전 경로로 치환 + 속성 부여
+// ✅ 이미지 토큰 렌더: src 안전 경로로 치환 + 무효면 출력하지 않음(alt만)
 const defaultImage =
   md.renderer.rules.image ||
   function (tokens, idx, options, env, self) {
@@ -54,8 +72,13 @@ md.renderer.rules.image = function (tokens, idx, options, env, self) {
   const token = tokens[idx];
   const srcIdx = token.attrIndex("src");
   if (srcIdx >= 0) {
-    const orig = token.attrs[srcIdx][1];
-    token.attrs[srcIdx][1] = toSafeSrc(orig);
+    const orig = (token.attrs[srcIdx][1] || "").trim();
+    const safe = toSafeSrc(orig);
+    if (!safe) {
+      const alt = token.content || "";
+      return alt ? alt : ""; // 무효 src → 이미지 대신 alt 텍스트만
+    }
+    token.attrs[srcIdx][1] = safe;
   }
   const addAttr = (k, v) => {
     const i = token.attrIndex(k);
@@ -96,7 +119,7 @@ const ALLOWED_ATTR = [
   "href","target","rel","title",
   // 이미지
   "src","alt","width","height","loading","decoding","fetchpriority","referrerpolicy",
-   "style","class" 
+  "style","class"
 ];
 
 /* ---- 유틸 ---- */
@@ -233,24 +256,30 @@ function migrateLegacyForThisPost(uid, provider, postId) {
   } catch {}
 }
 
-/** HTML 컨텐츠 내 <img>/<a> 정리(프록시/속성 부여) */
+/** HTML 컨텐츠 내 <img>/<a> 정리(프록시/속성 부여, 무효 이미지 제거) */
 function transformHtml(rawHtml = "") {
   try {
     const parser = new DOMParser();
     const doc = parser.parseFromString(rawHtml, "text/html");
 
     doc.querySelectorAll("img").forEach((img) => {
-      const orig = img.getAttribute("src") || "";
-      img.setAttribute("src", toSafeSrc(orig));
+      const orig = (img.getAttribute("src") || "").trim();
+      const safe = toSafeSrc(orig);
+
+      // src 무효 → 빈 공간 생기므로 즉시 제거
+      if (!safe) {
+        img.remove();
+        return;
+      }
+
+      img.setAttribute("src", safe);
       img.setAttribute("loading", "lazy");
       img.setAttribute("decoding", "async");
       img.setAttribute("fetchpriority", "low");
       img.setAttribute("referrerpolicy", "no-referrer");
-      // width 속성이 전혀 없을 때만 기본 폭 제한(안전)
-      if (!img.getAttribute("width")) {
-        // 컨테이너 대응은 CSS에서 max-width:100%로 처리
-      }
-       try {
+
+      // writer에서 폭 힌트 복원: style.width/data-w/width → width로 통일, height는 제거
+      try {
         const sw = (img.style.width || "").trim();
         const dw = (img.getAttribute("data-w") || "").trim();
         const aw = (img.getAttribute("width") || "").trim();
@@ -258,13 +287,18 @@ function transformHtml(rawHtml = "") {
         if (/^\d+px$/.test(sw)) w = sw.replace("px", "");
         else if (/^\d+$/.test(dw)) w = dw;
         else if (/^\d+$/.test(aw)) w = aw;
+
         if (w) {
           img.setAttribute("width", String(parseInt(w, 10)));
-          // 화면 렌더 쪽은 width 속성만으로도 충분하므로 style은 비워도 OK
           img.style.width = "";
           img.removeAttribute("data-w");
+          img.removeAttribute("height"); // 고정 높이 제거 (유령 여백 방지)
         }
       } catch {}
+
+      // 안전 기본값
+      img.style.maxWidth = "100%";
+      img.style.height = "auto";
     });
 
     doc.querySelectorAll("a[href]").forEach((a) => {

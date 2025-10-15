@@ -1112,3 +1112,9 @@ body{
   margin-block: 4px;
   line-height: 0.5;
 }
+
+.post-content img[src=""], 
+.post-content img:not([src]) {
+  display: none !important;
+}
+.post-content img { max-width: 100%; height: auto; }
