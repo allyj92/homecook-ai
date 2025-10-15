@@ -104,11 +104,11 @@ export default function WritePage() {
           setTags(Array.isArray(p.tags) ? p.tags : []);
 
           // ✅ 서버 원문 그대로/포맷 그대로 에디터에 주입 (+ 이스케이프 복원)
+          // ✅ 원문/포맷 주입 (HTML이 &lt;div&gt;로 저장된 과거 데이터도 복원)
           const raw = String(p?.content ?? "");
-          const looksHtml = p?.contentFormat ? p.contentFormat === "html" : (isLikelyHtml(raw) || /&lt;[a-z]/i.test(raw));
+          const looksHtml = isLikelyHtml(raw) || /&lt;[a-z]/i.test(raw);
           const fmt = p?.contentFormat ?? (looksHtml ? "html" : "md");
-          const normalized = fmt === "html" ? unescapeIfHtmlEscaped(raw) : raw;
-          setInitialValue(normalized);
+          setInitialValue(fmt === "html" ? unescapeIfHtmlEscaped(raw) : raw);
           setInitialFormat(fmt);
 
           setRepImageUrl(p.repImageUrl || "");
