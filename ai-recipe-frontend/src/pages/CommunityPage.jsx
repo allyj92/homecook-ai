@@ -525,12 +525,7 @@ export default function CommunityPage() {
         </section>
       </main>
 
-      <footer className="text-center text-secondary mt-4">
-        <div className="small">
-          * 커뮤니티 내 일부 링크는 제휴/광고일 수 있으며, 구매 시 수수료를 받을 수 있습니다.
-        </div>
-        <div className="small">© {new Date().getFullYear()} RecipFree</div>
-      </footer>
+      <BottomNav />
 
       {/* ✅ 모바일 FAB */}
       <MobileWriteMiniBtnTopRight onClick={onWrite} />

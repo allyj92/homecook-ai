@@ -822,11 +822,7 @@ export default function MyPage() {
         </section>
       </div>
 
-      <footer className="text-center text-secondary small mt-4">
-        * 일부 링크는 제휴/광고일 수 있으며, 구매 시 수수료를 받을 수 있습니다.
-        <br />
-        © {new Date().getFullYear()} <span className="fw-semibold">RECIP</span><span className="text-primary fw-semibold">FREE</span>
-      </footer>
+     <BottomNav />
 
       <StickyBottomAd label="Bottom Sticky 320×50 / 728×90" />
       <BottomNav />

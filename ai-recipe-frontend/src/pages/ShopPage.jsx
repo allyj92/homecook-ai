@@ -599,10 +599,7 @@ export default function ShopPage() {
         </section>
       </main>
 
-      <footer className="homec-footer text-center text-secondary mt-4">
-        <div className="small">* 일부 상품은 제휴/광고 포함 가능하며, 구매 시 수수료를 받을 수 있습니다.</div>
-        <div className="copy small">© {new Date().getFullYear()} RecipFree</div>
-      </footer>
+      <BottomNav />
 
       <StickyBottomAd label="Bottom Sticky 320×50 / 728×90" />
       <BottomNav />
