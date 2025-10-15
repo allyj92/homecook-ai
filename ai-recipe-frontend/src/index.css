@@ -938,10 +938,13 @@ body{
   display: block;
 }
 
-.card img {
+/* ✅ 목록/썸네일 컨텍스트로만 제한 */
+.cards .card .thumb img,
+.shop-wrap .card .thumb img,
+.card--recipe .thumb img {
   width: 100%;
   height: auto;
-  aspect-ratio: 1 / 1; /* 정사각형 비율로 */
+  aspect-ratio: 1 / 1;
   object-fit: cover;
   border-radius: 10px;
 }
@@ -1118,3 +1121,11 @@ body{
   display: none !important;
 }
 .post-content img { max-width: 100%; height: auto; }
+
+.card .post-content img {
+  width: auto !important;          /* 100% 강제 해제 */
+  max-width: 100%;
+  height: auto !important;
+  aspect-ratio: auto !important;   /* 정사각 강제 해제 */
+  object-fit: contain !important;  /* 자르는 대신 이미지 비율 유지 */
+}
