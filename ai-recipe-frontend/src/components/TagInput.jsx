@@ -1,61 +1,147 @@
+// src/components/TuiMdEditor.jsx
 import { useEffect, useRef } from "react";
-import Tagify from "@yaireo/tagify";
-import "@yaireo/tagify/dist/tagify.css";
+import Editor from "@toast-ui/editor";
+import "@toast-ui/editor/dist/toastui-editor.css";
 
-export default function TagInput({
-  value = [],
+/**
+ * TuiHtmlEditor (MD/HTML 하이브리드)
+ * props:
+ * - initialValue: string        // 서버 원문 (MD 또는 HTML)
+ * - initialFormat: "md"|"html"|"auto"
+ * - onChange: (html: string) => void  // 항상 HTML로 콜백
+ * - upload: (file: Blob) => Promise<string> // 업로드 후 URL
+ * - height?: string
+ * - placeholder?: string
+ */
+export default function TuiHtmlEditor({
+  initialValue = "",
+  initialFormat = "auto",
   onChange,
-  placeholder = "태그 입력 후 Enter",
-  maxTags = 10,
+  upload,
+  height = "520px",
+  placeholder = "여기에 내용을 입력하세요…",
 }) {
-  const inputRef = useRef(null);
-  const tagifyRef = useRef(null);
+  const elRef = useRef(null);
+  const instRef = useRef(null);
+  const lastImgRef = useRef(null);
 
-  // 최초/옵션 변경 시 인스턴스 생성
+  const isLikelyHtml = (s = "") => /<\/?[a-z][\s\S]*>/i.test(s);
+
   useEffect(() => {
-    if (!inputRef.current) return;
+    if (!elRef.current) return;
 
-    // 기존 인스턴스 정리
-    try { tagifyRef.current?.destroy(); } catch {}
-    tagifyRef.current = new Tagify(inputRef.current, {
-      originalInputValueFormat: (valuesArr) => valuesArr.map((v) => v.value),
-      enforceWhitelist: false,
-      duplicates: false,
-      maxTags,
-      dropdown: { enabled: 0 },
+    // 커스텀 툴바: 이미지 크기 버튼
+    const imgSizeBtn = document.createElement("button");
+    imgSizeBtn.type = "button";
+    imgSizeBtn.className = "toastui-editor-toolbar-icons";
+    imgSizeBtn.style.width = "28px";
+    imgSizeBtn.style.height = "28px";
+    imgSizeBtn.style.backgroundSize = "18px 18px";
+    imgSizeBtn.title = "이미지 크기";
+    imgSizeBtn.innerHTML = "↔️"; // 간단 아이콘
+
+    const editor = new Editor({
+      el: elRef.current,
+      height,
+      initialEditType: "wysiwyg",
+      previewStyle: "vertical",
+      initialValue: "",
+      usageStatistics: false,
       placeholder,
+      toolbarItems: [
+        ["heading", "bold", "italic", "strike"],
+        ["hr", "quote"],
+        ["ul", "ol", "task", "indent", "outdent"],
+        ["table", "image", "link"],
+        [{ el: imgSizeBtn, tooltip: "이미지 크기" }],
+        ["code", "codeblock"],
+      ],
+      hooks: {
+        addImageBlobHook: async (blob, callback) => {
+          try {
+            if (!upload) throw new Error("업로드 함수가 없습니다.");
+            const url = await upload(blob);
+            if (!url) throw new Error("업로드 응답에 URL이 없습니다.");
+            callback(url, "image"); // WYSIWYG에 <img> 삽입
+          } catch (e) {
+            console.error(e);
+            alert(e?.message || "이미지 업로드에 실패했어요.");
+          }
+          return false;
+        },
+      },
     });
 
-    // 초기 값 주입
-    try { tagifyRef.current.addTags(value); } catch {}
-
-    const emit = () => {
-      const vals = (tagifyRef.current?.value || []).map((t) => t.value);
-      onChange?.(vals);
-    };
-
-    tagifyRef.current.on("add", emit);
-    tagifyRef.current.on("remove", emit);
-    tagifyRef.current.on("blur", emit);
-    tagifyRef.current.on("invalid", emit);
-
-    return () => {
-      try { tagifyRef.current?.destroy(); } catch {}
-      tagifyRef.current = null;
-    };
-  }, [maxTags, placeholder]);
-
-  // 외부에서 value가 바뀌면 동기화
-  useEffect(() => {
-    const inst = tagifyRef.current;
-    if (!inst) return;
-    const curr = (inst.value || []).map((t) => t.value);
-    const next = Array.isArray(value) ? value : [];
-    if (JSON.stringify(curr) !== JSON.stringify(next)) {
-      inst.removeAllTags();
-      try { inst.addTags(next); } catch {}
+    // 초기 원문 주입 (MD면 setMarkdown, HTML이면 setHTML)
+    try {
+      const fmt =
+        initialFormat === "auto"
+          ? (isLikelyHtml(initialValue) ? "html" : "md")
+          : initialFormat;
+      if (fmt === "md") editor.setMarkdown(initialValue || "");
+      else editor.setHTML?.(initialValue || "");
+    } catch {
+      try { editor.setMarkdown(initialValue || ""); } catch {}
     }
-  }, [value]);
 
-  return <input ref={inputRef} className="form-control" />;
+    // 변경되면 항상 HTML을 넘기기
+    const push = () => {
+      try { onChange?.(editor.getHTML()); }
+      catch { try { onChange?.(editor.getMarkdown()); } catch {} }
+    };
+    editor.on("change", push);
+
+    // 마운트 직후 한 번 현재값 전달(검증/임시저장용)
+    push();
+
+    // 에디터 내부에서 클릭된 IMG 추적
+    const root = editor.getRootElement();
+    const onClick = (e) => {
+      const t = e.target;
+      if (t && t.tagName === "IMG") lastImgRef.current = t;
+    };
+    root.addEventListener("click", onClick);
+
+    // 이미지 크기 버튼 동작
+    imgSizeBtn.onclick = () => {
+      const img = lastImgRef.current;
+      if (!img) {
+        alert("크기를 조절할 이미지를 먼저 클릭하세요.");
+        return;
+      }
+      const current = img.getAttribute("width") || "";
+      const val = prompt("이미지 너비(px). 예: 320  (비우면 자동)", current);
+      if (val == null) return; // 취소
+      const px = String(val).trim();
+      if (!px) {
+        img.removeAttribute("width");
+        img.removeAttribute("height");
+      } else if (!/^\d+$/.test(px)) {
+        alert("숫자(px)만 입력해주세요. 예: 320");
+        return;
+      } else {
+        img.setAttribute("width", px);
+        img.removeAttribute("height"); // 비율 유지
+      }
+      // 에디터 HTML 갱신을 강제로 트리거
+      push();
+    };
+
+    instRef.current = editor;
+    return () => {
+      try { root.removeEventListener("click", onClick); } catch {}
+      try { editor.destroy(); } catch {}
+      instRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 높이 변경 반영
+  useEffect(() => {
+    const ed = instRef.current;
+    if (!ed) return;
+    try { ed.setHeight(height); } catch {}
+  }, [height]);
+
+  return <div ref={elRef} />;
 }

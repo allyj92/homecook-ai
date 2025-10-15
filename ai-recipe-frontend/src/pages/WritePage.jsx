@@ -13,7 +13,26 @@ import TuiHtmlEditor from "../components/TuiMdEditor";
 const DRAFT_KEY = "draft:community:html";
 const CATEGORIES = ["후기", "질문", "레시피", "노하우", "자유"];
 
+// 대충이라도 HTML 냄새 감지
 const isLikelyHtml = (s = "") => /<\/?[a-z][\s\S]*>/i.test(s);
+
+// 서버가 &lt;p&gt; 같은 이스케이프된 HTML을 줄 때 복원
+const unescapeIfHtmlEscaped = (s = "") =>
+  /&lt;\/?[a-z]/i.test(s)
+    ? s.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&")
+    : s;
+
+// 유튜브 URL/ID -> videoId
+const toYoutubeId = (url) => {
+  if (!url) return null;
+  const u = url.trim();
+  let m;
+  if ((m = u.match(/youtu\.be\/([A-Za-z0-9_-]{8,})/))) return m[1];
+  if ((m = u.match(/[?&]v=([A-Za-z0-9_-]{8,})/))) return m[1];
+  if ((m = u.match(/\/shorts\/([A-Za-z0-9_-]{8,})/))) return m[1];
+  if (/^[A-Za-z0-9_-]{8,32}$/.test(u)) return u;
+  return null;
+};
 
 export default function WritePage() {
   const navigate = useNavigate();
@@ -57,16 +76,6 @@ export default function WritePage() {
   const [repUploading, setRepUploading] = useState(false);
 
   // 유튜브
-  const toYoutubeId = (url) => {
-    if (!url) return null;
-    const u = url.trim();
-    let m;
-    if ((m = u.match(/youtu\.be\/([A-Za-z0-9_-]{8,})/))) return m[1];
-    if ((m = u.match(/[?&]v=([A-Za-z0-9_-]{8,})/))) return m[1];
-    if ((m = u.match(/\/shorts\/([A-Za-z0-9_-]{8,})/))) return m[1];
-    if (/^[A-Za-z0-9_-]{8,32}$/.test(u)) return u;
-    return null;
-  };
   const youtubeId = useMemo(() => toYoutubeId(youtubeUrl), [youtubeUrl]);
   const youtubeCover = useMemo(
     () => (youtubeId ? ytThumb(youtubeId, "maxresdefault") || ytThumb(youtubeId, "hqdefault") : null),
@@ -94,9 +103,12 @@ export default function WritePage() {
           setCategory(p.category || CATEGORIES[0]);
           setTags(Array.isArray(p.tags) ? p.tags : []);
 
-          // ✅ 서버 원문 그대로/포맷 그대로 에디터에 주입
-          const fmt = p?.contentFormat ?? (isLikelyHtml(p?.content) ? "html" : "md");
-          setInitialValue(String(p?.content ?? ""));
+          // ✅ 서버 원문 그대로/포맷 그대로 에디터에 주입 (+ 이스케이프 복원)
+          const raw = String(p?.content ?? "");
+          const looksHtml = p?.contentFormat ? p.contentFormat === "html" : (isLikelyHtml(raw) || /&lt;[a-z]/i.test(raw));
+          const fmt = p?.contentFormat ?? (looksHtml ? "html" : "md");
+          const normalized = fmt === "html" ? unescapeIfHtmlEscaped(raw) : raw;
+          setInitialValue(normalized);
           setInitialFormat(fmt);
 
           setRepImageUrl(p.repImageUrl || "");
@@ -108,7 +120,7 @@ export default function WritePage() {
           return;
         }
       } else {
-        // 새 글: 임시저장 복구
+        // 새 글: 임시저장 복구 (HTML 기반)
         try {
           const saved = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null");
           if (saved) {
@@ -116,7 +128,6 @@ export default function WritePage() {
             setCategory(saved.category || CATEGORIES[0]);
             setTags(saved.tags || []);
 
-            // 임시저장은 HTML로 저장해두므로 그대로 복구
             setInitialValue(saved.contentHtml || "");
             setInitialFormat("html");
             setRepImageUrl(saved.repImageUrl || "");
@@ -167,7 +178,8 @@ export default function WritePage() {
 
     try {
       const up = await uploadFile(file);
-      const url = up?.url || up?.URL || up?.link || up?.location || up?.Location || up?.secure_url || up?.fileUrl || up?.fileURL
+      const url =
+        up?.url || up?.URL || up?.link || up?.location || up?.Location || up?.secure_url || up?.fileUrl || up?.fileURL
         || (up?.data && (up.data.url || up.data.link || up.data.Location));
       if (!url) throw new Error("업로드 응답에 URL이 없어요.");
       setRepImageUrl(url);
