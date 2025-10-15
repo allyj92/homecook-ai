@@ -91,6 +91,8 @@ export default function SiteFooter({ className = "", reserveForSticky = true }) 
                 <span className="text-dark">
                   인천광역시 연수구 능허대로 79번길 30, 106동 101호
                 </span>
+              </div>
+              <div className="mb-1">
                 고객센터:{" "}
                 <span className="text-dark">
                   032-858-5380
