@@ -11,8 +11,8 @@ const BRAND = {
   teal:   '#009688',
   ink:    '#212529',
   mute:   '#6c757d',
-  softBg: '#fff',      // 히어로 배경은 완전 화이트
-  softBd: '#eee',      // 더 연한 보더
+  softBg: '#fff',   // 히어로 배경은 화이트
+  softBd: '#eee',   // 얇은 보더
 };
 
 function TopSearchBar({ onSearch }) {
@@ -70,7 +70,44 @@ function TopSearchBar({ onSearch }) {
   );
 }
 
-/* ---------------- 이미지 URL 유틸 ---------------- */
+/* ------------ 텍스트 프리뷰 유틸 (오늘의 맞춤 3줄 요약용) ------------ */
+function isGenericAlt(altRaw = '') {
+  const alt = String(altRaw).trim().toLowerCase();
+  if (!alt) return true;
+  const genericWords = [
+    'image','img','photo','picture','screenshot','thumbnail','thumb','cover',
+    '이미지','사진','스크린샷','섬네일','썸네일','표지'
+  ];
+  if (genericWords.includes(alt)) return true;
+  if (/^(img|image|photo|screenshot)[-_ ]?\d+/i.test(alt)) return true;
+  if (/\.(png|jpe?g|gif|webp|avif|bmp|heic|heif)$/i.test(alt)) return true;
+  if (alt.length <= 2) return true;
+  return false;
+}
+function makePreviewText(input, maxLen = 240) {
+  if (!input) return '';
+  let s = String(input);
+
+  // 이미지 alt는 의미 있을 때만
+  s = s.replace(/!\[([^\]]*)]\(([^)]+)\)/g, (_m, alt) => (isGenericAlt(alt) ? ' ' : ` ${String(alt).trim()} `));
+  s = s.replace(/<img[^>]*alt=["']?([^"'>]*)["']?[^>]*>/gi, (_m, alt) => (isGenericAlt(alt) ? ' ' : ` ${String(alt).trim()} `));
+
+  // 링크 텍스트만 유지
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, text) => (text || '').trim());
+  s = s.replace(/<a[^>]*>(.*?)<\/a>/gi, (_m, inner) => (inner || '').trim());
+
+  // URL/태그/마크다운 기호 제거
+  s = s.replace(/\bhttps?:\/\/[^\s)]+/gi, '').replace(/\bwww\.[^\s)]+/gi, '');
+  s = s.replace(/<\/?[^>]+>/g, ' ').replace(/[#>*`_~\-]{1,}/g, ' ');
+
+  // 중복 단어/공백 축약
+  s = s.replace(/\b(\S+)(\s+\1\b)+/gi, '$1').replace(/\s+/g, ' ').trim();
+
+  if (s.length > maxLen) s = s.slice(0, maxLen).trim() + '…';
+  return s || '';
+}
+
+/* ------------ 이미지/커버 유틸 ------------ */
 function unwrapLoginUrl(url) {
   try {
     const u = new URL(url, window.location.origin);
@@ -192,13 +229,6 @@ const fmtNum = (n) => {
   if (x >= 1000) return (x / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
   return String(x);
 };
-
-/* ---------------- 데이터 로더 ---------------- */
-async function fetchJson(url) {
-  const res = await fetch(url, { credentials: 'include', cache: 'no-store', headers: { 'Accept': 'application/json' } });
-  if (!res.ok) throw new Error(String(res.status));
-  return res.json();
-}
 const toArr = (data) => {
   if (!data) return [];
   if (Array.isArray(data)) return data;
@@ -208,7 +238,7 @@ const toArr = (data) => {
   return Array.isArray(firstArray) ? firstArray : [];
 };
 
-/** 최신 레시피(최신순) */
+/* ---------------- 데이터 로더 ---------------- */
 async function loadDailyNewRecipe(size = 8) {
   const qs = new URLSearchParams({ page: '0', size: String(size), sort: 'createdAt,desc' });
   const res = await fetch(`/api/community/posts?${qs}`, {
@@ -222,9 +252,9 @@ async function loadDailyNewRecipe(size = 8) {
   return posts.map((p) => ({ ...p, __asPost: true }));
 }
 
-/** 인기 커뮤니티 */
 async function loadPopularCommunity(size = 8) {
   const PAGE_SIZE_FOR_SCORING = 200;
+
   try {
     const qs = new URLSearchParams({ page: '0', size: String(PAGE_SIZE_FOR_SCORING), sort: 'popular' });
     const res = await fetch(`/api/community/posts?${qs}`, {
@@ -277,8 +307,6 @@ async function loadPopularCommunity(size = 8) {
     return [];
   }
 }
-
-/* 점수 계산 + 상위 N개 추림 */
 function scoreAndPick(items, size) {
   const now = Date.now();
   const scoreOf = (p) => {
@@ -350,6 +378,7 @@ async function loadBestOfToday() {
       __sum: likes + comments,
       __createdMs: createdMs,
       __asPost: true,
+      __preview: makePreviewText(p.preview || p.bodyPreview || p.content || p.body || ''),
     };
   };
 
@@ -380,16 +409,19 @@ function useHScrollControls() {
   const ref = useRef(null);
   const [prev, setPrev] = useState(false);
   const [next, setNext] = useState(false);
+
   const update = useCallback(() => {
     const el = ref.current; if (!el) return;
     const { scrollLeft, scrollWidth, clientWidth } = el;
     setPrev(scrollLeft > 2);
     setNext(scrollLeft + clientWidth < scrollWidth - 2);
   }, []);
+
   const scrollBy = useCallback((dx) => {
     const el = ref.current;
     if (el) el.scrollBy({ left: dx, behavior: 'smooth' });
   }, []);
+
   useEffect(() => {
     const el = ref.current; if (!el) return;
     const ro = new ResizeObserver(update);
@@ -398,13 +430,14 @@ function useHScrollControls() {
     update();
     return () => { ro.disconnect(); el.removeEventListener('scroll', update); };
   }, [update]);
+
   return { ref, prev, next, scrollBy };
 }
 
 /* ---------------- 브랜드 UI ---------------- */
 const BrandButton = ({ outline = false, size = 'md', className = '', style = {}, ...props }) => {
   const sz = {
-    md: { fontSize: '1rem',   padding: '10px 16px', minHeight: 44, borderRadius: 12 },
+    md: { fontSize: '1rem',     padding: '10px 16px', minHeight: 44, borderRadius: 12 },
     lg: { fontSize: '1.125rem', padding: '12px 20px', minHeight: 50, borderRadius: 14 },
   }[size] || {};
 
@@ -428,6 +461,7 @@ const BrandButton = ({ outline = false, size = 'md', className = '', style = {},
     />
   );
 };
+
 const BrandBadge = ({ tone = 'soft', size = 'sm', children, className = '', style = {}, ...props }) => {
   const styles = useMemo(() => {
     if (tone === 'solid') return { background: BRAND.orange, color: '#fff', borderColor: BRAND.orange };
@@ -437,7 +471,8 @@ const BrandBadge = ({ tone = 'soft', size = 'sm', children, className = '', styl
   const pad = size === 'lg' ? '8px 12px' : size === 'sm' ? '2px 6px' : '4px 8px';
   const fz  = size === 'lg' ? '1.05rem'  : size === 'sm' ? '0.8rem' : '0.9rem';
   return (
-    <span className={`badge border d-inline-flex align-items-center ${className}`}
+    <span
+      className={`badge border d-inline-flex align-items-center ${className}`}
       style={{ ...styles, borderWidth: 1.5, borderRadius: 9999, padding: pad, fontSize: fz, lineHeight: 1.1, width: 'auto', height: 'auto', ...style }}
       {...props}
     >
@@ -482,9 +517,12 @@ function StickyBottomAd({
     recompute();
     window.addEventListener('resize', recompute);
     window.addEventListener('orientationchange', recompute);
+    const onVis = () => { if (document.visibilityState === 'visible') recompute(); };
+    document.addEventListener('visibilitychange', onVis);
     return () => {
       window.removeEventListener('resize', recompute);
       window.removeEventListener('orientationchange', recompute);
+      document.removeEventListener('visibilitychange', onVis);
     };
   }, [recompute]);
 
@@ -612,11 +650,8 @@ export default function MainPage() {
 
       <main className="row g-4 mt-1">
         <section className="col-12">
-          {/* === HERO: 심플 & 큰 핵심 포인트 === */}
-          <section
-            className="rounded-4 border p-4 p-lg-5"
-            style={{ background: BRAND.softBg, borderColor: BRAND.softBd }}
-          >
+          {/* === HERO: 심플 & 크게, 버튼 간격 넉넉 === */}
+          <section className="rounded-4 border p-4 p-lg-5" style={{ background: BRAND.softBg, borderColor: BRAND.softBd }}>
             <div className="row align-items-center g-4">
               <div className="col-12 col-lg-7">
                 <h1 className="fw-bold mb-2" style={{ color: BRAND.ink, fontSize: '2rem' }}>
@@ -627,18 +662,30 @@ export default function MainPage() {
                   최소한의 입력으로, 당신에게 꼭 맞는 건강 레시피.
                 </p>
 
-                {/* 큼직한 핵심 포인트(배지 대신 큰 필) */}
-                <div className="d-flex flex-wrap gap-2 mb-3">
+                {/* 핵심 포인트 크게 */}
+                <div className="d-flex flex-wrap gap-2 mb-4">
                   <BrandBadge size="lg">🍽️ 집밥 기준의 손쉬운 조리</BrandBadge>
                   <BrandBadge size="lg">🧂 나트륨·정제당 최소화</BrandBadge>
                   <BrandBadge size="lg">🥗 자연스러운 단맛·건강한 기름</BrandBadge>
                 </div>
 
-                <div className="d-flex flex-wrap gap-2">
-                  <BrandButton onClick={() => requireLogin('/input', () => navigate('/input'))}>
+                {/* 버튼: 더 크고, 간격 넉넉, 모바일 세로 → sm 이상 가로 */}
+                <div className="d-flex flex-column flex-sm-row align-items-stretch gap-3 mb-3">
+                  <BrandButton
+                    size="lg"
+                    className="flex-fill"
+                    onClick={() => requireLogin('/input', () => navigate('/input'))}
+                  >
                     나만의 레시피 시작하기
                   </BrandButton>
-                  <BrandButton outline className="ms-1" onClick={() => navigate('/community')}>
+
+                  <BrandButton
+                    size="lg"
+                    outline
+                    className="flex-fill"
+                    onClick={() => navigate('/community')}
+                    style={{ background: '#fff' }}
+                  >
                     커뮤니티 구경
                   </BrandButton>
                 </div>
@@ -672,15 +719,43 @@ export default function MainPage() {
                       />
                     ) : null}
                     {bestToday?.__likes >= 0 && bestToday?.__comments >= 0 && (
-                      <BrandBadge tone="teal" size="sm" className="position-absolute top-0 start-0 m-2" style={{ zIndex: 2 }}>
+                      <BrandBadge
+                        tone="teal"
+                        size="sm"
+                        className="position-absolute top-0 start-0 m-2"
+                        style={{ width: 'auto', height: 'auto', zIndex: 2 }}
+                      >
                         ❤ {fmtNum(bestToday.__likes)} · 💬 {fmtNum(bestToday.__comments)}
                       </BrandBadge>
                     )}
                   </div>
                   <div className="card-body">
-                    <h3 className="h5 fw-semibold mb-1" style={{ color: BRAND.ink }}>
-                      {bestLoading ? <span className="placeholder col-8" style={{ display:'inline-block', height:22 }} /> : ellipsis(bestToday?.title || '오늘의 추천', 48)}
+                    <h3 className="h5 fw-semibold mb-2" style={{ color: BRAND.ink }}>
+                      {bestLoading
+                        ? <span className="placeholder col-8" style={{ display:'inline-block', height:22 }} />
+                        : ellipsis(bestToday?.title || '오늘의 추천', 48)}
                     </h3>
+
+                    {/* 본문 프리뷰: 최대 3줄, 넘치면 … */}
+                    {bestLoading ? (
+                      <span className="placeholder col-10" style={{ display:'inline-block', height:14 }} />
+                    ) : bestToday?.__preview ? (
+                      <p
+                        className="mb-0"
+                        style={{
+                          color: BRAND.mute,
+                          display: '-webkit-box',
+                          WebkitLineClamp: 3,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          lineHeight: 1.5,
+                          maxHeight: '4.5em',
+                        }}
+                      >
+                        {bestToday.__preview}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -840,7 +915,7 @@ export default function MainPage() {
         </section>
       </main>
 
-      {/* 사이트 푸터 */}
+      {/* 사이트 푸터 (사업자 정보) */}
       <SiteFooter />
 
       {/* 하단 고정 띠배너 광고 + 네비게이션 (커뮤니티와 동일 순서/구조) */}
