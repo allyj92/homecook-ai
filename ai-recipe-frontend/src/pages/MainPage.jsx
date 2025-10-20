@@ -11,13 +11,12 @@ const BRAND = {
   teal:   '#009688',
   ink:    '#212529',
   mute:   '#6c757d',
-  softBg: '#fff7f1',
-  softBd: '#ffd7bf',
+  softBg: '#fff',      // 히어로 배경은 완전 화이트
+  softBd: '#eee',      // 더 연한 보더
 };
 
 function TopSearchBar({ onSearch }) {
   const [q, setQ] = useState('');
-
   const submit = (e) => {
     e.preventDefault();
     const v = q.trim();
@@ -26,32 +25,14 @@ function TopSearchBar({ onSearch }) {
   };
 
   return (
-    <div
-      className="position-sticky top-0 bg-white"
-      style={{
-        zIndex: 1030,
-        borderBottom: '1px solid #eee',
-      }}
-    >
-      <div
-        className="container-xxl py-3"
-        style={{
-          display: 'flex',
-          justifyContent: 'center',
-        }}
-      >
+    <div className="position-sticky top-0 bg-white" style={{ zIndex: 1030, borderBottom: '1px solid #eee' }}>
+      <div className="container-xxl py-3" style={{ display: 'flex', justifyContent: 'center' }}>
         <form
           onSubmit={submit}
           style={{
-            width: '100%',
-            maxWidth: 640,
-            display: 'flex',
-            alignItems: 'center',
-            background: '#fff',
-            borderRadius: 12,
-            border: '1px solid #ddd',
-            padding: '6px 12px',
-            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+            width: '100%', maxWidth: 640, display: 'flex', alignItems: 'center',
+            background: '#fff', borderRadius: 12, border: '1px solid #ddd', padding: '6px 12px',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
           }}
         >
           <input
@@ -60,13 +41,9 @@ function TopSearchBar({ onSearch }) {
             onChange={(e) => setQ(e.target.value)}
             placeholder="레시피나 재료를 검색하세요"
             className="form-control border-0 bg-transparent"
-            style={{
-              fontSize: '1rem',
-              boxShadow: 'none',
-            }}
+            style={{ fontSize: '1rem', boxShadow: 'none' }}
             aria-label="검색"
           />
-
           {q && (
             <button
               type="button"
@@ -74,33 +51,15 @@ function TopSearchBar({ onSearch }) {
               className="btn btn-light p-0 border-0 me-2"
               style={{ color: '#999', fontSize: 18 }}
               aria-label="검색어 지우기"
-            >
-              ✕
-            </button>
+            >✕</button>
           )}
-
           <button
             type="submit"
             className="btn btn-success rounded-circle d-flex align-items-center justify-content-center"
             aria-label="검색"
-            style={{
-              width: 38,
-              height: 38,
-              padding: 0,
-              background: '#28a745',
-              border: 'none',
-            }}
+            style={{ width: 38, height: 38, padding: 0, background: '#28a745', border: 'none' }}
           >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="white"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="11" cy="11" r="8" />
               <line x1="21" y1="21" x2="16.65" y2="16.65" />
             </svg>
@@ -182,19 +141,16 @@ function firstImageFromContent(p) {
     const u = unwrapLoginUrl(m[1].split('"')[0].trim());
     return isUsableImageUrl(u) ? u : null;
   }
-
   m = /<img[^>]+src=["']([^"']+)["'][^>]*>/i.exec(s);
   if (m?.[1]) {
     const u = unwrapLoginUrl(m[1].trim());
     return isUsableImageUrl(u) ? u : null;
   }
-
   m = /<img[^>]+data-src=["']([^"']+)["'][^>]*>/i.exec(s);
   if (m?.[1]) {
     const u = unwrapLoginUrl(m[1].trim());
     return isUsableImageUrl(u) ? u : null;
   }
-
   m = /<img[^>]+srcset=["']([^"']+)["'][^>]*>/i.exec(s);
   if (m?.[1]) {
     const first = m[1].split(',')[0].trim().split(' ')[0];
@@ -203,7 +159,6 @@ function firstImageFromContent(p) {
       return isUsableImageUrl(u) ? u : null;
     }
   }
-
   return null;
 }
 function pick(obj, keys) { for (const k of keys) { if (obj && obj[k]) return obj[k]; } return null; }
@@ -425,19 +380,16 @@ function useHScrollControls() {
   const ref = useRef(null);
   const [prev, setPrev] = useState(false);
   const [next, setNext] = useState(false);
-
   const update = useCallback(() => {
     const el = ref.current; if (!el) return;
     const { scrollLeft, scrollWidth, clientWidth } = el;
     setPrev(scrollLeft > 2);
     setNext(scrollLeft + clientWidth < scrollWidth - 2);
   }, []);
-
   const scrollBy = useCallback((dx) => {
     const el = ref.current;
     if (el) el.scrollBy({ left: dx, behavior: 'smooth' });
   }, []);
-
   useEffect(() => {
     const el = ref.current; if (!el) return;
     const ro = new ResizeObserver(update);
@@ -446,7 +398,6 @@ function useHScrollControls() {
     update();
     return () => { ro.disconnect(); el.removeEventListener('scroll', update); };
   }, [update]);
-
   return { ref, prev, next, scrollBy };
 }
 
@@ -468,21 +419,13 @@ const BrandBadge = ({ tone = 'soft', size = 'sm', children, className = '', styl
   const styles = useMemo(() => {
     if (tone === 'solid') return { background: BRAND.orange, color: '#fff', borderColor: BRAND.orange };
     if (tone === 'teal')  return { background: BRAND.teal,   color: '#fff', borderColor: BRAND.teal };
-    return { background: BRAND.softBg, color: BRAND.ink, borderColor: BRAND.softBd };
+    return { background: '#f8f9fa', color: BRAND.ink, borderColor: BRAND.softBd };
   }, [tone]);
+  const pad = size === 'lg' ? '8px 12px' : size === 'sm' ? '2px 6px' : '4px 8px';
+  const fz  = size === 'lg' ? '1.05rem'  : size === 'sm' ? '0.8rem' : '0.9rem';
   return (
     <span className={`badge border d-inline-flex align-items-center ${className}`}
-      style={{
-        ...styles,
-        borderWidth: 1.5,
-        borderRadius: 8,
-        padding: size === 'sm' ? '2px 6px' : '4px 8px',
-        fontSize: size === 'sm' ? '0.8rem' : '0.9rem',
-        lineHeight: 1.1,
-        width: 'auto',
-        height: 'auto',
-        ...style
-      }}
+      style={{ ...styles, borderWidth: 1.5, borderRadius: 9999, padding: pad, fontSize: fz, lineHeight: 1.1, width: 'auto', height: 'auto', ...style }}
       {...props}
     >
       {children}
@@ -492,34 +435,24 @@ const BrandBadge = ({ tone = 'soft', size = 'sm', children, className = '', styl
 
 /* ---------------- 이미지 컴포넌트 ---------------- */
 function SmartImg({ src, alt = '', priority = false, className = '', onError, onLoad }) {
-  const width = 800;
-  const height = 600;
+  const width = 800, height = 600;
   return (
     <img
-      src={src}
-      alt={alt}
-      width={width}
-      height={height}
-      decoding="async"
-      loading={priority ? 'eager' : 'lazy'}
-      fetchpriority={priority ? 'high' : 'low'}
-      className={className}
-      referrerPolicy="no-referrer"
-      style={{ objectFit: 'cover' }}
-      onError={onError}
-      onLoad={onLoad}
+      src={src} alt={alt} width={width} height={height}
+      decoding="async" loading={priority ? 'eager' : 'lazy'} fetchpriority={priority ? 'high' : 'low'}
+      className={className} referrerPolicy="no-referrer" style={{ objectFit: 'cover' }}
+      onError={onError} onLoad={onLoad}
     />
   );
 }
 
-/* ---------------- 하단 고정 광고 (커뮤니티판 로직으로 통일) ---------------- */
+/* ---------------- 하단 고정 광고 (커뮤니티와 동일) ---------------- */
 function StickyBottomAd({
-  id = 'sticky-bottom-ad',
+  id = 'ad-sticky-bottom',
   heightMobile = 80,
   heightDesktop = 120,
   label = 'Bottom Sticky 320×50 / 728×90',
 }) {
-  const [show, setShow] = useState(() => localStorage.getItem('hide:'+id) !== '1');
   const [offset, setOffset] = useState(0);
   const [height, setHeight] = useState(heightDesktop);
 
@@ -529,7 +462,6 @@ function StickyBottomAd({
 
     const sp = document.querySelector('.bottom-nav-spacer');
     const spH = sp ? sp.getBoundingClientRect().height : 0;
-    // 데스크톱: 0, 모바일: BottomNav 높이만큼 올림
     setOffset(isDesktop ? 0 : spH);
   }, [heightDesktop, heightMobile]);
 
@@ -537,16 +469,11 @@ function StickyBottomAd({
     recompute();
     window.addEventListener('resize', recompute);
     window.addEventListener('orientationchange', recompute);
-    const onVis = () => { if (document.visibilityState === 'visible') recompute(); };
-    document.addEventListener('visibilitychange', onVis);
     return () => {
       window.removeEventListener('resize', recompute);
       window.removeEventListener('orientationchange', recompute);
-      document.removeEventListener('visibilitychange', onVis);
     };
   }, [recompute]);
-
-  if (!show) return null;
 
   return (
     <>
@@ -557,21 +484,13 @@ function StickyBottomAd({
         role="complementary"
         aria-label="하단 광고영역"
         style={{
-          left: 0,
-          right: 0,
+          left: 0, right: 0,
           bottom: `calc(${offset}px + env(safe-area-inset-bottom))`,
           minHeight: height,
           zIndex: 1040,
           boxShadow: '0 -2px 10px rgba(0,0,0,0.08)',
         }}
       >
-        <button
-          type="button"
-          className="btn-close position-absolute"
-          style={{ top: 8, right: 8 }}
-          aria-label="광고 닫기"
-          onClick={() => { localStorage.setItem('hide:'+id, '1'); window.requestAnimationFrame(()=>window.location.reload()); }}
-        />
         <span className="fw-semibold text-secondary text-uppercase small">{label}</span>
       </div>
     </>
@@ -597,40 +516,23 @@ export default function MainPage() {
   const onCardKey = (e, to) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(to); } };
 
   const requireLogin = useCallback(async (backTo, onOk) => {
-    const safeBack = backTo ?? (
-      window.location.hash
-        ? window.location.hash.slice(1)
-        : (window.location.pathname + window.location.search)
-    );
+    const safeBack = backTo ?? (window.location.hash ? window.location.hash.slice(1) : (window.location.pathname + window.location.search));
     const me = await ensureLogin(safeBack);
     if (!me) return;
-    if (onOk) onOk();
+    onOk?.();
   }, []);
 
   const reloadPopular = useCallback(async () => {
     setPopLoading(true);
     try {
       const arr = await loadPopularCommunity(8);
-      const fixed = (Array.isArray(arr) ? arr : []).map(p => {
-        const cover = buildCover(p);
-        const likeCount = Number(
-          p.likeCount ?? p.like_count ?? p.likes ?? p.hearts ??
-          p.metrics?.likes ?? p.metrics?.hearts ?? 0
-        );
-        const commentCount = Number(
-          p.commentCount ?? p.comment_count ?? p.comments ?? p.metrics?.comments ?? 0
-        );
-        const bookmarkCount = Number(
-          p.bookmarkCount ?? p.bookmark_count ?? p.bookmarks ?? p.metrics?.bookmarks ?? 0
-        );
-        return {
-          ...p,
-          __cover: cover,
-          __likes: likeCount,
-          __comments: commentCount,
-          __bookmarks: bookmarkCount,
-        };
-      });
+      const fixed = (Array.isArray(arr) ? arr : []).map(p => ({
+        ...p,
+        __cover: buildCover(p),
+        __likes: Number(p.likeCount ?? p.like_count ?? p.likes ?? p.hearts ?? p.metrics?.likes ?? p.metrics?.hearts ?? 0),
+        __comments: Number(p.commentCount ?? p.comment_count ?? p.comments ?? p.metrics?.comments ?? 0),
+        __bookmarks: Number(p.bookmarkCount ?? p.bookmark_count ?? p.bookmarks ?? p.metrics?.bookmarks ?? 0),
+      }));
       setPopular(fixed);
     } finally {
       setPopLoading(false);
@@ -673,20 +575,15 @@ export default function MainPage() {
     const onFocus = () => refreshAll();
     const onStorage = (e) => {
       if (!e?.key) return;
-      if (
-        e.key.startsWith('rf:activity:') ||
-        e.key.startsWith('postBookmark:') ||
-        e.key.startsWith('postBookmarkData:') ||
-        e.key.startsWith('recipe:')
-      ) refreshAll();
+      if (e.key.startsWith('rf:activity:') || e.key.startsWith('postBookmark:') || e.key.startsWith('postBookmarkData:') || e.key.startsWith('recipe:')) {
+        refreshAll();
+      }
     };
-
     window.addEventListener('activity:changed', refreshAll);
     window.addEventListener('bookmark-changed', refreshAll);
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('focus', onFocus);
     window.addEventListener('storage', onStorage);
-
     return () => {
       window.removeEventListener('activity:changed', refreshAll);
       window.removeEventListener('bookmark-changed', refreshAll);
@@ -698,47 +595,33 @@ export default function MainPage() {
 
   return (
     <div className="container-xxl py-3">
-      <TopSearchBar
-        onSearch={(keyword) => {
-          navigate(`/search?q=${encodeURIComponent(keyword)}`);
-        }}
-      />
+      <TopSearchBar onSearch={(keyword) => navigate(`/search?q=${encodeURIComponent(keyword)}`)} />
 
       <main className="row g-4 mt-1">
         <section className="col-12">
-          {/* === HERO (모던 리디자인 / 네이티브 광고 제거) === */}
+          {/* === HERO: 심플 & 큰 핵심 포인트 === */}
           <section
-            className="rounded-4 border p-4 p-lg-5 position-relative overflow-hidden"
-            style={{
-              background: `linear-gradient(140deg, ${BRAND.softBg} 0%, #ffffff 40%, #f8fafc 100%)`,
-              borderColor: BRAND.softBd,
-            }}
+            className="rounded-4 border p-4 p-lg-5"
+            style={{ background: BRAND.softBg, borderColor: BRAND.softBd }}
           >
-            {/* 장식용 그라데이션 오브젝트 */}
-            <div
-              aria-hidden="true"
-              style={{
-                position: 'absolute',
-                right: -80,
-                top: -80,
-                width: 260,
-                height: 260,
-                borderRadius: '50%',
-                background: `radial-gradient(closest-side, ${BRAND.orange}22, transparent 70%)`,
-                filter: 'blur(8px)',
-              }}
-            />
             <div className="row align-items-center g-4">
               <div className="col-12 col-lg-7">
-                <h1 className="display-6 fw-bold mb-2" style={{ color: BRAND.ink }}>
+                <h1 className="fw-bold mb-2" style={{ color: BRAND.ink, fontSize: '2rem' }}>
                   <span style={{ color: BRAND.orange }}>Recip</span>
                   <span style={{ color: BRAND.teal }}>Free</span> — 자유롭게, 그러나 건강하게
                 </h1>
-                <p className="text-secondary mb-3">
-                  레시프리는 <strong>집밥 기준</strong>의 저염·저당 원칙을 지키면서도,
-                  당신의 취향과 상황에 맞춰 <strong>창의적인 레시피를 제안</strong>합니다.
+                <p className="mb-3" style={{ color: BRAND.mute, fontSize: '1.05rem' }}>
+                  최소한의 입력으로, 당신에게 꼭 맞는 건강 레시피.
                 </p>
+
+                {/* 큼직한 핵심 포인트(배지 대신 큰 필) */}
                 <div className="d-flex flex-wrap gap-2 mb-3">
+                  <BrandBadge size="lg">🍽️ 집밥 기준의 손쉬운 조리</BrandBadge>
+                  <BrandBadge size="lg">🧂 나트륨·정제당 최소화</BrandBadge>
+                  <BrandBadge size="lg">🥗 자연스러운 단맛·건강한 기름</BrandBadge>
+                </div>
+
+                <div className="d-flex flex-wrap gap-2">
                   <BrandButton onClick={() => requireLogin('/input', () => navigate('/input'))}>
                     나만의 레시피 시작하기
                   </BrandButton>
@@ -746,14 +629,9 @@ export default function MainPage() {
                     커뮤니티 구경
                   </BrandButton>
                 </div>
-
-                <div className="d-flex flex-wrap gap-2 small">
-                  <BrandBadge>🍽️ 집밥 기준의 손쉬운 조리</BrandBadge>
-                  <BrandBadge>🧂 나트륨·정제당 최소화</BrandBadge>
-                  <BrandBadge>🥗 자연스러운 단맛·건강한 기름</BrandBadge>
-                </div>
               </div>
 
+              {/* 오늘의 맞춤 카드 */}
               <div className="col-12 col-lg-5">
                 <div
                   className="card shadow-sm border-0"
@@ -766,9 +644,7 @@ export default function MainPage() {
                 >
                   <div className="card-header bg-white border-0 d-flex align-items-center gap-2">
                     <BrandBadge tone="solid">오늘의 맞춤</BrandBadge>
-                    <span className="small" style={{ color: BRAND.mute }}>
-                      오늘 가장 반응이 좋은 글
-                    </span>
+                    <span className="small" style={{ color: BRAND.mute }}>오늘 가장 반응이 좋은 글</span>
                   </div>
                   <div className="ratio ratio-4x3 bg-light position-relative rounded-top">
                     {bestLoading ? (
@@ -783,21 +659,14 @@ export default function MainPage() {
                       />
                     ) : null}
                     {bestToday?.__likes >= 0 && bestToday?.__comments >= 0 && (
-                      <BrandBadge
-                        tone="teal"
-                        size="sm"
-                        className="position-absolute top-0 start-0 m-2"
-                        style={{ width: 'auto', height: 'auto', zIndex: 2 }}
-                      >
+                      <BrandBadge tone="teal" size="sm" className="position-absolute top-0 start-0 m-2" style={{ zIndex: 2 }}>
                         ❤ {fmtNum(bestToday.__likes)} · 💬 {fmtNum(bestToday.__comments)}
                       </BrandBadge>
                     )}
                   </div>
                   <div className="card-body">
                     <h3 className="h5 fw-semibold mb-1" style={{ color: BRAND.ink }}>
-                      {bestLoading
-                        ? <span className="placeholder col-8" style={{ display:'inline-block', height:22 }} />
-                        : ellipsis(bestToday?.title || '오늘의 추천', 48)}
+                      {bestLoading ? <span className="placeholder col-8" style={{ display:'inline-block', height:22 }} /> : ellipsis(bestToday?.title || '오늘의 추천', 48)}
                     </h3>
                   </div>
                 </div>
@@ -810,11 +679,7 @@ export default function MainPage() {
             <div className="d-flex align-items-center justify-content-between mb-2">
               <h2 className="h5 fw-bold m-0" style={{ color: BRAND.ink }}>지금 인기 커뮤니티</h2>
               <div className="d-flex gap-2">
-                <BrandButton
-                  outline
-                  className="btn-sm"
-                  onClick={() => navigate('/community?tab=all&sort=popular')}
-                >
+                <BrandButton outline className="btn-sm" onClick={() => navigate('/community?tab=all&sort=popular')}>
                   더보기
                 </BrandButton>
               </div>
@@ -962,10 +827,10 @@ export default function MainPage() {
         </section>
       </main>
 
-      {/* 사이트 푸터 (사업자 정보) */}
+      {/* 사이트 푸터 */}
       <SiteFooter />
 
-      {/* 하단 고정 띠배너 광고 + 네비게이션 */}
+      {/* 하단 고정 띠배너 광고 + 네비게이션 (커뮤니티와 동일 순서/구조) */}
       <StickyBottomAd label="Bottom Sticky 320×50 / 728×90" />
       <BottomNav />
       <div className="bottom-nav-spacer" aria-hidden="true" />
@@ -993,7 +858,7 @@ export default function MainPage() {
   );
 }
 
-/* 분리: 모달 내부 리스트 (가독성) */
+/* 모달 내부 가로 스크롤 카드 */
 function ModalScroller({ dailyNewRecipe, onNavigate, onCardKey, hsc }) {
   return (
     <div className="position-relative">
