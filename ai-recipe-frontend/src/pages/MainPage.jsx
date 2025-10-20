@@ -402,19 +402,32 @@ function useHScrollControls() {
 }
 
 /* ---------------- 브랜드 UI ---------------- */
-const BrandButton = ({ outline = false, className = '', style = {}, ...props }) => (
-  <button
-    className={`btn ${outline ? 'btn-outline' : ''} ${className}`}
-    style={{
-      borderRadius: 10,
-      borderColor: BRAND.orange,
-      background: outline ? 'transparent' : BRAND.orange,
-      color: outline ? BRAND.orange : '#fff',
-      ...style
-    }}
-    {...props}
-  />
-);
+const BrandButton = ({ outline = false, size = 'md', className = '', style = {}, ...props }) => {
+  const sz = {
+    md: { fontSize: '1rem',   padding: '10px 16px', minHeight: 44, borderRadius: 12 },
+    lg: { fontSize: '1.125rem', padding: '12px 20px', minHeight: 50, borderRadius: 14 },
+  }[size] || {};
+
+  const base = {
+    borderWidth: 1.5,
+    borderColor: BRAND.orange,
+    background: outline ? '#fff' : BRAND.orange,
+    color: outline ? BRAND.orange : '#fff',
+    boxShadow: outline ? '0 0 0 rgba(0,0,0,0)' : '0 8px 18px rgba(255,127,50,0.22)',
+    transition: 'transform .15s ease, box-shadow .2s ease, background .2s ease, color .2s ease, border-color .2s ease',
+  };
+
+  return (
+    <button
+      className={`btn ${outline ? 'btn-outline' : ''} ${className}`}
+      style={{ ...sz, ...base, ...style }}
+      onMouseDown={(e) => { e.currentTarget.style.transform = 'translateY(1px)'; }}
+      onMouseUp={(e) => { e.currentTarget.style.transform = 'translateY(0)'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; }}
+      {...props}
+    />
+  );
+};
 const BrandBadge = ({ tone = 'soft', size = 'sm', children, className = '', style = {}, ...props }) => {
   const styles = useMemo(() => {
     if (tone === 'solid') return { background: BRAND.orange, color: '#fff', borderColor: BRAND.orange };
