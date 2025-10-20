@@ -70,7 +70,7 @@ function TopSearchBar({ onSearch }) {
   );
 }
 
-/* ------------ 텍스트 프리뷰 유틸 (오늘의 맞춤 3줄 요약용) ------------ */
+/* ------------ 텍스트 프리뷰 유틸 (요약 생성) ------------ */
 function isGenericAlt(altRaw = '') {
   const alt = String(altRaw).trim().toLowerCase();
   if (!alt) return true;
@@ -583,6 +583,7 @@ export default function MainPage() {
         __likes: Number(p.likeCount ?? p.like_count ?? p.likes ?? p.hearts ?? p.metrics?.likes ?? p.metrics?.hearts ?? 0),
         __comments: Number(p.commentCount ?? p.comment_count ?? p.comments ?? p.metrics?.comments ?? 0),
         __bookmarks: Number(p.bookmarkCount ?? p.bookmark_count ?? p.bookmarks ?? p.metrics?.bookmarks ?? 0),
+        __preview: makePreviewText(p.preview || p.bodyPreview || p.content || p.body || ''),
       }));
       setPopular(fixed);
     } finally {
@@ -599,6 +600,7 @@ export default function MainPage() {
         __cover: buildCover(r),
         __likes: Number(r.likeCount ?? r.like_count ?? r.likes ?? r.hearts ?? r.metrics?.likes ?? r.metrics?.hearts ?? 0),
         __comments: Number(r.commentCount ?? r.comment_count ?? r.comments ?? r.metrics?.comments ?? 0),
+        __preview: makePreviewText(r.preview || r.bodyPreview || r.content || r.body || ''),
       }));
       setDailyNewRecipe(fixed);
     } finally {
@@ -650,7 +652,7 @@ export default function MainPage() {
 
       <main className="row g-4 mt-1">
         <section className="col-12">
-          {/* === HERO: 심플 & 크게, 버튼 간격 넉넉 === */}
+          {/* === HERO === */}
           <section className="rounded-4 border p-4 p-lg-5" style={{ background: BRAND.softBg, borderColor: BRAND.softBd }}>
             <div className="row align-items-center g-4">
               <div className="col-12 col-lg-7">
@@ -662,14 +664,13 @@ export default function MainPage() {
                   최소한의 입력으로, 당신에게 꼭 맞는 건강 레시피.
                 </p>
 
-                {/* 핵심 포인트 크게 */}
                 <div className="d-flex flex-wrap gap-2 mb-4">
                   <BrandBadge size="lg">🍽️ 집밥 기준의 손쉬운 조리</BrandBadge>
                   <BrandBadge size="lg">🧂 나트륨·정제당 최소화</BrandBadge>
                   <BrandBadge size="lg">🥗 자연스러운 단맛·건강한 기름</BrandBadge>
                 </div>
 
-                {/* 버튼: 더 크고, 간격 넉넉, 모바일 세로 → sm 이상 가로 */}
+                {/* 버튼: 크고, 간격 넉넉 */}
                 <div className="d-flex flex-column flex-sm-row align-items-stretch gap-3 mb-3">
                   <BrandButton
                     size="lg"
@@ -736,7 +737,7 @@ export default function MainPage() {
                         : ellipsis(bestToday?.title || '오늘의 추천', 48)}
                     </h3>
 
-                    {/* 본문 프리뷰: 최대 3줄, 넘치면 … */}
+                    {/* 본문 프리뷰: 최대 3줄 */}
                     {bestLoading ? (
                       <span className="placeholder col-10" style={{ display:'inline-block', height:14 }} />
                     ) : bestToday?.__preview ? (
@@ -827,6 +828,24 @@ export default function MainPage() {
                           <h3 className="h6 fw-semibold mb-1" style={{ color: BRAND.ink }}>
                             {ellipsis(p.title || `게시글 #${p.id}`, 48)}
                           </h3>
+                          {/* 본문 프리뷰: 최대 2줄 */}
+                          {p.__preview && (
+                            <p
+                              className="small mb-2"
+                              style={{
+                                color: BRAND.mute,
+                                display: '-webkit-box',
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: 'vertical',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                lineHeight: 1.5,
+                                maxHeight: '3em',
+                              }}
+                            >
+                              {p.__preview}
+                            </p>
+                          )}
                           <div className="small d-flex align-items-center gap-3" style={{ color: BRAND.mute }}>
                             <span aria-label={`좋아요 ${p.__likes}개`}>❤ {fmtNum(p.__likes)}</span>
                             <span aria-label={`댓글 ${p.__comments}개`}>💬 {fmtNum(p.__comments)}</span>
@@ -900,6 +919,24 @@ export default function MainPage() {
                           <h3 className="h6 fw-semibold mb-1" style={{ color: BRAND.ink }}>
                             {ellipsis(r.title || `레시피 #${r.id}`, 48)}
                           </h3>
+                          {/* 본문 프리뷰: 최대 2줄 */}
+                          {r.__preview && (
+                            <p
+                              className="small mb-2"
+                              style={{
+                                color: BRAND.mute,
+                                display: '-webkit-box',
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: 'vertical',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                lineHeight: 1.5,
+                                maxHeight: '3em',
+                              }}
+                            >
+                              {r.__preview}
+                            </p>
+                          )}
                           <div className="small d-flex align-items-center gap-3" style={{ color: BRAND.mute }}>
                             <span aria-label={`좋아요 ${r.__likes}개`}>❤ {fmtNum(r.__likes)}</span>
                             <span aria-label={`댓글 ${r.__comments}개`}>💬 {fmtNum(r.__comments)}</span>
