@@ -1,0 +1,6 @@
+*.jar
+*.zip
+dist/
+build/
+uploads/
+logs/
